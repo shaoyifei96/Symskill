@@ -4,8 +4,17 @@ from typing import ClassVar, Dict, Sequence, Set, Optional
 
 import numpy as np
 import os
+import sys
 from gym.spaces import Box
 import mujoco  # for quaternion operations
+
+workspace_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
+ds_policy_path = os.path.join(workspace_root, "DS-Policy/src")
+if ds_policy_path not in sys.path:
+    sys.path.append(ds_policy_path)
+
+from ds_policy import DSPolicy
+from load_tools import load_data
 
 from predicators.envs.robo_kitchen import RoboKitchenEnv
 from predicators.ground_truth_models import GroundTruthOptionFactory
@@ -61,6 +70,24 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
 
         options: Set[ParameterizedOption] = set()
 
+        def _create_ds_policy(memory: Dict, state: State, objects: Sequence[Object], offset: Optional[np.ndarray] = None) -> None:
+            x, x_dot, r = load_data("custom")
+            demo_trajs = [np.concatenate([pos, rot], axis=1) for pos, rot in zip(x, r)]
+            ds_policy = DSPolicy(demo_trajs, dt=1/60)
+            ds_policy.load_pos_model(model_path="DS-Policy/models/mlp_width64_depth3.pt")
+            ds_policy.train_quat_model(save_path="DS-Policy/models/quat_model.json", k_init=10)
+            memory["ds_policy"] = ds_policy
+
+            gripper, handle, base = objects
+            handle_quat = np.array([state.get(handle, "qx"), state.get(handle, "qy"), 
+                                  state.get(handle, "qz"), state.get(handle, "qw")])
+            handle_pos = np.array([state.get(handle, "x"), state.get(handle, "y"), 
+                                 state.get(handle, "z")])
+            memory["handle_init_rot"] = R.from_quat(handle_quat).as_matrix()
+            if offset is not None:
+                handle_pos = handle_pos + offset
+            memory["handle_init_pos"] = handle_pos
+
         def _create_ds_model(memory: Dict, state: State, objects: Sequence[Object], offset: Optional[np.ndarray] = None) -> None:
             """Helper to create and initialize the DS model in memory."""
             # Define model architecture
@@ -96,8 +123,8 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
 
         # DS_move_option - always initiable, empty policy, never terminates
         def _DS_move_towards_option_initiable(state: State, memory: Dict, objects: Sequence[Object], params: Array) -> bool:
-            if "model" not in memory:
-                _create_ds_model(memory, state, objects, offset=np.array([0.0, 0.1, 0.0]))
+            if "ds_policy" not in memory:
+                _create_ds_policy(memory, state, objects, offset=np.array([0.0, 0.1, 0.0]))
             return True
         
         # DS_move_away_option - always initiable, empty policy, never terminates
@@ -144,22 +171,26 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
             if mag > 1:
                 robot_base_w = robot_base_w / mag
 
-            net = memory["model"]
-            with torch.no_grad():
-                velocity_in_handle = net(torch.from_numpy(pos_in_handle).float())
+            ds_policy = memory["ds_policy"]
+            x_dot_handle = ds_policy.get_x_dot(pos_in_handle, alpha_V=50.0, lookahead=5) # (dx, dy, dz)
+
+            r_dot_handle = ds_policy.get_r_dot(R.from_matrix(rot_in_handle).as_quat()) # (droll, dpitch, dyaw)
             
-            warnings.warn("Velocity getting scaled, plz remove")
-            velocity_in_handle[0] = velocity_in_handle[0] * 2 #handle frame x is the direction towards handle
-            velocity_in_handle[1] = velocity_in_handle[1] * 0.4
-            velocity_in_handle[2] = velocity_in_handle[2] * 2
+            # warnings.warn("Velocity getting scaled, plz remove")
+            # velocity_in_handle[0] = velocity_in_handle[0] * 2 #handle frame x is the direction towards handle
+            # velocity_in_handle[1] = velocity_in_handle[1] * 0.4
+            # velocity_in_handle[2] = velocity_in_handle[2] * 2
             # Transform velocity back to world frame
             # Since handle frame is just translated, velocity transforms directly
-            velocity_world = handle_init_rot @ velocity_in_handle.numpy()
-            velocity_robot_base = robot_base_rot.T @ velocity_world
+            x_dot_world = handle_init_rot @ x_dot_handle
+            x_dot_robot_base = robot_base_rot.T @ x_dot_world
+            r_dot_world = handle_init_rot @ r_dot_handle
+            r_dot_robot_base = robot_base_rot.T @ r_dot_world
+            
             # Create action array
             arr = np.zeros(7, dtype=np.float32)
-            arr[:3] = velocity_robot_base
-            arr[3:6] = 0.3 * robot_base_w
+            arr[:3] = x_dot_robot_base
+            arr[3:6] = r_dot_robot_base
 
             # Clip the action to the action space limits
             action_low = np.array([-1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0], dtype=np.float32)
