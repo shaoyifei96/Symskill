@@ -42,6 +42,10 @@ from collections import defaultdict
 from pathlib import Path
 from typing import List, Optional, Sequence, Tuple
 
+# Disable JAX debug messages
+logging.getLogger('jax._src.cache_key').setLevel(logging.ERROR)
+logging.getLogger('jax').setLevel(logging.ERROR)
+
 import dill as pkl
 
 from predicators import utils

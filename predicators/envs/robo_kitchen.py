@@ -20,6 +20,12 @@ from termcolor import colored
 import warnings
 import os
 import mujoco
+import time
+import logging
+
+# Disable JAX debug messages
+logging.getLogger('jax._src.cache_key').setLevel(logging.ERROR)
+logging.getLogger('jax').setLevel(logging.ERROR)
 
 # Constants from demo files
 MAX_CARTESIAN_DISPLACEMENT = 0.2
@@ -41,7 +47,7 @@ class RoboKitchenEnv(BaseEnv):
 
     gripper_open_thresh = 0.038 # m 
     gripper_closed_thresh = 0.02 # m
-    close_distance_thresh = 0.02
+    close_distance_thresh = 0.03
 
     # Types (similar to original kitchen)
     handle_type = Type("handle_type", ["x", "y", "z", "qx", "qy", "qz", "qw"])

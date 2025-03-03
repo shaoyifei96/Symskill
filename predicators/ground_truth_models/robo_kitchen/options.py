@@ -235,7 +235,7 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
             
             # Terminal if close enough to the initial handle position
             distance_to_handle = np.linalg.norm(gripper_pos - handle_init_pos)
-            if distance_to_handle < 0.01:  # 1cm threshold
+            if distance_to_handle < 0.03:  # 1cm threshold
                 return True
             return False
 
