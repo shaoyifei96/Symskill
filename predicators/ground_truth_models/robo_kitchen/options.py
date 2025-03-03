@@ -70,14 +70,8 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
 
         options: Set[ParameterizedOption] = set()
 
-        def _create_ds_policy(memory: Dict, state: State, objects: Sequence[Object], offset: Optional[np.ndarray] = None) -> None:
-            x, x_dot, r = load_data("custom")
-            demo_trajs = [np.concatenate([pos, rot], axis=1) for pos, rot in zip(x, r)]
-            ds_policy = DSPolicy(demo_trajs, dt=1/60)
-            ds_policy.load_pos_model(model_path="DS-Policy/models/mlp_width64_depth3.pt")
-            ds_policy.train_quat_model(save_path="DS-Policy/models/quat_model.json", k_init=10)
-            memory["ds_policy"] = ds_policy
-
+        def _init_handle_transform(memory: Dict, state: State, objects: Sequence[Object], offset: Optional[np.ndarray] = None) -> None:
+            """Helper to initialize handle transform data in memory."""
             gripper, handle, base = objects
             handle_quat = np.array([state.get(handle, "qx"), state.get(handle, "qy"), 
                                   state.get(handle, "qz"), state.get(handle, "qw")])
@@ -87,6 +81,15 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
             if offset is not None:
                 handle_pos = handle_pos + offset
             memory["handle_init_pos"] = handle_pos
+
+        def _create_ds_policy(memory: Dict, state: State, objects: Sequence[Object], offset: Optional[np.ndarray] = None) -> None:
+            x, x_dot, r = load_data("custom")
+            demo_trajs = [np.concatenate([pos, rot], axis=1) for pos, rot in zip(x, r)]
+            ds_policy = DSPolicy(demo_trajs, dt=1/60)
+            ds_policy.load_pos_model(model_path="DS-Policy/models/mlp_width128_depth3.pt")
+            ds_policy.train_quat_model(save_path="DS-Policy/models/quat_model.json", k_init=10)
+            memory["ds_policy"] = ds_policy
+            _init_handle_transform(memory, state, objects, offset)
 
         def _create_ds_model(memory: Dict, state: State, objects: Sequence[Object], offset: Optional[np.ndarray] = None) -> None:
             """Helper to create and initialize the DS model in memory."""
@@ -110,21 +113,17 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
             model.load_state_dict(torch.load(model_path, map_location="cpu", weights_only=True))
             model.eval()
             memory["model"] = model
+            _init_handle_transform(memory, state, objects, offset)
 
-            gripper, handle, base = objects
-            handle_quat = np.array([state.get(handle, "qx"), state.get(handle, "qy"), 
-                                  state.get(handle, "qz"), state.get(handle, "qw")])
-            handle_pos = np.array([state.get(handle, "x"), state.get(handle, "y"), 
-                                 state.get(handle, "z")])
-            memory["handle_init_rot"] = R.from_quat(handle_quat).as_matrix()
-            if offset is not None:
-                handle_pos = handle_pos + offset
-            memory["handle_init_pos"] = handle_pos
+        def _DS_move_towards_option_initiable_linear(state: State, memory: Dict, objects: Sequence[Object], params: Array) -> bool:
+            if "model" not in memory:
+                _create_ds_model(memory, state, objects, offset=np.array([0.0, 0.0, 0.0]))
+            return True
 
         # DS_move_option - always initiable, empty policy, never terminates
-        def _DS_move_towards_option_initiable(state: State, memory: Dict, objects: Sequence[Object], params: Array) -> bool:
+        def _DS_move_towards_option_initiable_node(state: State, memory: Dict, objects: Sequence[Object], params: Array) -> bool:
             if "ds_policy" not in memory:
-                _create_ds_policy(memory, state, objects, offset=np.array([0.0, 0.1, 0.0]))
+                _create_ds_policy(memory, state, objects, offset=np.array([0.0, 0.0, 0.0]))
             return True
         
         # DS_move_away_option - always initiable, empty policy, never terminates
@@ -135,8 +134,7 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
 
         def vee_operator(w):
             return np.array([w[2, 1], w[0, 2], w[1, 0]])
-
-
+        
         def _DS_move_option_policy(state: State, memory: Dict, objects: Sequence[Object], params: Array) -> Action:
             # Get objects
             gripper, _, base = objects
@@ -146,7 +144,6 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
             gripper_pos = np.array([state.get(gripper, "x"), state.get(gripper, "y"), state.get(gripper, "z")])
             gripper_quat = np.array([state.get(gripper, "qx"), state.get(gripper, "qy"), state.get(gripper, "qz"), state.get(gripper, "qw")])
             gripper_rot = R.from_quat(gripper_quat).as_matrix()
-            # handle_pos = np.array([state.get(handle, "x"), state.get(handle, "y"), state.get(handle, "z")]
             # Compute relative position in world frame
             rel_pos_world = gripper_pos - handle_init_pos
             # Transform relative position to handle frame
@@ -171,26 +168,50 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
             if mag > 1:
                 robot_base_w = robot_base_w / mag
 
-            ds_policy = memory["ds_policy"]
-            x_dot_handle = ds_policy.get_x_dot(pos_in_handle, alpha_V=50.0, lookahead=5) # (dx, dy, dz)
+            # Choose between using neural network model or DS policy based on what's in memory
+            if "model" in memory:
+                # Use neural network model
+                net = memory["model"]
+                with torch.no_grad():
+                    velocity_in_handle = net(torch.from_numpy(pos_in_handle).float())
+                
+                warnings.warn("Velocity getting scaled, plz remove")
+                velocity_in_handle[0] = velocity_in_handle[0] * 2 #handle frame x is the direction towards handle
+                velocity_in_handle[1] = velocity_in_handle[1] * 0.4
+                velocity_in_handle[2] = velocity_in_handle[2] * 2
+                # Transform velocity back to world frame
+                velocity_world = handle_init_rot @ velocity_in_handle.numpy()
+                velocity_robot_base = robot_base_rot.T @ velocity_world
+                
+                # Create action array
+                arr = np.zeros(7, dtype=np.float32)
+                arr[:3] = velocity_robot_base
+                arr[3:6] = 0.3 * robot_base_w
+            
+            elif "ds_policy" in memory:
+                # Use DS policy
+                ds_policy = memory["ds_policy"]
+                x_dot_handle = ds_policy.get_x_dot(pos_in_handle, alpha_V=100.0, lookahead=5) # (dx, dy, dz)
+                r_dot_handle = ds_policy.get_r_dot(R.from_matrix(rot_in_handle).as_quat()) # (droll, dpitch, dyaw)
+                
+                # Transform velocity back to world frame
+                x_dot_world = handle_init_rot @ x_dot_handle
+                x_dot_robot_base = robot_base_rot.T @ x_dot_world
+                r_dot_world = handle_init_rot @ r_dot_handle
+                r_dot_robot_base = robot_base_rot.T @ r_dot_world
 
-            r_dot_handle = ds_policy.get_r_dot(R.from_matrix(rot_in_handle).as_quat()) # (droll, dpitch, dyaw)
+                mag = np.linalg.norm(r_dot_robot_base)
+                if mag > 1:
+                    r_dot_robot_base = r_dot_robot_base / mag
+
+                # Create action array
+                arr = np.zeros(7, dtype=np.float32)
+                arr[:3] = x_dot_robot_base
+                arr[3:6] = r_dot_robot_base
             
-            # warnings.warn("Velocity getting scaled, plz remove")
-            # velocity_in_handle[0] = velocity_in_handle[0] * 2 #handle frame x is the direction towards handle
-            # velocity_in_handle[1] = velocity_in_handle[1] * 0.4
-            # velocity_in_handle[2] = velocity_in_handle[2] * 2
-            # Transform velocity back to world frame
-            # Since handle frame is just translated, velocity transforms directly
-            x_dot_world = handle_init_rot @ x_dot_handle
-            x_dot_robot_base = robot_base_rot.T @ x_dot_world
-            r_dot_world = handle_init_rot @ r_dot_handle
-            r_dot_robot_base = robot_base_rot.T @ r_dot_world
-            
-            # Create action array
-            arr = np.zeros(7, dtype=np.float32)
-            arr[:3] = x_dot_robot_base
-            arr[3:6] = r_dot_robot_base
+            else:
+                # Fallback if neither model is available
+                arr = np.zeros(7, dtype=np.float32)
 
             # Clip the action to the action space limits
             action_low = np.array([-1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0], dtype=np.float32)
@@ -209,12 +230,12 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
                 memory["prev_gripper_pos"] = gripper_pos
                 return False
             
-            # Calculate velocity as position change
-            velocity = np.linalg.norm(gripper_pos - memory["prev_gripper_pos"])
+            # Update previous gripper position
             memory["prev_gripper_pos"] = gripper_pos
             
-            # Terminal if close to target or velocity too small
-            if velocity < 0.001:
+            # Terminal if close enough to the initial handle position
+            distance_to_handle = np.linalg.norm(gripper_pos - handle_init_pos)
+            if distance_to_handle < 0.01:  # 1cm threshold
                 return True
             return False
 
@@ -224,7 +245,7 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
             # Unused params
             params_space=Box(-5, 5, (1,)),
             policy=_DS_move_option_policy,
-            initiable=_DS_move_towards_option_initiable,
+            initiable=_DS_move_towards_option_initiable_node,
             terminal=_DS_move_option_terminal,
         )
 
