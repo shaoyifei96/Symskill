@@ -1,12 +1,21 @@
 """Ground-truth options for the Kitchen environment."""
 
-from typing import ClassVar, Dict, Sequence, Set, Optional
+from typing import ClassVar, Dict, Sequence, Set, Optional, Type, Tuple, Any
 
 import numpy as np
 import os
 import sys
+import threading
+import random
+import torch
 from gym.spaces import Box
-import mujoco  # for quaternion operations
+import mujoco
+import dash
+from dash import dcc, html
+from dash.dependencies import Input, Output
+import plotly.graph_objects as go
+
+import matplotlib.pyplot as plt
 
 workspace_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
 ds_policy_path = os.path.join(workspace_root, "DS-Policy/src")
@@ -86,10 +95,15 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
             x, x_dot, r = load_data("custom")
             demo_trajs = [np.concatenate([pos, rot], axis=1) for pos, rot in zip(x, r)]
             ds_policy = DSPolicy(demo_trajs, dt=1/60)
-            ds_policy.load_pos_model(model_path="DS-Policy/models/mlp_width128_depth3.pt")
+            ds_policy.load_pos_model(pos_model_path="DS-Policy/models/mlp_width128_depth3.pt")
             ds_policy.train_quat_model(save_path="DS-Policy/models/quat_model.json", k_init=10)
             memory["ds_policy"] = ds_policy
             _init_handle_transform(memory, state, objects, offset)
+            
+            pos_trajs = [traj[:, :3] for traj in demo_trajs]
+            visualizer = RuntimeVisualizer_plotly(pos_trajs)
+            memory["visualizer"] = visualizer
+            memory["visualizer"]._run()
 
         def _create_ds_model(memory: Dict, state: State, objects: Sequence[Object], offset: Optional[np.ndarray] = None) -> None:
             """Helper to create and initialize the DS model in memory."""
@@ -150,6 +164,12 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
             pos_in_handle = handle_init_rot.T @ rel_pos_world
             # Transform gripper rotation to handle frame
             rot_in_handle = handle_init_rot.T @ gripper_rot
+
+            # Update the visualizer if it exists
+            if "visualizer" in memory:
+                # We need to visualize the gripper position in the same frame as the demo trajectories
+                # First get the gripper position in handle frame, then add it to the visualizer
+                memory["visualizer"].update_position(pos_in_handle)
 
             expected_relative_rot_handle = R.from_quat(np.array([0.5, 0.5, 0.5, -0.5]))
 
@@ -359,3 +379,125 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
         options.add(DummyOption)
 
         return options
+
+class RuntimeVisualizer_plotly:
+    """
+    Visualize demo trajectories and generated trajectory at runtime.
+    """
+    
+    def __init__(self, demo_trajs=None):
+        self.app = dash.Dash(__name__)
+        self.demo_trajs = demo_trajs or []
+        
+        # Lists to hold our streaming runtime data
+        self.runtime_xs = []
+        self.runtime_ys = []
+        self.runtime_zs = []
+        
+        # Flag to control whether to run the server
+        self.running = False
+        
+        # Create the initial figure with demo trajectories
+        self.init_fig = self._create_initial_figure()
+        
+        self.app.layout = html.Div([
+            html.H3("RoboKitchen Trajectory Visualization"),
+            dcc.Graph(id='live-graph', figure=self.init_fig),
+            dcc.Interval(
+                id='interval-component',
+                interval=200,  # 200 ms = 5 updates per second
+                n_intervals=0
+            )
+        ])
+        
+        # Set up callback for live updates
+        @self.app.callback(
+            Output('live-graph', 'figure'),
+            [Input('interval-component', 'n_intervals')]
+        )
+        def update_graph_live(n):
+            return self._update_figure()
+    
+    def _create_initial_figure(self):
+        """Create the initial figure with demo trajectories"""
+        fig = go.Figure()
+        
+        # Add each demo trajectory as a separate trace
+        for i, traj in enumerate(self.demo_trajs):
+            # Extract positions (assuming first 3 columns are x,y,z)
+            xs = traj[:, 0]
+            ys = traj[:, 1]
+            zs = traj[:, 2]
+            
+            fig.add_trace(
+                go.Scatter3d(
+                    x=xs,
+                    y=ys,
+                    z=zs,
+                    mode='lines',
+                    line=dict(width=2, color=f'rgba(0, 0, 255, 0.5)'),
+                    name=f'Demo {i+1}'
+                )
+            )
+        
+        # Add empty trace for runtime data
+        fig.add_trace(
+            go.Scatter3d(
+                x=self.runtime_xs,
+                y=self.runtime_ys,
+                z=self.runtime_zs,
+                mode='lines+markers',
+                line=dict(width=1, color='red'),
+                marker=dict(size=2, color='red'),
+                name='Current Execution'
+            )
+        )
+        
+        
+        all_demo_points = np.vstack(self.demo_trajs)
+        x_min, y_min, z_min = np.min(all_demo_points[:, :3], axis=0)
+        x_max, y_max, z_max = np.max(all_demo_points[:, :3], axis=0)
+        
+        # Add some padding
+        padding = 0.1
+        x_range = [x_min - padding, x_max + padding]
+        y_range = [y_min - padding, y_max + padding]
+        z_range = [z_min - padding, z_max + padding]
+        
+        fig.update_layout(
+            scene=dict(
+                xaxis=dict(range=x_range, title='X'),
+                yaxis=dict(range=y_range, title='Y'),
+                zaxis=dict(range=z_range, title='Z'),
+                aspectmode='cube'
+            ),
+            margin=dict(l=0, r=0, b=0, t=30)
+        )
+        
+        return fig
+    
+    def _update_figure(self):
+        """Update the figure with new runtime data"""
+        fig = go.Figure(self.init_fig)
+        
+        # Update the runtime trace (last trace)
+        fig.data[-1].x = self.runtime_xs
+        fig.data[-1].y = self.runtime_ys
+        fig.data[-1].z = self.runtime_zs
+        
+        return fig
+    
+    def update_position(self, pos):
+        """Add a new position to the runtime data"""
+        self.runtime_xs.append(pos[0])
+        self.runtime_ys.append(pos[1])
+        self.runtime_zs.append(pos[2])
+    
+    def _run(self):
+        """Start the Dash server in a separate thread"""
+        server_thread = threading.Thread(
+            target=self.app.run_server,
+            kwargs={"debug": False},
+            daemon=True
+        )
+        server_thread.start()
