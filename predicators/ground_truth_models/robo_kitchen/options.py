@@ -94,7 +94,7 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
         def _create_ds_policy(memory: Dict, state: State, objects: Sequence[Object], offset: Optional[np.ndarray] = None) -> None:
             x, x_dot, r = load_data("custom")
             demo_trajs = [np.concatenate([pos, rot], axis=1) for pos, rot in zip(x, r)]
-            ds_policy = DSPolicy(demo_trajs, dt=1/60)
+            ds_policy = DSPolicy(demo_trajs, dt=1/60, switch=False)
             ds_policy.load_pos_model(pos_model_path="DS-Policy/models/mlp_width128_depth3.pt")
             ds_policy.train_quat_model(save_path="DS-Policy/models/quat_model.json", k_init=10)
             memory["ds_policy"] = ds_policy
@@ -165,12 +165,6 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
             # Transform gripper rotation to handle frame
             rot_in_handle = handle_init_rot.T @ gripper_rot
 
-            # Update the visualizer if it exists
-            if "visualizer" in memory:
-                # We need to visualize the gripper position in the same frame as the demo trajectories
-                # First get the gripper position in handle frame, then add it to the visualizer
-                memory["visualizer"].update_position(pos_in_handle)
-
             expected_relative_rot_handle = R.from_quat(np.array([0.5, 0.5, 0.5, -0.5]))
 
             # Compute the difference between the expected relative rotation and the actual relative rotation
@@ -211,6 +205,10 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
             elif "ds_policy" in memory:
                 # Use DS policy
                 ds_policy = memory["ds_policy"]
+
+                if "visualizer" in memory:
+                    memory["visualizer"].update_position(pos_in_handle, ds_policy.ref_traj_idx)
+
                 x_dot_handle = ds_policy.get_x_dot(pos_in_handle, alpha_V=100.0, lookahead=5) # (dx, dy, dz)
                 r_dot_handle = ds_policy.get_r_dot(R.from_matrix(rot_in_handle).as_quat()) # (droll, dpitch, dyaw)
                 
@@ -394,6 +392,10 @@ class RuntimeVisualizer_plotly:
         self.runtime_ys = []
         self.runtime_zs = []
         
+        # Track which trajectory is being followed
+        self.last_ref_traj_idx = None
+        self.current_ref_traj_idx = None
+        
         # Flag to control whether to run the server
         self.running = False
         
@@ -484,14 +486,21 @@ class RuntimeVisualizer_plotly:
         fig.data[-1].x = self.runtime_xs
         fig.data[-1].y = self.runtime_ys
         fig.data[-1].z = self.runtime_zs
-        
+
+        # Update the reference trajectory index
+        fig.data[self.last_ref_traj_idx].line.color = 'rgba(0, 0, 255, 0.5)'
+        fig.data[self.current_ref_traj_idx].line.color = 'rgba(0, 255, 0, 0.5)'
         return fig
     
-    def update_position(self, pos):
+    def update_position(self, pos, ref_traj_idx):
         """Add a new position to the runtime data"""
         self.runtime_xs.append(pos[0])
         self.runtime_ys.append(pos[1])
         self.runtime_zs.append(pos[2])
+        
+        # Update the reference trajectory index
+        self.last_ref_traj_idx = self.current_ref_traj_idx
+        self.current_ref_traj_idx = ref_traj_idx
     
     def _run(self):
         """Start the Dash server in a separate thread"""

@@ -28,8 +28,8 @@ logging.getLogger('jax._src.cache_key').setLevel(logging.ERROR)
 logging.getLogger('jax').setLevel(logging.ERROR)
 
 # Constants from demo files
-MAX_CARTESIAN_DISPLACEMENT = 0.2
-MAX_ROTATION_DISPLACEMENT = 0.5
+MAX_CARTESIAN_DISPLACEMENT = 1
+MAX_ROTATION_DISPLACEMENT = 1
 
 class RoboKitchenEnv(BaseEnv):
     """Kitchen environment using robosuite."""
