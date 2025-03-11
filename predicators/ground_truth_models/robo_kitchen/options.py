@@ -49,6 +49,7 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
     push_lr_thresh_pad: ClassVar[float] = 0.02
     push_microhandle_thresh_pad: ClassVar[float] = 0.02
     turn_knob_tol: ClassVar[float] = 0.02  # for twisting the knob
+    offset_inwards_from_handle: ClassVar[float] = 0.1
 
     @classmethod
     def get_env_names(cls) -> Set[str]:
@@ -79,33 +80,36 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
 
         options: Set[ParameterizedOption] = set()
 
-        def _init_handle_transform(memory: Dict, state: State, objects: Sequence[Object], offset: Optional[np.ndarray] = None) -> None:
+        def _init_handle_transform(memory: Dict, state: State, objects: Sequence[Object], offset_handle_frame: Optional[np.ndarray] = None) -> None:
             """Helper to initialize handle transform data in memory."""
             gripper, handle, base = objects
             handle_quat = np.array([state.get(handle, "qx"), state.get(handle, "qy"), 
                                   state.get(handle, "qz"), state.get(handle, "qw")])
             handle_pos = np.array([state.get(handle, "x"), state.get(handle, "y"), 
                                  state.get(handle, "z")])
-            memory["handle_init_rot"] = R.from_quat(handle_quat).as_matrix()
-            if offset is not None:
-                handle_pos = handle_pos + offset
+            handle_rot = R.from_quat(handle_quat).as_matrix()
+            memory["handle_init_rot"] = handle_rot
+            if offset_handle_frame is not None:
+                # Transform offset from handle frame to world frame before adding
+                offset_world = handle_rot @ offset_handle_frame
+                handle_pos = handle_pos + offset_world
             memory["handle_init_pos"] = handle_pos
 
-        def _create_ds_policy(memory: Dict, state: State, objects: Sequence[Object], offset: Optional[np.ndarray] = None) -> None:
+        def _create_ds_policy(memory: Dict, state: State, objects: Sequence[Object], offset_handle_frame: Optional[np.ndarray] = None) -> None:
             x, x_dot, r = load_data("custom")
             demo_trajs = [np.concatenate([pos, rot], axis=1) for pos, rot in zip(x, r)]
             ds_policy = DSPolicy(demo_trajs, dt=1/60, switch=False)
             ds_policy.load_pos_model(pos_model_path="DS-Policy/models/mlp_width128_depth3.pt")
             ds_policy.train_quat_model(save_path="DS-Policy/models/quat_model.json", k_init=10)
             memory["ds_policy"] = ds_policy
-            _init_handle_transform(memory, state, objects, offset)
+            _init_handle_transform(memory, state, objects, offset_handle_frame)
             
             pos_trajs = [traj[:, :3] for traj in demo_trajs]
             visualizer = RuntimeVisualizer_plotly(pos_trajs)
             memory["visualizer"] = visualizer
             memory["visualizer"]._run()
 
-        def _create_ds_model(memory: Dict, state: State, objects: Sequence[Object], offset: Optional[np.ndarray] = None) -> None:
+        def _create_ds_model(memory: Dict, state: State, objects: Sequence[Object], offset_handle_frame: Optional[np.ndarray] = None) -> None:
             """Helper to create and initialize the DS model in memory."""
             # Define model architecture
             class SimpleDS(torch.nn.Module):
@@ -127,23 +131,24 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
             model.load_state_dict(torch.load(model_path, map_location="cpu", weights_only=True))
             model.eval()
             memory["model"] = model
-            _init_handle_transform(memory, state, objects, offset)
+            _init_handle_transform(memory, state, objects, offset_handle_frame)
 
         def _DS_move_towards_option_initiable_linear(state: State, memory: Dict, objects: Sequence[Object], params: Array) -> bool:
             if "model" not in memory:
-                _create_ds_model(memory, state, objects, offset=np.array([0.0, 0.0, 0.0]))
+                _create_ds_model(memory, state, objects, offset_handle_frame=np.array([0.0, 0.0, 0.0]))
             return True
 
         # DS_move_option - always initiable, empty policy, never terminates
         def _DS_move_towards_option_initiable_node(state: State, memory: Dict, objects: Sequence[Object], params: Array) -> bool:
             if "ds_policy" not in memory:
-                _create_ds_policy(memory, state, objects, offset=np.array([0.0, 0.0, 0.0]))
+                _create_ds_policy(memory, state, objects, offset_handle_frame=np.array([0.0, cls.offset_inwards_from_handle, 0.0]))
             return True
         
         # DS_move_away_option - always initiable, empty policy, never terminates
         def _DS_move_away_option_initiable(state: State, memory: Dict, objects: Sequence[Object], params: Array) -> bool:
             if "model" not in memory:
-                _create_ds_model(memory, state, objects, offset=np.array([-0.6, -0.6, 0.0]))
+                _create_ds_model(memory, state, objects, offset_handle_frame=np.array([-0.6, -0.6, 0.0]))
+                # NOTE: this means open the door to the left, some doors open to the right and won't work
             return True
 
         def vee_operator(w):
@@ -168,8 +173,9 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
             expected_relative_rot_handle = R.from_quat(np.array([0.5, 0.5, 0.5, -0.5]))
 
             # Compute the difference between the expected relative rotation and the actual relative rotation
-            rel_rot_diff = expected_relative_rot_handle * R.from_matrix(rot_in_handle).inv()
-            angular_w_handle = vee_operator(rel_rot_diff.as_matrix())
+            relative_rotation = expected_relative_rot_handle * R.from_matrix(rot_in_handle).inv()
+            angular_w_handle = relative_rotation.as_rotvec()
+            # angular_w_handle = vee_operator(rel_rot_diff.as_matrix())
             # move that difference to the base frame
             world_w = handle_init_rot @ angular_w_handle
 
@@ -249,11 +255,10 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
                 return False
             
             # Update previous gripper position
+            velocity = np.linalg.norm(gripper_pos - memory["prev_gripper_pos"])
             memory["prev_gripper_pos"] = gripper_pos
             
-            # Terminal if close enough to the initial handle position
-            distance_to_handle = np.linalg.norm(gripper_pos - handle_init_pos)
-            if distance_to_handle < 0.03:  # 1cm threshold
+            if np.linalg.norm(gripper_pos - handle_init_pos) <= cls.offset_inwards_from_handle and velocity < 0.01:
                 return True
             return False
 
