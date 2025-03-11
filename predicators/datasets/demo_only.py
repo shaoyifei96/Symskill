@@ -368,7 +368,8 @@ def create_demo_data_from_robocasa(env: RoboKitchenEnv, train_tasks: List[Task],
                 "model": demo.attrs["model_file"],
                 "ep_meta": demo.attrs.get("ep_meta", None)
             }
-            env._reset_initial_state("train", task_name)
+            env._reset_initial_state(seed=0, train_or_test="train", task_name=task_name)
+            # seed here does not matter, since we are reset_to later
             reset_to(env._env, reset_state)
 
             # Get initial state info

@@ -204,12 +204,11 @@ class RoboKitchenEnv(BaseEnv):
         
 
 
-    def _reset_initial_state(self, seed: int, train_or_test: str, task_name: str) -> Observation:
+    def _reset_initial_state(self, seed: int, train_or_test: str, task_name: str, complex_config: bool = False) -> Observation:
         """Reset the environment to an initial state based on the seed."""
         # Create or recreate environment if needed
         warnings.warn("Resetting environment to initial state from seed not implemented for robosuite kitchen")
         if self._env is None:
-            complex_config = False # easy config allows seed
             if complex_config:
                 robot_type = "PandaOmron"
                 controller_config = load_composite_controller_config(robot=robot_type)
@@ -268,8 +267,8 @@ class RoboKitchenEnv(BaseEnv):
 
         # only support panda robot for now
         contacts = set()
-        # robot_contacts = self._env.get_contacts(self._env.robots[0].robot_model.models[0])
-        gripper_contact = self._env.get_contacts(self._env.robots[0].robot_model.models[1])
+        # robot_contacts = self._env.get_contacts(self._env.robots[0].robot_model.models[0]) # robot 
+        gripper_contact = self._env.get_contacts(self._env.robots[0].robot_model.models[1]) # gripper
         # filter down to only include objects of interest
 
         object_names = [obj.name for obj in self.objects_of_interest]
@@ -285,7 +284,7 @@ class RoboKitchenEnv(BaseEnv):
             for obj_name in object_names:
                 if obj_name in contact:
                     obj = self.object_name_to_object(obj_name)
-                    contacts.add((obj, gripper_obj))
+                    contacts.add((gripper_obj, obj))
         # Filter out gripper-door contact if gripper-handle contact exists
         contacts = self._filter_door_handle_contacts(contacts, gripper_obj)
         return contacts
