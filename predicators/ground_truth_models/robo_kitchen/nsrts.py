@@ -126,7 +126,7 @@ class RoboKitchenGroundTruthNSRTFactory(GroundTruthNSRTFactory):
 
         # PullOpenDoor
         parameters = [gripper, handle, hinge, base]
-        preconditions = {LiftedAtom(HingeClosed, [hinge]), LiftedAtom(ReadyGrabHandle, [gripper, handle]), LiftedAtom(GripperClosed, [gripper]), LiftedAtom(InContact, [gripper, handle])}
+        preconditions = {LiftedAtom(HingeClosed, [hinge]), LiftedAtom(GripperClosed, [gripper]), LiftedAtom(InContact, [gripper, handle])}
         add_effects = {LiftedAtom(HingeOpen, [hinge])}
         delete_effects = {LiftedAtom(HingeClosed, [hinge])}
         ignore_effects = set()
@@ -147,11 +147,11 @@ class RoboKitchenGroundTruthNSRTFactory(GroundTruthNSRTFactory):
             option_vars,
             pull_open_door_sampler,
         )
-        # nsrts.add(pull_open_door_nsrt)
+        nsrts.add(pull_open_door_nsrt)
 
         # MoveToAndGrabHandle
         parameters = [gripper, handle, base]
-        preconditions = set()
+        preconditions = {LiftedAtom(GripperOpen, [gripper])}
         add_effects = {LiftedAtom(GripperClosed, [gripper]), LiftedAtom(InContact, [gripper, handle])}
         delete_effects = {LiftedAtom(GripperOpen, [gripper])}
         ignore_effects = set()
