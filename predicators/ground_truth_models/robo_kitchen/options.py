@@ -96,16 +96,14 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
             memory["handle_init_pos"] = handle_pos
 
         def _create_ds_policy(memory: Dict, state: State, objects: Sequence[Object], offset_handle_frame: Optional[np.ndarray] = None) -> None:
-            x, x_dot, r = load_data("custom")
-            demo_trajs = [np.concatenate([pos, rot], axis=1) for pos, rot in zip(x, r)]
-            ds_policy = DSPolicy(demo_trajs, dt=1/60, switch=False)
+            x, x_dot, q, omega = load_data("custom")
+            ds_policy = DSPolicy(x, x_dot, q, omega, dt=1/60, switch=False)
             ds_policy.load_pos_model(pos_model_path="DS-Policy/models/mlp_width128_depth3.pt")
             ds_policy.train_quat_model(save_path="DS-Policy/models/quat_model.json", k_init=10)
             memory["ds_policy"] = ds_policy
             _init_handle_transform(memory, state, objects, offset_handle_frame)
             
-            pos_trajs = [traj[:, :3] for traj in demo_trajs]
-            visualizer = RuntimeVisualizer_plotly(pos_trajs)
+            visualizer = RuntimeVisualizer_plotly(x)
             memory["visualizer"] = visualizer
             memory["visualizer"]._run()
 
@@ -214,9 +212,10 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
 
                 if "visualizer" in memory:
                     memory["visualizer"].update_position(pos_in_handle, ds_policy.ref_traj_idx)
-
-                x_dot_handle = ds_policy.get_x_dot(pos_in_handle, alpha_V=100.0, lookahead=5) # (dx, dy, dz)
-                r_dot_handle = ds_policy.get_r_dot(R.from_matrix(rot_in_handle).as_quat()) # (droll, dpitch, dyaw)
+                
+                vel = ds_policy.get_action(np.concatenate([pos_in_handle, R.from_matrix(rot_in_handle).as_quat()]), clf=True, alpha_V=10.0, lookahead=5)
+                x_dot_handle = vel[:3]
+                r_dot_handle = vel[3:]
                 
                 # Transform velocity back to world frame
                 x_dot_world = handle_init_rot @ x_dot_handle
