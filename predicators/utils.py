@@ -2526,6 +2526,14 @@ def abstract(state: State,
                 vlm_atoms.add(GroundAtom(pred, choice))
         true_vlm_atoms = query_vlm_for_atom_vals(vlm_atoms, state, vlm)
         atoms |= true_vlm_atoms
+
+
+    in_contact_pred = next((pred for pred in preds if str(pred) == "InContact"), None)
+    # Add InContact atoms if items_in_contact exists in state
+    if hasattr(state, "items_in_contact") and in_contact_pred:  
+        for obj1, obj2 in state.items_in_contact:
+            atoms.add(GroundAtom(in_contact_pred, [obj1, obj2]))
+
     return atoms
 
 

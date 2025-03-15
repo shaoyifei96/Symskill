@@ -243,7 +243,7 @@ class RoboKitchenEnv(BaseEnv):
                 self._env = create_env(
                     env_name = task_name,
                     render_onscreen = self._using_gui,
-                    seed = seed,
+                    seed = seed+4,# this seed the third demo opens to the right, will have replan
                 )
 
         # Reset environment with seed
@@ -285,7 +285,7 @@ class RoboKitchenEnv(BaseEnv):
             for obj_name in object_names:
                 if obj_name in contact:
                     obj = self.object_name_to_object(obj_name)
-                    contacts.add((obj, gripper_obj))
+                    contacts.add((gripper_obj, obj))
         # Filter out gripper-door contact if gripper-handle contact exists
         contacts = self._filter_door_handle_contacts(contacts, gripper_obj)
         return contacts
@@ -519,13 +519,11 @@ class RoboKitchenEnv(BaseEnv):
         gripper, handle = objects
         # Check if gripper is open
         if not state.get(gripper, "angle") > cls.gripper_open_thresh:
-            print ("ReadyGrabHandle Not True: Gripper not open")
             return False
         # Check if position of gripper is close to handle
         gripper_pos = np.array([state.get(gripper, "x"), state.get(gripper, "y"), state.get(gripper, "z")])
         handle_pos = np.array([state.get(handle, "x"), state.get(handle, "y"), state.get(handle, "z")])
         if np.linalg.norm(gripper_pos - handle_pos) > cls.close_distance_thresh:
-            print ("ReadyGrabHandle Not True: Gripper not close enough to handle")
             return False
         # Check if orientation of gripper is close to handle
         return True

@@ -93,8 +93,7 @@ class CogMan:
                 assert not self._exec_monitor.step(state)
         assert self._current_policy is not None
         act = self._current_policy(state)
-        self._exec_monitor.update_approach_info(
-            self._approach.get_execution_monitoring_info())
+        self._exec_monitor.update_action(act)
         self._episode_action_history.append(act)
         return act
 
@@ -203,24 +202,6 @@ def run_episode_and_get_observations(
     So we keep it here for now. It might be moved in the future.
     """
 
-    nsrt_index = 0
-    def update_current_nsrt(current_nsrt_plan, nsrt_index, curr_option):
-        """
-        Update the current nsrt based on the current option.
-
-        If the nsrt at nsrt_index has an option matching curr_option.parent,
-        return the same index. Otherwise, search the remainder of the plan.
-        """
-        # Check if current nsrt still matches the current option.
-        if current_nsrt_plan[nsrt_index].option == curr_option.parent:
-            return nsrt_index
-        # Otherwise search for the new matching nsrt.
-        for i in range(nsrt_index + 1, len(current_nsrt_plan)):
-            if current_nsrt_plan[i].option == curr_option.parent:
-                return i
-        # If not found, return the original index (or handle it as needed)
-        return nsrt_index
-
     if do_env_reset:
         env.reset(train_or_test, task_idx)
         if monitor is not None:
@@ -256,15 +237,10 @@ def run_episode_and_get_observations(
                     monitor.observe(obs, act)
                     monitor_observed = True
 
-                current_nsrt_plan = cogman._approach._last_nsrt_plan
-                nsrt_index = update_current_nsrt(current_nsrt_plan, nsrt_index, curr_option)
-                current_nsrt = current_nsrt_plan[nsrt_index]
-                nsrt_preconditions = list(current_nsrt.preconditions)
-                nsrt_add_effects = list(current_nsrt.add_effects)
                 if env._env_raw is not None:
+                    # NSRT: {current_nsrt.name}\n \
                     env._env_raw.viewer.mjprint(
                         f" \
-                        NSRT: {current_nsrt.name}\n \
                         Option: {curr_option.name}\n \
                         ", auto_clean=True
                         )
