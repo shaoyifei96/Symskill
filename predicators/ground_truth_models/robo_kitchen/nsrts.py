@@ -128,7 +128,7 @@ class RoboKitchenGroundTruthNSRTFactory(GroundTruthNSRTFactory):
         parameters = [gripper, handle, base]
         preconditions = {LiftedAtom(GripperOpen, [gripper])}
         add_effects = {LiftedAtom(GripperClosed, [gripper]), LiftedAtom(InContact, [gripper, handle])}
-        delete_effects = {LiftedAtom(GripperOpen, [gripper])}
+        delete_effects = {LiftedAtom(ReadyGrabHandle, [gripper, handle]), LiftedAtom(GripperOpen, [gripper])}
         ignore_effects = set()
         option = DummyOption
         option_vars = []

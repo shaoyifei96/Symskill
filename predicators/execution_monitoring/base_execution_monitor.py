@@ -3,7 +3,7 @@
 import abc
 from typing import Any, List
 
-from predicators.structs import State, Task
+from predicators.structs import State, Task, Action
 
 
 class BaseExecutionMonitor(abc.ABC):
@@ -12,7 +12,8 @@ class BaseExecutionMonitor(abc.ABC):
     def __init__(self) -> None:
         self._approach_info: List[Any] = []
         self._curr_plan_timestep = 0
-
+        self._action: Action = None
+        
     @classmethod
     @abc.abstractmethod
     def get_name(cls) -> str:
@@ -23,6 +24,7 @@ class BaseExecutionMonitor(abc.ABC):
         del task  # unused
         self._curr_plan_timestep = 0
         self._approach_info = []
+        self._action = None
 
     @abc.abstractmethod
     def step(self, state: State) -> bool:
@@ -31,3 +33,7 @@ class BaseExecutionMonitor(abc.ABC):
     def update_approach_info(self, info: List[Any]) -> None:
         """Update internal info received from approach."""
         self._approach_info = info
+
+    def update_action(self, action: Action) -> None:
+        """Update internal info received from approach."""
+        self._action = action
