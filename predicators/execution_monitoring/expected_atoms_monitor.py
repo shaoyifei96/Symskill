@@ -9,7 +9,7 @@ from predicators import utils
 from predicators.execution_monitoring.base_execution_monitor import \
     BaseExecutionMonitor
 from predicators.settings import CFG
-from predicators.structs import State, VLMPredicate, Object
+from predicators.structs import State, VLMPredicate, Object, GroundAtom
 
 
 class ExpectedAtomsExecutionMonitor(BaseExecutionMonitor):
@@ -26,7 +26,7 @@ class ExpectedAtomsExecutionMonitor(BaseExecutionMonitor):
         self._last_option_name: str = None
         self._option_start_timestep: int = 0
         self._max_option_timesteps: int = 200  # Maximum timesteps before considering option failed
-        self._current_expected_atom_step = 1
+        self.current_nsrt_step = 0
 
     @classmethod
     def get_name(cls) -> str:
@@ -43,9 +43,11 @@ class ExpectedAtomsExecutionMonitor(BaseExecutionMonitor):
         new_option_bool = self._update_option_tracking()
 
         # Get next expected atoms and increment timestep
-        if len(self._approach_info) <= 1:
-            return False
-        next_expected_atoms = self._approach_info[self._current_expected_atom_step]
+        if self.current_nsrt_step + 1 < len(self._approach_info):
+            next_expected_atoms, _ = self._approach_info[self.current_nsrt_step + 1]
+        else:
+            next_expected_atoms = set()
+        _, current_maintain_effects = self._approach_info[self.current_nsrt_step]
         assert isinstance(next_expected_atoms, set)
         self._curr_plan_timestep += 1
 
@@ -53,11 +55,25 @@ class ExpectedAtomsExecutionMonitor(BaseExecutionMonitor):
         if self._check_option_timeout():
             return True
 
-        # Check predicates
-        unsat_atoms = self._check_predicates(state, next_expected_atoms)
+        # Check maintain effects
+        if self._check_maintain_effects(state, current_maintain_effects):
+            return True
 
-        # Handle option transitions and replanning
-        return self._handle_option_transition(new_option_bool, unsat_atoms)
+        # if new option, check new predicates are satisfied
+        return self._handle_option_transition(state,new_option_bool, next_expected_atoms)
+    
+    def _check_maintain_effects(self, state: State, maintain_effects: Set[GroundAtom]) -> bool:
+        """Check which maintain effects are unsatisfied in current state."""
+        unsat_maintain_effects = {
+            atom
+            for atom in maintain_effects
+            if not atom.holds(state)
+        }
+        if unsat_maintain_effects:
+            logging.info(f"Maintain effects execution monitor triggered replanning "
+                         f"because of these atoms: {unsat_maintain_effects}")
+            return True
+        return False
 
     def _validate_approach(self) -> bool:
         """Validate that we're using a supported planning approach."""
@@ -101,9 +117,9 @@ class ExpectedAtomsExecutionMonitor(BaseExecutionMonitor):
             if isinstance(atom.predicate, VLMPredicate))
             
         non_vlm_unsat_atoms = {
-            a
-            for a in (next_expected_atoms - next_expected_vlm_atoms)
-            if not a.holds(state)
+            atom
+            for atom in (next_expected_atoms - next_expected_vlm_atoms)
+            if not atom.holds(state)
         }
         
         vlm_unsat_atoms = set()
@@ -113,15 +129,18 @@ class ExpectedAtomsExecutionMonitor(BaseExecutionMonitor):
                 
         return non_vlm_unsat_atoms | vlm_unsat_atoms
 
-    def _handle_option_transition(self, new_option_bool: bool, unsat_atoms: Set) -> bool:
+    def _handle_option_transition(self, state: State, new_option_bool: bool, next_expected_atoms: Set[GroundAtom]) -> bool:
         """Handle option transitions and determine if replanning is needed."""
         if new_option_bool:
-            self._current_expected_atom_step += 1
+                    # Check predicates
+            unsat_atoms = self._check_predicates(state, next_expected_atoms)
             if unsat_atoms:
                 logging.info(
                     "Expected atoms execution monitor triggered replanning "
                     f"because of these atoms: {unsat_atoms}")
                 return True
+            # if no unsat atoms, increment nsrt step, means we're moving to next NSRT
+            self.current_nsrt_step += 1
         return False
 
     def reset(self, task) -> None:
@@ -130,7 +149,7 @@ class ExpectedAtomsExecutionMonitor(BaseExecutionMonitor):
         self._running_option_name = None
         self._last_option_name = None
         self._option_start_timestep = 0
-        self._current_expected_atom_step = 1
+        self.current_nsrt_step = 0
         # Note: we don't reset failure memory as we want to keep track across episodes
 
     def get_failure_memory(self) -> Dict[Tuple[str, Tuple[Object, ...]], Tuple[np.ndarray, int]]:

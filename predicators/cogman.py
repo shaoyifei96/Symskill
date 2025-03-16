@@ -83,6 +83,8 @@ class CogMan:
             assert self._current_goal is not None
             task = Task(state, self._current_goal)
             self._reset_policy(task)
+            print("\033[95mNew plan:\033[0m")
+            print(self._approach._last_nsrt_plan)
             self._exec_monitor.reset(task)
             self._exec_monitor.update_approach_info(
                 self._approach.get_execution_monitoring_info())

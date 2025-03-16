@@ -928,6 +928,7 @@ class NSRT:
     name: str
     parameters: Sequence[Variable]
     preconditions: Set[LiftedAtom]
+    maintain_effects: Set[LiftedAtom]
     add_effects: Set[LiftedAtom]
     delete_effects: Set[LiftedAtom]
     ignore_effects: Set[Predicate]
@@ -944,6 +945,7 @@ class NSRT:
         return f"""NSRT-{self.name}:
     Parameters: {self.parameters}
     Preconditions: {sorted(self.preconditions, key=str)}
+    Maintain Effects: {sorted(self.maintain_effects, key=str)}
     Add Effects: {sorted(self.add_effects, key=str)}
     Delete Effects: {sorted(self.delete_effects, key=str)}
     Ignore Effects: {sorted(self.ignore_effects, key=str)}
@@ -977,6 +979,7 @@ class NSRT:
         out = ""
         out += f"{self.name}:\n\tParameters: {self.parameters}"
         for name, atoms in [("Preconditions", self.preconditions),
+                            ("Maintain Effects", self.maintain_effects),
                             ("Add Effects", self.add_effects),
                             ("Delete Effects", self.delete_effects)]:
             out += f"\n\t{name}:"
@@ -1017,10 +1020,11 @@ class NSRT:
             o.is_instance(p.type) for o, p in zip(objects, self.parameters))
         sub = dict(zip(self.parameters, objects))
         preconditions = {atom.ground(sub) for atom in self.preconditions}
+        maintain_effects = {atom.ground(sub) for atom in self.maintain_effects}
         add_effects = {atom.ground(sub) for atom in self.add_effects}
         delete_effects = {atom.ground(sub) for atom in self.delete_effects}
         option_objs = [sub[v] for v in self.option_vars]
-        return _GroundNSRT(self, objects, preconditions, add_effects,
+        return _GroundNSRT(self, objects, preconditions, maintain_effects,add_effects,
                            delete_effects, self.option, option_objs,
                            self._sampler)
 
@@ -1033,12 +1037,13 @@ class NSRT:
         """
         preconditions = {a for a in self.preconditions if a.predicate in kept}
         add_effects = {a for a in self.add_effects if a.predicate in kept}
+        maintain_effects = {a for a in self.maintain_effects if a.predicate in kept}
         delete_effects = {
             a
             for a in self.delete_effects if a.predicate in kept
         }
         ignore_effects = {a for a in self.ignore_effects if a in kept}
-        return NSRT(self.name, self.parameters, preconditions, add_effects,
+        return NSRT(self.name, self.parameters, preconditions, maintain_effects, add_effects,
                     delete_effects, ignore_effects, self.option,
                     self.option_vars, self._sampler)
 
@@ -1052,6 +1057,7 @@ class _GroundNSRT:
     parent: NSRT
     objects: Sequence[Object]
     preconditions: Set[GroundAtom]
+    maintain_effects: Set[GroundAtom]
     add_effects: Set[GroundAtom]
     delete_effects: Set[GroundAtom]
     option: ParameterizedOption
@@ -1063,6 +1069,7 @@ class _GroundNSRT:
         return f"""GroundNSRT-{self.name}:
     Parameters: {self.objects}
     Preconditions: {sorted(self.preconditions, key=str)}
+    Maintain Effects: {sorted(self.maintain_effects, key=str)}
     Add Effects: {sorted(self.add_effects, key=str)}
     Delete Effects: {sorted(self.delete_effects, key=str)}
     Ignore Effects: {sorted(self.ignore_effects, key=str)}
@@ -1138,6 +1145,7 @@ class _GroundNSRT:
         default_kwargs = dict(parent=self.parent,
                               objects=self.objects,
                               preconditions=self.preconditions,
+                              maintain_effects=self.maintain_effects,
                               add_effects=self.add_effects,
                               delete_effects=self.delete_effects,
                               option=self.option,

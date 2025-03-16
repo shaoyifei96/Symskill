@@ -1195,6 +1195,8 @@ def run_task_plan_once(
     init_atoms = utils.abstract(task.init, preds)
     goal = task.goal
     objects = set(task.init)
+    print ("\033[95mInit atoms:\033[0m")
+    print (init_atoms)
 
     start_time = time.perf_counter()
 
