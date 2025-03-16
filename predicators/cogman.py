@@ -85,7 +85,7 @@ class CogMan:
             self._reset_policy(task)
             print("\033[95mNew plan:\033[0m")
             print(self._approach._last_nsrt_plan)
-            self._exec_monitor.reset(task)
+            self._exec_monitor.reset(task, reset_failure_memory=False)
             self._exec_monitor.update_approach_info(
                 self._approach.get_execution_monitoring_info())
             # We only reset the approach if the override policy is

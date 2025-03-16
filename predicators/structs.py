@@ -21,6 +21,18 @@ import predicators.utils as utils  # pylint: disable=consider-using-from-import
 from predicators.settings import CFG
 
 
+@dataclass(frozen=True, order=True, repr=True)
+class OptionFailureInfo:
+    """Struct to store information about option failures."""
+    option_name: str
+    # objects: Tuple[Object, ...] # currently monitor not seeing what objects are used, 
+    # since it uses state and is called before policy, so all it knows is where things are
+    # the option is also from last iteration. but maybe the option has objects names?
+    # there is extra info in option that can be populated
+    # TODO: add objects to the option failure info
+    reason: str
+    location: np.ndarray
+
 @dataclass(frozen=True, order=True)
 class Type:
     """Struct defining a type."""

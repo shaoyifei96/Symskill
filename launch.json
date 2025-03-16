@@ -6,7 +6,7 @@
         "type": "python",
         "request": "launch",
         "program": "${workspaceFolder}/predicators_robocasa/predicators/main.py",
-        "args": ["--env", "robo_kitchen", "--approach", "oracle", "--seed", "0", "--debug", "--use_gui"],//, "--execution_monitor", "mpc"],
+        "args": ["--env", "robo_kitchen", "--approach", "oracle", "--seed", "0", "--debug", "--use_gui", "--execution_monitor", "expected_atoms_robocasa"],
         "console": "integratedTerminal",
         "pythonPath": "/home/yifei/miniconda3/envs/task_plan_casa2/bin/python"
         // plan without sim does not work
@@ -34,7 +34,7 @@
         "type": "python",
         "request": "launch",
         "program": "${workspaceFolder}/robocasa/robocasa/demos/demo_tasks.py",
-        "args": ["--task", "PnPCounterToCab"],
+        "args": ["--task", "OpenSingleDoor"],
         "console": "integratedTerminal",
         "pythonPath": "/home/yifei/miniconda3/envs/task_plan_casa2/bin/python"
       },
@@ -46,7 +46,7 @@
         "type": "python", 
         "request": "launch",
         "program": "${workspaceFolder}/robocasa/robocasa/demos/demo_teleop.py",
-      "args": ["--robot","PandaOmron","--task", "OpenSingleDoor", "--layout", "0", "--style", "0"],
+      "args": ["--robot","PandaOmron","--task", "OpenSingleDoor", "--layout", "2", "--style", "0"],
         "console": "integratedTerminal",
         "pythonPath": "/home/yifei/miniconda3/envs/task_plan_casa2/bin/python"
       }
