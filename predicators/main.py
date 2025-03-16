@@ -455,8 +455,8 @@ def _run_testing(env: BaseEnv, cogman: CogMan) -> Metrics:
                 raise RuntimeError(log_message)
             make_video = CFG.make_failure_videos
             video_file = f"{save_prefix}__task{test_task_idx+1}_failure.mp4"
-        logging.info(f"Task {test_task_idx+1} / {len(test_tasks)}: "
-                     f"{log_message}")
+        logging.info(f"\033[93mTask {test_task_idx+1} / {len(test_tasks)}: "
+                     f"{log_message}\033[0m")
         if make_video:
             assert monitor is not None
             video = monitor.get_video()

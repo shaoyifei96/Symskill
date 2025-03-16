@@ -30,10 +30,10 @@ MAX_ROTATION_DISPLACEMENT = 1.0
 class RoboKitchenEnv(BaseEnv):
     """Kitchen environment using robosuite."""
 
-    hinge_open_thresh = 0.084
+    hinge_open_thresh = 0.8 # 0-1
     gripper_open_thresh = 0.038 # m 
     gripper_closed_thresh = 0.03 # m
-    close_distance_thresh = 0.02
+    close_distance_thresh = 0.02  #m
 
     # Types (similar to original kitchen)
     handle_type = Type("handle_type", ["x", "y", "z", "qx", "qy", "qz", "qw"])
@@ -187,17 +187,14 @@ class RoboKitchenEnv(BaseEnv):
         return tasks
 
     def goal_reached(self) -> bool:
+        # check success
         #print angle of handle
         state = self.state_info_to_state(
             self._current_observation["state_info"])
-        hinge_angle = state.get(self.object_name_to_object("hinge"), "angle")
-
-        # print(f"Hinge angle: {hinge_angle}")
-
         goal_desc = self._current_task.goal_description
 
         if goal_desc == "OpenSingleDoor":
-            if hinge_angle > 0.9:
+            if self._HingeOpen_holds(state, [self.object_name_to_object("hinge")]):
                 return True
         else:
             return False

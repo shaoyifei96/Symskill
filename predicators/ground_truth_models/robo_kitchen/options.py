@@ -191,6 +191,9 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
             if np.linalg.norm(gripper_pos - handle_init_pos) <= cls.offset_inwards_from_handle and velocity < 0.01:
                 return True
             return False
+        
+        def _DS_move_away_terminal(state: State, memory: Dict, objects: Sequence[Object], params: Array) -> bool:
+            return False
 
         DS_move_option = ParameterizedOption(
             "DS_move_option",
@@ -210,7 +213,7 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
             params_space=Box(-5, 5, (1,)),
             policy=_DS_move_option_policy,
             initiable=_DS_move_away_option_initiable,
-            terminal=_DS_move_option_terminal,
+            terminal=_DS_move_away_terminal,
         )
 
         options.add(DS_move_option)
