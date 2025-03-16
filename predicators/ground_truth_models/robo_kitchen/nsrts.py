@@ -124,31 +124,6 @@ class RoboKitchenGroundTruthNSRTFactory(GroundTruthNSRTFactory):
         # )
         # nsrts.add(grab_handle_nsrt)
 
-        # PullOpenDoor
-        parameters = [gripper, handle, hinge, base]
-        preconditions = {LiftedAtom(HingeClosed, [hinge]), LiftedAtom(GripperClosed, [gripper]), LiftedAtom(InContact, [gripper, handle])}
-        add_effects = {LiftedAtom(HingeOpen, [hinge])}
-        delete_effects = {LiftedAtom(HingeClosed, [hinge])}
-        ignore_effects = set()
-        option = DS_move_away_option
-        option_vars = [gripper, handle, base]
-
-        def pull_open_door_sampler(state: State, memory: dict, objects: Sequence[Object], params: Array) -> Array:
-            return np.array([0], dtype=np.float32)
-
-        pull_open_door_nsrt = NSRT(
-            "PullOpenDoor",
-            parameters,
-            preconditions,
-            add_effects,
-            delete_effects,
-            ignore_effects,
-            option,
-            option_vars,
-            pull_open_door_sampler,
-        )
-        nsrts.add(pull_open_door_nsrt)
-
         # MoveToAndGrabHandle
         parameters = [gripper, handle, base]
         preconditions = {LiftedAtom(GripperOpen, [gripper])}
@@ -173,5 +148,30 @@ class RoboKitchenGroundTruthNSRTFactory(GroundTruthNSRTFactory):
             move_to_and_grab_handle_sampler,
         )
         nsrts.add(move_to_and_grab_handle_nsrt)
+
+        # PullOpenDoor
+        parameters = [gripper, handle, hinge, base]
+        preconditions = {LiftedAtom(HingeClosed, [hinge]), LiftedAtom(GripperClosed, [gripper]), LiftedAtom(InContact, [gripper, handle])}
+        add_effects = {LiftedAtom(HingeOpen, [hinge])}
+        delete_effects = {LiftedAtom(HingeClosed, [hinge])}
+        ignore_effects = set()
+        option = DS_move_away_option
+        option_vars = [gripper, handle, base]
+
+        def pull_open_door_sampler(state: State, memory: dict, objects: Sequence[Object], params: Array) -> Array:
+            return np.array([0], dtype=np.float32)
+
+        pull_open_door_nsrt = NSRT(
+            "PullOpenDoor",
+            parameters,
+            preconditions,
+            add_effects,
+            delete_effects,
+            ignore_effects,
+            option,
+            option_vars,
+            pull_open_door_sampler,
+        )
+        nsrts.add(pull_open_door_nsrt)
 
         return nsrts
