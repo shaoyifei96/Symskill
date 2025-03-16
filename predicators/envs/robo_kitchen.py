@@ -198,8 +198,6 @@ class RoboKitchenEnv(BaseEnv):
                 return True
         else:
             return False
-        
-
 
     def _reset_initial_state(self, seed: int, train_or_test: str, task_name: str, complex_config: bool = False) -> Observation:
         """Reset the environment to an initial state based on the seed."""
@@ -264,7 +262,7 @@ class RoboKitchenEnv(BaseEnv):
 
         # only support panda robot for now
         contacts = set()
-        # robot_contacts = self._env.get_contacts(self._env.robots[0].robot_model.models[0]) # robot 
+        # robot_contacts = self._env.get_contacts(self._env.robots[0].robot_model.models[0]) # robot
         gripper_contact = self._env.get_contacts(self._env.robots[0].robot_model.models[1]) # gripper
         # filter down to only include objects of interest
 
