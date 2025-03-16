@@ -17,7 +17,7 @@ from predicators.planning import PlanningFailure, PlanningTimeout, \
     run_task_plan_once, sesame_plan
 from predicators.settings import CFG
 from predicators.structs import NSRT, Action, GroundAtom, Metrics, \
-    ParameterizedOption, Predicate, State, Task, Type, _GroundNSRT, _Option
+    ParameterizedOption, Predicate, State, Task, Type, _GroundNSRT, _Option, OptionFailureInfo
 
 
 class BilevelPlanningApproach(BaseApproach):
@@ -52,6 +52,7 @@ class BilevelPlanningApproach(BaseApproach):
         self._last_nsrt_plan: List[_GroundNSRT] = []  # plan WITHOUT sim
         self._last_atoms_seq: List[Set[GroundAtom]] = []  # plan WITHOUT sim
         self._last_maintain_effects: List[Set[GroundAtom]] = []  # plan WITHOUT sim
+        self._last_fail_info: List[OptionFailureInfo] = []  # plan WITHOUT sim
 
     def _solve(self, task: Task, timeout: int) -> Callable[[State], Action]:
         self._num_calls += 1
@@ -71,6 +72,7 @@ class BilevelPlanningApproach(BaseApproach):
             self._last_maintain_effects = [nsrt.maintain_effects for nsrt in nsrt_plan]
             self._last_maintain_effects.append(set())
             policy = utils.nsrt_plan_to_greedy_policy(nsrt_plan, task.goal,
+                                                      self._last_fail_info,
                                                       self._rng)
             logging.debug("Current Task Plan:")
             for act in nsrt_plan:

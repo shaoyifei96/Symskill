@@ -56,7 +56,7 @@ from predicators.structs import NSRT, Action, Array, DummyOption, \
     NSRTOrSTRIPSOperator, Object, ObjectOrVariable, Observation, OptionSpec, \
     ParameterizedOption, Predicate, Segment, State, STRIPSOperator, Task, \
     Type, Variable, VarToObjSub, Video, VLMPredicate, _GroundLDLRule, \
-    _GroundNSRT, _GroundSTRIPSOperator, _Option, _TypedEntity
+    _GroundNSRT, _GroundSTRIPSOperator, _Option, _TypedEntity, OptionFailureInfo
 from predicators.third_party.fast_downward_translator.translate import \
     main as downward_translate
 
@@ -1340,6 +1340,7 @@ def option_plan_to_policy(
 def nsrt_plan_to_greedy_option_policy(
     nsrt_plan: Sequence[_GroundNSRT],
     goal: Set[GroundAtom],
+    fail_info: List[OptionFailureInfo],
     rng: np.random.Generator,
     necessary_atoms_seq: Optional[Sequence[Set[GroundAtom]]] = None
 ) -> Callable[[State], _Option]:
@@ -1366,7 +1367,7 @@ def nsrt_plan_to_greedy_option_policy(
             raise OptionExecutionFailure(
                 "Executing the NSRT failed to achieve the necessary atoms.")
         cur_nsrt = nsrt_queue.pop(0)
-        cur_option = cur_nsrt.sample_option(state, goal, rng)
+        cur_option = cur_nsrt.sample_option(state, goal, fail_info, rng)
         logging.debug(f"\033[32mUsing option {cur_option.name}{cur_option.objects}"
                       f"{cur_option.params} from NSRT plan.\033[0m")
         return cur_option
@@ -1377,6 +1378,7 @@ def nsrt_plan_to_greedy_option_policy(
 def nsrt_plan_to_greedy_policy(
     nsrt_plan: Sequence[_GroundNSRT],
     goal: Set[GroundAtom],
+    fail_info: List[OptionFailureInfo],
     rng: np.random.Generator,
     necessary_atoms_seq: Optional[Sequence[Set[GroundAtom]]] = None
 ) -> Callable[[State], Action]:
@@ -1387,7 +1389,7 @@ def nsrt_plan_to_greedy_policy(
     OptionExecutionFailure is raised.
     """
     option_policy = nsrt_plan_to_greedy_option_policy(
-        nsrt_plan, goal, rng, necessary_atoms_seq=necessary_atoms_seq)
+        nsrt_plan, goal, fail_info, rng, necessary_atoms_seq=necessary_atoms_seq)
     return option_policy_to_policy(option_policy)
 
 

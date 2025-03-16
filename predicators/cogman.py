@@ -82,9 +82,8 @@ class CogMan:
             logging.info("\033[93m[CogMan] Replanning triggered.\033[0m")
             assert self._current_goal is not None
             task = Task(state, self._current_goal)
-            self._reset_policy(task)
-            print("\033[95mNew plan:\033[0m")
-            print(self._approach._last_nsrt_plan)
+            self._reset_policy(task) # approach is updated
+            self._approach._last_fail_info = self._exec_monitor._failure_memory
             self._exec_monitor.reset(task, reset_failure_memory=False)
             self._exec_monitor.update_approach_info(
                 self._approach.get_execution_monitoring_info())

@@ -100,6 +100,9 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
 
         # DS_move_option - always initiable, empty policy, never terminates
         def _DS_move_towards_option_initiable(state: State, memory: Dict, objects: Sequence[Object], params: Array) -> bool:
+            if "fail_memory" in memory:
+                print("fail_memory of DS_move_towards_option")
+                print(memory["fail_memory"])
             if "model" not in memory:
                 _create_ds_model(memory, state, objects, offset_handle_frame=np.array([0.0, cls.offset_inwards_from_handle, 0.0]))
             return True
