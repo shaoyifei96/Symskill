@@ -188,7 +188,6 @@ class RoboKitchenEnv(BaseEnv):
 
     def goal_reached(self) -> bool:
         # check success
-        #print angle of handle
         state = self.state_info_to_state(
             self._current_observation["state_info"])
         goal_desc = self._current_task.goal_description
