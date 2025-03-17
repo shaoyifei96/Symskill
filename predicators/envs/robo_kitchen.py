@@ -22,6 +22,12 @@ from termcolor import colored
 import warnings
 import os
 import mujoco
+import time
+import logging
+
+# Disable JAX debug messages
+logging.getLogger('jax._src.cache_key').setLevel(logging.ERROR)
+logging.getLogger('jax').setLevel(logging.ERROR)
 
 # Constants from demo files
 MAX_CARTESIAN_DISPLACEMENT = 1.0
@@ -206,7 +212,7 @@ class RoboKitchenEnv(BaseEnv):
         # Create or recreate environment if needed
         warnings.warn("Resetting environment to initial state from seed not implemented for robosuite kitchen")
         if self._env is None:
-            complex_config = False # easy config allows seed
+            complex_config = True # easy config allows seed
             if complex_config:
                 robot_type = "PandaOmron"
                 controller_config = load_composite_controller_config(robot=robot_type)

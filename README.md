@@ -6,6 +6,7 @@
 1. Create .vscode folder and copy the launch.json file in this repo to that folder, making edits to the file for the conda path, to enable debugging.
 1. put ```export PYTHONHASHSEED=0``` in .bashrc
 1. In VSCode, you should see a few debug profiles, the teleop profile should work as is. (Try complete the task, it is not easy). The predicator_robocasa main file should solve the task, and output a NSRT plan. It will then start executing the plan in a GUI. The door should be opened.
+1. Lastly pull the [DS-Policy](git@github.com:felixzheng02/DS-Policy.git) repo, you do not have to install.
 
 ## Running inside docker
 When running inside docker, this seems to work: ```export MUJOCO_GL=glfw && export PYOPENGL_PLATFORM=egl && cd /workspace/predicators_robocasa && python3 predicators/main.py --env robo_kitchen --approach grammar_search_invention --seed 0 --bilevel_plan_without_sim True --debug --excluded_predicates all```

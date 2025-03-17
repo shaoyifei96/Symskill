@@ -28,6 +28,7 @@ def create_option_model(name: str) -> _OptionModelBase:
             env = create_new_env(CFG.env,
                              do_cache=False,
                              use_gui=CFG.option_model_use_gui)
+
         options = get_gt_options(env.get_name())
         return _OracleOptionModel(options, env.simulate)
     if name.startswith("oracle"):
