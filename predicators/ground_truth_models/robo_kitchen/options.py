@@ -14,6 +14,7 @@ import dash
 from dash import dcc, html
 from dash.dependencies import Input, Output
 import plotly.graph_objects as go
+from flask import request
 
 import matplotlib.pyplot as plt
 
@@ -95,17 +96,22 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
                 handle_pos = handle_pos + offset_world
             memory["handle_init_pos"] = handle_pos
 
-        def _create_ds_policy(memory: Dict, state: State, objects: Sequence[Object], offset_handle_frame: Optional[np.ndarray] = None) -> None:
-            x, x_dot, q, omega = load_data("custom")
-            ds_policy = DSPolicy(x, x_dot, q, omega, dt=1/60, switch=False)
-            ds_policy.load_pos_model(pos_model_path="DS-Policy/models/mlp_width128_depth3.pt")
-            ds_policy.train_quat_model(save_path="DS-Policy/models/quat_model.json", k_init=10)
+        def _create_ds_policy(memory: Dict, state: State, objects: Sequence[Object], option: str, offset_handle_frame: Optional[np.ndarray] = None) -> None:
+            if option == "move_towards":
+                x, x_dot, q, omega = load_data("custom", option="move_towards")
+                ds_policy = DSPolicy(x, x_dot, q, omega, dt=1/60, switch=False, use_avg=True)
+            elif option == "move_away":
+                x, x_dot, q, omega = load_data("custom", option="move_away")
+                ds_policy = DSPolicy(x, x_dot, q, omega, dt=1/60, switch=False, use_avg=True)
+            # ds_policy.train_pos_model(save_path=f"DS-Policy/models/mlp_width128_depth3_{option}.pt", batch_size=10, lr_strategy=(1e-3, 1e-4, 1e-5), epoch_strategy=(100, 100, 100), plot=False, print_every=10)
+            ds_policy.load_pos_model(f"DS-Policy/models/mlp_width128_depth3_{option}.pt")
+            ds_policy.train_quat_model(save_path=f"DS-Policy/models/quat_model_{option}.json", k_init=10)
             memory["ds_policy"] = ds_policy
             _init_handle_transform(memory, state, objects, offset_handle_frame)
             
-            visualizer = RuntimeVisualizer_plotly(x)
-            memory["visualizer"] = visualizer
-            memory["visualizer"]._run()
+            # visualizer = RuntimeVisualizer_plotly(x)
+            # memory["visualizer"] = visualizer
+            # memory["visualizer"]._run()
 
         def _create_ds_model(memory: Dict, state: State, objects: Sequence[Object], offset_handle_frame: Optional[np.ndarray] = None) -> None:
             """Helper to create and initialize the DS model in memory."""
@@ -139,14 +145,21 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
         # DS_move_option - always initiable, empty policy, never terminates
         def _DS_move_towards_option_initiable_node(state: State, memory: Dict, objects: Sequence[Object], params: Array) -> bool:
             if "ds_policy" not in memory:
-                _create_ds_policy(memory, state, objects, offset_handle_frame=np.array([0.0, cls.offset_inwards_from_handle, 0.0]))
+                _create_ds_policy(memory, state, objects, option="move_towards", offset_handle_frame=np.array([0.0, cls.offset_inwards_from_handle, 0.0]))
+                # _create_ds_policy(memory, state, objects, option="move_towards", offset_handle_frame=np.array([0.0, 0.0, 0.0]))
+
             return True
         
         # DS_move_away_option - always initiable, empty policy, never terminates
-        def _DS_move_away_option_initiable(state: State, memory: Dict, objects: Sequence[Object], params: Array) -> bool:
+        def _DS_move_away_option_initiable_linear(state: State, memory: Dict, objects: Sequence[Object], params: Array) -> bool:
             if "model" not in memory:
                 _create_ds_model(memory, state, objects, offset_handle_frame=np.array([-0.6, -0.6, 0.0]))
                 # NOTE: this means open the door to the left, some doors open to the right and won't work
+            return True
+        
+        def _DS_move_away_option_initiable_node(state: State, memory: Dict, objects: Sequence[Object], params: Array) -> bool:
+            if "ds_policy" not in memory:
+                _create_ds_policy(memory, state, objects, option="move_away", offset_handle_frame=np.array([-0.6, -0.6, 0.0]))
             return True
 
         def vee_operator(w):
@@ -213,7 +226,7 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
                 if "visualizer" in memory:
                     memory["visualizer"].update_position(pos_in_handle, ds_policy.ref_traj_idx)
                 
-                vel = ds_policy.get_action(np.concatenate([pos_in_handle, R.from_matrix(rot_in_handle).as_quat()]), clf=True, alpha_V=10.0, lookahead=5)
+                vel = ds_policy.get_action(np.concatenate([pos_in_handle, R.from_matrix(rot_in_handle).as_quat()]), clf=True, alpha_V=100.0, lookahead=10)
                 x_dot_handle = vel[:3]
                 r_dot_handle = vel[3:]
                 
@@ -278,7 +291,7 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
             # Unused params
             params_space=Box(-5, 5, (1,)),
             policy=_DS_move_option_policy,
-            initiable=_DS_move_away_option_initiable,
+            initiable=_DS_move_away_option_initiable_node,
             terminal=_DS_move_option_terminal,
         )
 
