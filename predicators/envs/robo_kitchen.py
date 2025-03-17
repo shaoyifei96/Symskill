@@ -36,11 +36,11 @@ class RoboKitchenEnv(BaseEnv):
     close_distance_thresh = 0.02  #m
 
     # Types (similar to original kitchen)
-    handle_type = Type("handle_type", ["x", "y", "z", "qx", "qy", "qz", "qw"])
-    gripper_type = Type("gripper_type", ["x", "y", "z", "qx", "qy", "qz", "qw", "angle"])
-    hinge_type = Type("hinge_type", ["angle"])
     object_type = Type("object_type", ["x", "y", "z", "qx", "qy", "qz", "qw"])
-    base_type = Type("base_type", ["x", "y", "z", "qx", "qy", "qz", "qw"])
+    base_type = Type("base_type", ["x", "y", "z", "qx", "qy", "qz", "qw"], parent=object_type)
+    handle_type = Type("handle_type", ["x", "y", "z", "qx", "qy", "qz", "qw"], parent=object_type)
+    gripper_type = Type("gripper_type", ["x", "y", "z", "qx", "qy", "qz", "qw", "angle"], parent=object_type)
+    hinge_type = Type("hinge_type", ["angle"])
 
     obj_name_to_type = {
         "handle": handle_type,
@@ -49,30 +49,30 @@ class RoboKitchenEnv(BaseEnv):
         "robot0_base": base_type,
     }
 
-    # tasks_extended = ['Lift', 'Stack', 'NutAssembly', 'NutAssemblySingle', 'NutAssemblySquare', 'NutAssemblyRound', 
-    #                    'PickPlace', 'PickPlaceSingle', 'PickPlaceMilk', 'PickPlaceBread', 'PickPlaceCereal', 'PickPlaceCan', 
+    # tasks_extended = ['Lift', 'Stack', 'NutAssembly', 'NutAssemblySingle', 'NutAssemblySquare', 'NutAssemblyRound',
+    #                    'PickPlace', 'PickPlaceSingle', 'PickPlaceMilk', 'PickPlaceBread', 'PickPlaceCereal', 'PickPlaceCan',
     #                    'Door', 'Wipe', 'ToolHang', 'TwoArmLift', 'TwoArmPegInHole', 'TwoArmHandover', 'TwoArmTransport', 'Kitchen',
     #                      'KitchenDemo', 'CupcakeCleanup', 'OrganizeBakingIngredients', 'PastryDisplay', 'FillKettle', 'HeatMultipleWater',
-    #                        'VeggieBoil', 'ArrangeTea', 'KettleBoiling', 'PrepareCoffee', 'ArrangeVegetables', 'BreadSetupSlicing', 
-    #                        'ClearingTheCuttingBoard', 'MeatTransfer', 'OrganizeVegetables', 'BowlAndCup', 'CandleCleanup', 
-    #                        'ClearingCleaningReceptacles', 'CondimentCollection', 'DessertAssembly', 'DrinkwareConsolidation', 
-    #                        'FoodCleanup', 'DefrostByCategory', 'MicrowaveThawing', 'QuickThaw', 'ThawInSink', 'AssembleCookingArray', 
-    #                        'FryingPanAdjustment', 'MealPrepStaging', 'SearingMeat', 'SetupFrying', 'BreadSelection', 'CheesyBread', 
-    #                        'PrepareToast', 'SweetSavoryToastSetup', 'PrepForTenderizing', 'PrepMarinatingMeat', 'ColorfulSalsa', 
-    #                        'SetupJuicing', 'SpicyMarinade', 'HeatMug', 'MakeLoadedPotato', 'SimmeringSauce', 'WaffleReheat', 
-    #                        'WarmCroissant', 'BeverageSorting', 'RestockBowls', 'RestockPantry', 'StockingBreakfastFoods', 
+    #                        'VeggieBoil', 'ArrangeTea', 'KettleBoiling', 'PrepareCoffee', 'ArrangeVegetables', 'BreadSetupSlicing',
+    #                        'ClearingTheCuttingBoard', 'MeatTransfer', 'OrganizeVegetables', 'BowlAndCup', 'CandleCleanup',
+    #                        'ClearingCleaningReceptacles', 'CondimentCollection', 'DessertAssembly', 'DrinkwareConsolidation',
+    #                        'FoodCleanup', 'DefrostByCategory', 'MicrowaveThawing', 'QuickThaw', 'ThawInSink', 'AssembleCookingArray',
+    #                        'FryingPanAdjustment', 'MealPrepStaging', 'SearingMeat', 'SetupFrying', 'BreadSelection', 'CheesyBread',
+    #                        'PrepareToast', 'SweetSavoryToastSetup', 'PrepForTenderizing', 'PrepMarinatingMeat', 'ColorfulSalsa',
+    #                        'SetupJuicing', 'SpicyMarinade', 'HeatMug', 'MakeLoadedPotato', 'SimmeringSauce', 'WaffleReheat',
+    #                        'WarmCroissant', 'BeverageSorting', 'RestockBowls', 'RestockPantry', 'StockingBreakfastFoods',
     #                        'CleanMicrowave', 'CountertopCleanup', 'PrepForSanitizing', 'PushUtensilsToSink', 'DessertUpgrade',
-    #                          'PanTransfer', 'PlaceFoodInBowls', 'PrepareSoupServing', 'ServeSteak', 'WineServingPrep', 
-    #                          'ArrangeBreadBasket', 'BeverageOrganization', 'DateNight', 'SeasoningSpiceSetup', 
-    #                          'SetBowlsForSoup', 'SizeSorting', 'BreadAndCheese', 'CerealAndBowl', 'MakeFruitBowl', 
-    #                          'VeggieDipPrep', 'YogurtDelightPrep', 'MultistepSteaming', 'SteamInMicrowave', 'SteamVegetables', 
-    #                          'ManipulateDrawer', 'OpenDrawer', 'CloseDrawer', 'DrawerUtensilSort', 'OrganizeCleaningSupplies', 
-    #                          'PantryMishap', 'ShakerShuffle', 'SnackSorting', 'DryDishes', 'DryDrinkware', 'PreSoakPan', 'SortingCleanup', 
-    #                          'StackBowlsInSink', 'AfterwashSorting', 'ClearClutter', 'DrainVeggies', 'PrewashFoodAssembly', 'PnPCoffee', 
-    #                          'CoffeeSetupMug', 'CoffeeServeMug', 'CoffeePressButton', 'ManipulateDoor', 'OpenDoor', 'OpenSingleDoor', 
+    #                          'PanTransfer', 'PlaceFoodInBowls', 'PrepareSoupServing', 'ServeSteak', 'WineServingPrep',
+    #                          'ArrangeBreadBasket', 'BeverageOrganization', 'DateNight', 'SeasoningSpiceSetup',
+    #                          'SetBowlsForSoup', 'SizeSorting', 'BreadAndCheese', 'CerealAndBowl', 'MakeFruitBowl',
+    #                          'VeggieDipPrep', 'YogurtDelightPrep', 'MultistepSteaming', 'SteamInMicrowave', 'SteamVegetables',
+    #                          'ManipulateDrawer', 'OpenDrawer', 'CloseDrawer', 'DrawerUtensilSort', 'OrganizeCleaningSupplies',
+    #                          'PantryMishap', 'ShakerShuffle', 'SnackSorting', 'DryDishes', 'DryDrinkware', 'PreSoakPan', 'SortingCleanup',
+    #                          'StackBowlsInSink', 'AfterwashSorting', 'ClearClutter', 'DrainVeggies', 'PrewashFoodAssembly', 'PnPCoffee',
+    #                          'CoffeeSetupMug', 'CoffeeServeMug', 'CoffeePressButton', 'ManipulateDoor', 'OpenDoor', 'OpenSingleDoor',
     #                          'OpenDoubleDoor', 'CloseDoor', 'CloseSingleDoor', 'CloseDoubleDoor', 'MicrowavePressButton', 'TurnOnMicrowave',
-    #                            'TurnOffMicrowave', 'NavigateKitchen', 'PnP', 'PnPCounterToCab', 'PnPCabToCounter', 'PnPCounterToSink', 
-    #                            'PnPSinkToCounter', 'PnPCounterToMicrowave', 'PnPMicrowaveToCounter', 'PnPCounterToStove', 'PnPStoveToCounter', 
+    #                            'TurnOffMicrowave', 'NavigateKitchen', 'PnP', 'PnPCounterToCab', 'PnPCabToCounter', 'PnPCounterToSink',
+    #                            'PnPSinkToCounter', 'PnPCounterToMicrowave', 'PnPMicrowaveToCounter', 'PnPCounterToStove', 'PnPStoveToCounter',
     #                            'ManipulateSinkFaucet', 'TurnOnSinkFaucet', 'TurnOffSinkFaucet', 'TurnSinkSpout', 'ManipulateStoveKnob',
     #                              'TurnOnStove', 'TurnOffStove']
 
@@ -171,12 +171,12 @@ class RoboKitchenEnv(BaseEnv):
         for task_idx in range(num):
             # For now just use OpenSingleDoor as the default task
             task_name = self.task_selected
-            #check if task_name is in available_tasks
+            # check if task_name is in available_tasks
             if task_name not in ALL_KITCHEN_ENVIRONMENTS:
                 raise ValueError(f"Task {task_name} not supported")
             goal_description = task_name
             seed = task_idx
-            
+
             # Get initial observation
             init_obs = self._reset_initial_state(seed, train_or_test, task_name)
             # let's not do that since we are not using reset from initial state
@@ -198,15 +198,12 @@ class RoboKitchenEnv(BaseEnv):
                 return True
         else:
             return False
-        
 
-
-    def _reset_initial_state(self, seed: int, train_or_test: str, task_name: str) -> Observation:
+    def _reset_initial_state(self, seed: int, train_or_test: str, task_name: str, complex_config: bool = False) -> Observation:
         """Reset the environment to an initial state based on the seed."""
         # Create or recreate environment if needed
         warnings.warn("Resetting environment to initial state from seed not implemented for robosuite kitchen")
         if self._env is None:
-            complex_config = False # easy config allows seed
             if complex_config:
                 robot_type = "PandaOmron"
                 controller_config = load_composite_controller_config(robot=robot_type)
@@ -245,7 +242,7 @@ class RoboKitchenEnv(BaseEnv):
 
         # Reset environment with seed
         obs = self._env.reset()
-        
+
         # Update objects of interest based on task
         self.objects_of_interest = self.get_objects_of_interest(task_name)
 
@@ -265,8 +262,8 @@ class RoboKitchenEnv(BaseEnv):
 
         # only support panda robot for now
         contacts = set()
-        # robot_contacts = self._env.get_contacts(self._env.robots[0].robot_model.models[0])
-        gripper_contact = self._env.get_contacts(self._env.robots[0].robot_model.models[1])
+        # robot_contacts = self._env.get_contacts(self._env.robots[0].robot_model.models[0]) # robot
+        gripper_contact = self._env.get_contacts(self._env.robots[0].robot_model.models[1]) # gripper
         # filter down to only include objects of interest
 
         object_names = [obj.name for obj in self.objects_of_interest]
@@ -309,7 +306,7 @@ class RoboKitchenEnv(BaseEnv):
             Predicate("GripperClosed", [cls.gripper_type], cls._GripperClosed_holds),
             Predicate("HingeOpen", [cls.hinge_type], cls._HingeOpen_holds),
             Predicate("HingeClosed", [cls.hinge_type], cls._HingeClosed_holds),
-            Predicate("InContact", [cls.gripper_type, cls.handle_type], cls._InContact_holds),
+            Predicate("InContact", [cls.object_type, cls.object_type], cls._InContact_holds),
         }
 
         return {p.name: p for p in preds}
