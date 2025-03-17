@@ -807,7 +807,8 @@ class GlobalSettings:
                     "exit_garage": 1000,
                     "tools": 1000,
                     "stick_button": 1000,
-                    "stick_button_move": 1000
+                    "stick_button_move": 1000,
+                    "robo_kitchen": 3,
                 })[args.get("env", "")],
 
             # In SeSamE, the maximum effort put into refining a single skeleton.

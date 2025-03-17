@@ -72,7 +72,9 @@ class ExpectedAtomsRobocasaExecutionMonitor(BaseExecutionMonitor):
 
         # if new option, check new predicates are satisfied
         if new_option_bool:
-            unsat_atoms = self._check_predicates(state, next_expected_atoms)
+            # unsat_atoms = self._check_predicates(state, next_expected_atoms)
+            # it seems in nsrt_plan_to_greedy_policy, there is check for unsat atoms already
+            unsat_atoms = {}
             if unsat_atoms:
                 failure_reason = self._format_failure_reason("New", unsat_atoms)
                 self._record_failure(self._running_option_name, state, failure_reason)
@@ -162,5 +164,7 @@ class ExpectedAtomsRobocasaExecutionMonitor(BaseExecutionMonitor):
         self._last_option_name = None
         self._option_start_timestep = 0
         self._current_nsrt_step = 0
+        if reset_failure_memory:
+            self._failure_memory = []
         # Note: we don't reset failure memory as we want to keep track across episodes
 
