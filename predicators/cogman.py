@@ -50,8 +50,8 @@ class CogMan:
         task = self._perceiver.reset(env_task)
         self._current_env_task = env_task
         self._current_goal = task.goal
+        self._exec_monitor.reset(task, reset_failure_memory=True)
         self._reset_policy(task)
-        self._exec_monitor.reset(task)
         self._exec_monitor.update_approach_info(
             self._approach.get_execution_monitoring_info())
         self._episode_state_history = [task.init]
@@ -82,9 +82,8 @@ class CogMan:
             logging.info("\033[93m[CogMan] Replanning triggered.\033[0m")
             assert self._current_goal is not None
             task = Task(state, self._current_goal)
-            self._reset_policy(task, stay_close_to_previous_plan = True) # approach is updated
-            self._approach._last_fail_info = self._exec_monitor._failure_memory
             self._exec_monitor.reset(task, reset_failure_memory=False)
+            self._reset_policy(task, stay_close_to_previous_plan = True) # approach is updated
             self._exec_monitor.update_approach_info(
                 self._approach.get_execution_monitoring_info())
             # We only reset the approach if the override policy is
@@ -169,6 +168,8 @@ class CogMan:
 
     def _reset_policy(self, task: Task, stay_close_to_previous_plan: bool = None) -> None:
         """Call the approach or use the override policy."""
+        # if self._exec_monitor._failure_memory:
+        self._approach._last_fail_info = self._exec_monitor._failure_memory
         if self._override_policy is not None:
             self._current_policy = self._override_policy
         else:
