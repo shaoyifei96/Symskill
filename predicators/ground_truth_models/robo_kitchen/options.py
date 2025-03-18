@@ -18,6 +18,8 @@ from flask import request
 
 import matplotlib.pyplot as plt
 
+from predicators.settings import CFG
+
 workspace_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
 ds_policy_path = os.path.join(workspace_root, "DS-Policy/src")
 if ds_policy_path not in sys.path:
@@ -50,7 +52,6 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
     push_lr_thresh_pad: ClassVar[float] = 0.02
     push_microhandle_thresh_pad: ClassVar[float] = 0.02
     turn_knob_tol: ClassVar[float] = 0.02  # for twisting the knob
-    offset_inwards_from_handle: ClassVar[float] = 0.1
 
     @classmethod
     def get_env_names(cls) -> Set[str]:
@@ -123,7 +124,7 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
             # memory["visualizer"] = visualizer
             # memory["visualizer"]._run()
 
-        def _create_ds_model(memory: Dict, state: State, objects: Sequence[Object], offset_handle_frame: Optional[np.ndarray] = None) -> None:
+        def _create_simple_ds_model(memory: Dict, state: State, objects: Sequence[Object], offset_handle_frame: Optional[np.ndarray] = None) -> None:
             """Helper to create and initialize the DS model in memory."""
             # Define model architecture
             class SimpleDS(torch.nn.Module):
@@ -152,7 +153,7 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
                 print("fail_memory of DS_move_towards_option")
                 print(memory["fail_memory"])
             if "model" not in memory:
-                _create_ds_model(memory, state, objects, offset_handle_frame=np.array([0.0, 0.0, 0.0]))
+                _create_simple_ds_model(memory, state, objects, offset_handle_frame=np.array([0.0, RoboKitchenEnv.offset_inwards_from_handle, 0.0]))
             return True
 
         # DS_move_option - always initiable, empty policy, never terminates
@@ -161,7 +162,7 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
                 print("fail_memory of DS_move_towards_option")
                 print(memory["fail_memory"])
             if "ds_policy" not in memory:
-                _create_ds_policy(memory, state, objects, option="move_towards", offset_handle_frame=np.array([0.0, cls.offset_inwards_from_handle, 0.0]))
+                _create_ds_policy(memory, state, objects, option="move_towards", offset_handle_frame=np.array([0.0, RoboKitchenEnv.offset_inwards_from_handle, 0.0]))
                 # _create_ds_policy(memory, state, objects, option="move_towards", offset_handle_frame=np.array([0.0, 0.0, 0.0]))
 
             return True
@@ -169,7 +170,7 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
         # DS_move_away_option - always initiable, empty policy, never terminates
         def _DS_move_away_option_initiable_linear(state: State, memory: Dict, objects: Sequence[Object], params: Array) -> bool:
             if "model" not in memory:
-                _create_ds_model(memory, state, objects, offset_handle_frame=np.array([-0.6, -0.6, 0.0]))
+                _create_simple_ds_model(memory, state, objects, offset_handle_frame=np.array([-0.6, -0.6, 0.0]))
                 # NOTE: this means open the door to the left, some doors open to the right and won't work
             return True
         
@@ -178,10 +179,8 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
                 _create_ds_policy(memory, state, objects, option="move_away", offset_handle_frame=np.array([-0.6, -0.6, 0.0]))
             return True
 
-        def vee_operator(w):
-            return np.array([w[2, 1], w[0, 2], w[1, 0]])
         
-        def _DS_move_option_policy(state: State, memory: Dict, objects: Sequence[Object], params: Array) -> Action:
+        def _DS_general_move_option_policy(state: State, memory: Dict, objects: Sequence[Object], params: Array) -> Action:
             # Get objects
             gripper, _, base = objects
             handle_init_pos = memory["handle_init_pos"]
@@ -223,9 +222,9 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
                     velocity_in_handle = net(torch.from_numpy(pos_in_handle).float())
                 
                 warnings.warn("Velocity getting scaled, plz remove")
-                velocity_in_handle[0] = velocity_in_handle[0] * 2 #handle frame x is the direction towards handle
-                velocity_in_handle[1] = velocity_in_handle[1] * 0.4
-                velocity_in_handle[2] = velocity_in_handle[2] * 2
+                velocity_in_handle[0] = velocity_in_handle[0] * 0.5 #handle frame x is the direction towards handle
+                velocity_in_handle[1] = velocity_in_handle[1] * 0.05
+                velocity_in_handle[2] = velocity_in_handle[2] * 0.5
                 # Transform velocity back to world frame
                 velocity_world = handle_init_rot @ velocity_in_handle.numpy()
                 velocity_robot_base = robot_base_rot.T @ velocity_world
@@ -263,7 +262,7 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
             
             else:
                 # Fallback if neither model is available
-                arr = np.zeros(7, dtype=np.float32)
+                raise ValueError("No DS option policy found")
 
             # Clip the action to the action space limits
             action_low = np.array([-1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0], dtype=np.float32)
@@ -272,7 +271,7 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
 
             return Action(arr)
 
-        def _DS_move_option_terminal(state: State, memory: Dict, objects: Sequence[Object], params: Array) -> bool:
+        def _DS_move_towards_option_terminal(state: State, memory: Dict, objects: Sequence[Object], params: Array) -> bool:
             handle_init_pos = memory["handle_init_pos"]
             gripper, _, base = objects
             gripper_pos = np.array([state.get(gripper, "x"), state.get(gripper, "y"), state.get(gripper, "z")])
@@ -286,21 +285,21 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
             velocity = np.linalg.norm(gripper_pos - memory["prev_gripper_pos"])
             memory["prev_gripper_pos"] = gripper_pos
             
-            if np.linalg.norm(gripper_pos - handle_init_pos) <= cls.offset_inwards_from_handle and velocity < 0.01:
+            if np.linalg.norm(gripper_pos - handle_init_pos) <= RoboKitchenEnv.offset_inwards_from_handle and velocity < 0.01:
                 return True
             return False
         
         def _DS_move_away_terminal(state: State, memory: Dict, objects: Sequence[Object], params: Array) -> bool:
             return False
 
-        DS_move_option = ParameterizedOption(
+        DS_move_towards_option = ParameterizedOption(
             "DS_move_option",
             types=[gripper, handle, base],
             # Unused params
             params_space=Box(-5, 5, (1,)),
-            policy=_DS_move_option_policy,
-            initiable=_DS_move_towards_option_initiable_node,
-            terminal=_DS_move_option_terminal,
+            policy=_DS_general_move_option_policy,
+            initiable=_DS_move_towards_option_initiable_linear if CFG.robo_kitchen_policy_model == "simple_ds" else _DS_move_towards_option_initiable_node,
+            terminal=_DS_move_towards_option_terminal,
         )
 
 
@@ -309,12 +308,12 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
             types=[gripper, handle, base],
             # Unused params
             params_space=Box(-5, 5, (1,)),
-            policy=_DS_move_option_policy,
-            initiable=_DS_move_away_option_initiable_node,
-            terminal=_DS_move_option_terminal,
+            policy=_DS_general_move_option_policy,
+            initiable=_DS_move_away_option_initiable_linear if CFG.robo_kitchen_policy_model == "simple_ds" else _DS_move_away_option_initiable_node,
+            terminal=_DS_move_away_terminal,
         )
 
-        options.add(DS_move_option)
+        options.add(DS_move_towards_option)
         options.add(DS_move_away_option)
 
         # GripperOpen_option

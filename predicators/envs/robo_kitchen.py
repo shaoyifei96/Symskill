@@ -41,6 +41,8 @@ class RoboKitchenEnv(BaseEnv):
     gripper_closed_thresh = 0.03 # m
     close_distance_thresh = 0.02  #m
 
+    offset_inwards_from_handle = 0.10 #m
+
     # Types (similar to original kitchen)
     handle_type = Type("handle_type", ["x", "y", "z", "qx", "qy", "qz", "qw"])
     gripper_type = Type("gripper_type", ["x", "y", "z", "qx", "qy", "qz", "qw", "angle"])
@@ -212,7 +214,7 @@ class RoboKitchenEnv(BaseEnv):
         # Create or recreate environment if needed
         warnings.warn("Resetting environment to initial state from seed not implemented for robosuite kitchen")
         if self._env is None:
-            complex_config = True # easy config allows seed
+            complex_config = False # False config allows seed
             if complex_config:
                 robot_type = "PandaOmron"
                 controller_config = load_composite_controller_config(robot=robot_type)
@@ -526,7 +528,7 @@ class RoboKitchenEnv(BaseEnv):
         # Check if position of gripper is close to handle
         gripper_pos = np.array([state.get(gripper, "x"), state.get(gripper, "y"), state.get(gripper, "z")])
         handle_pos = np.array([state.get(handle, "x"), state.get(handle, "y"), state.get(handle, "z")])
-        if np.linalg.norm(gripper_pos - handle_pos) > cls.close_distance_thresh:
+        if np.linalg.norm(gripper_pos - handle_pos) > (cls.close_distance_thresh + cls.offset_inwards_from_handle):
             return False
         # Check if orientation of gripper is close to handle
         return True

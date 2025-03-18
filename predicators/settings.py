@@ -17,6 +17,7 @@ class GlobalSettings:
     # robo_kitchen_viz_debug = False # i think the use_gui flag covers this
     robo_kitchen_contact_smoothing_window = 21
     robo_kitchen_save_traj = True
+    robo_kitchen_policy_model = "simple_ds" # "simple_ds" or "node
     make_test_videos = False
     loglevel = 10
 
