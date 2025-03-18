@@ -20,13 +20,7 @@ import matplotlib.pyplot as plt
 
 from predicators.settings import CFG
 
-workspace_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
-ds_policy_path = os.path.join(workspace_root, "DS-Policy/src")
-if ds_policy_path not in sys.path:
-    sys.path.append(ds_policy_path)
-
-from ds_policy import DSPolicy
-from load_tools import load_data
+from ds_policy import DSPolicy, load_data
 
 from predicators.envs.robo_kitchen import RoboKitchenEnv
 from predicators.ground_truth_models import GroundTruthOptionFactory
@@ -100,23 +94,19 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
         def _create_ds_policy(memory: Dict, state: State, objects: Sequence[Object], option: str, offset_handle_frame: Optional[np.ndarray] = None) -> None:
             if option == "move_towards":
                 x, x_dot, q, omega = load_data("custom", option="move_towards")
-                ds_policy = DSPolicy(x, x_dot, q, omega, dt=1/60, switch=False, use_avg=True)
             elif option == "move_away":
                 x, x_dot, q, omega = load_data("custom", option="move_away")
-                ds_policy = DSPolicy(x, x_dot, q, omega, dt=1/60, switch=False, use_avg=True)
-            
-            pos_model_path = f"DS-Policy/models/mlp_width128_depth3_{option}.pt"
-            quat_model_path = f"DS-Policy/models/quat_model_{option}.json"
-            
-            if not os.path.exists(pos_model_path):
-                ds_policy.train_pos_model(save_path=pos_model_path, batch_size=10, 
-                                        lr_strategy=(1e-3, 1e-4, 1e-5), 
-                                        epoch_strategy=(100, 100, 100), 
-                                        plot=False, print_every=10)
-            else:
-                ds_policy.load_pos_model(pos_model_path)
-                
-            ds_policy.train_quat_model(save_path=quat_model_path, k_init=10)
+            model_config = {
+                'pos_model': {
+                    'special_mode': 'none',
+                    # 'load_path': f"ds_policy/models/mlp_width128_depth3_{option}.pt",
+                },
+                'quat_model': {
+                    'save_path': f"ds_policy/models/quat_model_{option}.json",
+                    'k_init': 10
+                }
+            }
+            ds_policy = DSPolicy(x, x_dot, q, omega, model_config=model_config, dt=1/60, switch=False)
             memory["ds_policy"] = ds_policy
             _init_handle_transform(memory, state, objects, offset_handle_frame)
             
@@ -162,8 +152,8 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
                 print("fail_memory of DS_move_towards_option")
                 print(memory["fail_memory"])
             if "ds_policy" not in memory:
-                _create_ds_policy(memory, state, objects, option="move_towards", offset_handle_frame=np.array([0.0, RoboKitchenEnv.offset_inwards_from_handle, 0.0]))
-                # _create_ds_policy(memory, state, objects, option="move_towards", offset_handle_frame=np.array([0.0, 0.0, 0.0]))
+                # _create_ds_policy(memory, state, objects, option="move_towards", offset_handle_frame=np.array([0.0, cls.offset_inwards_from_handle, 0.0]))
+                _create_ds_policy(memory, state, objects, option="move_towards", offset_handle_frame=np.array([0.0, 0.0, 0.0]))
 
             return True
         
