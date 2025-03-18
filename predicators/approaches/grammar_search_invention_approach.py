@@ -810,18 +810,18 @@ class _PrunedGrammar(_DataBasedPredicateGrammar):
             # Then, we only need to care about the initial and final
             # states in each segment, which we store into
             # self._state_sequence.
-            eef_obj = RoboKitchenEnv.object_name_to_object("robot0_eef")
-            handle_obj = RoboKitchenEnv.object_name_to_object("handle_pose")
+            gripper_obj = RoboKitchenEnv.object_name_to_object("gripper") # TODO: hardcoded no good
+            handle_obj = RoboKitchenEnv.object_name_to_object("handle") # TODO: hardcoded no good
             for i, traj in enumerate(self.dataset.trajectories):
                 # The init_atoms and final_atoms are not used.
                 seg_traj = segment_trajectory(traj, predicates=set())
                 if CFG.robo_kitchen_save_traj:
                     for seg_idx, seg in enumerate(seg_traj):
-                        eef_traj = np.zeros((len(seg.states), 7))
-                        handle_traj = np.zeros((len(seg.states), 7))
+                        eef_traj = np.zeros((len(seg.states), 8))# TODO: num dim hardcoded no good
+                        handle_traj = np.zeros((len(seg.states), 7))# TODO: hardcoded no good
                         contact_traj = []
                         for t, state in enumerate(seg.states):
-                            eef_traj[t] = state[eef_obj]
+                            eef_traj[t] = state[gripper_obj]
                             handle_traj[t] = state[handle_obj]
                             contact_traj.append({(obj1.name, obj2.name) for obj1, obj2 in state.items_in_contact})
                         # Save eef trajectory to file with padded demo and segment numbers

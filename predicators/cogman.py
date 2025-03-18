@@ -82,7 +82,7 @@ class CogMan:
             logging.info("\033[93m[CogMan] Replanning triggered.\033[0m")
             assert self._current_goal is not None
             task = Task(state, self._current_goal)
-            self._reset_policy(task) # approach is updated
+            self._reset_policy(task, stay_close_to_previous_plan = True) # approach is updated
             self._approach._last_fail_info = self._exec_monitor._failure_memory
             self._exec_monitor.reset(task, reset_failure_memory=False)
             self._exec_monitor.update_approach_info(
@@ -167,13 +167,14 @@ class CogMan:
         return LowLevelTrajectory(self._episode_state_history,
                                   self._episode_action_history)
 
-    def _reset_policy(self, task: Task) -> None:
+    def _reset_policy(self, task: Task, stay_close_to_previous_plan: bool = None) -> None:
         """Call the approach or use the override policy."""
         if self._override_policy is not None:
             self._current_policy = self._override_policy
         else:
-            self._current_policy = self._approach.solve(task,
-                                                        timeout=CFG.timeout)
+            self._current_policy = self._approach.solve(task, 
+                                                        timeout=CFG.timeout,
+                                                        stay_close_to_previous_plan = stay_close_to_previous_plan)
 
 
 def run_episode_and_get_observations(

@@ -62,12 +62,12 @@ class BaseApproach(abc.ABC):
         """
         return []
 
-    def solve(self, task: Task, timeout: int) -> Callable[[State], Action]:
+    def solve(self, task: Task, timeout: int, stay_close_to_previous_plan: bool = None) -> Callable[[State], Action]:
         """Light wrapper around the abstract self._solve().
 
         Checks that actions are in the action space.
         """
-        pi = self._solve(task, timeout)
+        pi = self._solve(task, timeout, stay_close_to_previous_plan)
 
         def _policy(state: State) -> Action:
             assert isinstance(state, State)
