@@ -18,6 +18,7 @@ from predicators import utils
 from predicators.approaches import BaseApproach
 from predicators.envs import BaseEnv
 from predicators.execution_monitoring import BaseExecutionMonitor
+from predicators.execution_monitoring.expected_atoms_robocasa_monitor import ExpectedAtomsRobocasaExecutionMonitor
 from predicators.perception import BasePerceiver
 from predicators.settings import CFG
 from predicators.structs import Action, Dataset, EnvironmentTask, GroundAtom, \
@@ -50,7 +51,10 @@ class CogMan:
         task = self._perceiver.reset(env_task)
         self._current_env_task = env_task
         self._current_goal = task.goal
-        self._exec_monitor.reset(task, reset_failure_memory=True)
+        if isinstance(self._exec_monitor, ExpectedAtomsRobocasaExecutionMonitor):
+            self._exec_monitor.reset(task, reset_failure_memory=True)
+        else:
+            self._exec_monitor.reset(task)
         self._reset_policy(task)
         self._exec_monitor.update_approach_info(
             self._approach.get_execution_monitoring_info())
@@ -168,8 +172,8 @@ class CogMan:
 
     def _reset_policy(self, task: Task, stay_close_to_previous_plan: bool = None) -> None:
         """Call the approach or use the override policy."""
-        # if self._exec_monitor._failure_memory:
-        self._approach._last_fail_info = self._exec_monitor._failure_memory
+        if isinstance(self._exec_monitor, ExpectedAtomsRobocasaExecutionMonitor):
+            self._approach._last_fail_info = self._exec_monitor._failure_memory
         if self._override_policy is not None:
             self._current_policy = self._override_policy
         else:

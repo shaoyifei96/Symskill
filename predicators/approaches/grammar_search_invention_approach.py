@@ -166,7 +166,7 @@ class _SingleAttributeCompareClassifier(_UnaryClassifier):
     compare_str: str
 
     def _classify_object(self, s: State, obj: Object) -> bool:
-        assert obj.type == self.object_type
+        assert obj.is_instance(self.object_type), f"Object type mismatch: expected {self.object_type}, got {obj.type}"
         return self.compare(s.get(obj, self.attribute_name), self.constant)
 
     def __str__(self) -> str:
@@ -815,7 +815,7 @@ class _PrunedGrammar(_DataBasedPredicateGrammar):
             for i, traj in enumerate(self.dataset.trajectories):
                 # The init_atoms and final_atoms are not used.
                 seg_traj = segment_trajectory(traj, predicates=set())
-                if CFG.robo_kitchen_save_traj:
+                if CFG.robo_kitchen_save_traj_by_segment:
                     for seg_idx, seg in enumerate(seg_traj):
                         eef_traj = np.zeros((len(seg.states), 8))# TODO: num dim hardcoded no good
                         handle_traj = np.zeros((len(seg.states), 7))# TODO: hardcoded no good
