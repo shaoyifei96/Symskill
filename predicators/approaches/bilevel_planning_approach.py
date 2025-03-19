@@ -70,7 +70,7 @@ class BilevelPlanningApproach(BaseApproach):
             self._last_atoms_seq = atoms_seq
             # Create list of maintain effects for each step in the plan
             self._last_maintain_effects = [nsrt.maintain_effects for nsrt in nsrt_plan]
-            self._last_maintain_effects.append(set())
+            self._last_maintain_effects.append(set()) # padding last_maintain_effects with empty set above
             policy = utils.nsrt_plan_to_greedy_policy(nsrt_plan, task.goal,
                                                       self._last_fail_info,
                                                       self._rng)

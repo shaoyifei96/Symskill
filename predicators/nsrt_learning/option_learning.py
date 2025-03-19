@@ -470,6 +470,10 @@ class _LearnedNeuralParameterizedOption(ParameterizedOption):
         # Convert the action back to the original space.
         action_arr = self._action_converter.reduced_to_env(action_arr)
         # Clip the action.
+        if CFG.env == "robo_kitchen":
+            # Clip the action size to the robo_kitchen action space
+            action_arr = action_arr[:len(self._action_space.low)]
+            
         action_arr = np.clip(action_arr, self._action_space.low,
                              self._action_space.high)
         return Action(np.array(action_arr, dtype=np.float32))

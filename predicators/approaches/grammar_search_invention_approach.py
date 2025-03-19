@@ -166,7 +166,7 @@ class _SingleAttributeCompareClassifier(_UnaryClassifier):
     compare_str: str
 
     def _classify_object(self, s: State, obj: Object) -> bool:
-        assert obj.type == self.object_type
+        assert obj.is_instance(self.object_type), f"Object type mismatch: expected {self.object_type}, got {obj.type}"
         return self.compare(s.get(obj, self.attribute_name), self.constant)
 
     def __str__(self) -> str:
@@ -815,7 +815,7 @@ class _PrunedGrammar(_DataBasedPredicateGrammar):
             for i, traj in enumerate(self.dataset.trajectories):
                 # The init_atoms and final_atoms are not used.
                 seg_traj = segment_trajectory(traj, predicates=set())
-                if CFG.robo_kitchen_save_traj:
+                if CFG.robo_kitchen_save_traj_by_segment:
                     for seg_idx, seg in enumerate(seg_traj):
                         eef_traj = np.zeros((len(seg.states), 8))# TODO: num dim hardcoded no good
                         handle_traj = np.zeros((len(seg.states), 7))# TODO: hardcoded no good
@@ -978,19 +978,19 @@ class GrammarSearchInventionApproach(NSRTLearningApproach):
         """Generates predicates from a grammar, and applies them to the
         dataset."""
         # Generate a candidate set of predicates.
-        logging.info("Generating candidate predicates...")
+        logging.info("\033[33mGenerating candidate predicates...\033[0m")
         grammar = _create_grammar(dataset, self._initial_predicates)
         candidates = grammar.generate(
             max_num=CFG.grammar_search_max_predicates)
-        logging.info(f"Done: created {len(candidates)} candidates:")
+        logging.info(f"\033[32mDone: created {len(candidates)} candidates:\033[0m")
         self._metrics["grammar_size"] = len(candidates)
         for predicate, cost in candidates.items():
-            logging.info(f"{predicate} {cost}")
+            logging.info(f"\033[32mPred: {predicate} Cost: {cost}\033[0m")
         # Now, rename these predicates to be compatible with PDDL planners!
         renamed_candidates = self.\
             _rename_predicates_to_remove_incompatible_chars(candidates)
         # Apply the candidate predicates to the data.
-        logging.info("Applying predicates to data...")
+        logging.info("\033[33mApplying predicates to data...\033[0m")
 
         # Get the template str for the dataset filename for saving
         # a ground atom dataset.
@@ -1017,7 +1017,7 @@ class GrammarSearchInventionApproach(NSRTLearningApproach):
             # Save this atoms dataset if the save_atoms flag is set.
             if CFG.save_atoms:
                 utils.save_ground_atom_dataset(atom_dataset, dataset_fname)
-        logging.info("Done.")
+        logging.info("\033[32mDone.\033[0m")
         assert atom_dataset is not None
         return (atom_dataset, renamed_candidates)
 

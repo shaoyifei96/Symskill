@@ -245,7 +245,7 @@ def _segment_with_switch_function(
     if include_last_segment and t_last_switch != len(ll_traj.actions) - 1:
         current_segment_states = []
         current_segment_actions = []
-        current_final_atoms = [] # not changed so mark as empty
+        current_final_atoms = set() # not changed so mark as empty
         
         for t in range(t_last_switch + 1, len(ll_traj.actions)):
             current_segment_states.append(ll_traj.states[t])
