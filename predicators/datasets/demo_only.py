@@ -46,29 +46,21 @@ def create_demo_data(env: BaseEnv, train_tasks: List[Task],
                       instead of collecting new ones
     """
     if robocasa_task is not None:
-        return create_demo_data_from_robocasa(env, train_tasks, known_options, robocasa_task)
-        
-    assert CFG.demonstrator in ("oracle", "human")
-    dataset_fname, dataset_fname_template = utils.create_dataset_filename_str(
-        saving_ground_atoms=False)
-    os.makedirs(CFG.data_dir, exist_ok=True)
-    if CFG.load_data:
-        dataset = _create_demo_data_with_loading(env, train_tasks,
-                                                 known_options,
-                                                 dataset_fname_template,
-                                                 dataset_fname)
-    else:
-        dataset = _generate_demonstrations(
-            env,
-            train_tasks,
-            known_options,
-            train_tasks_start_idx=0,
-            annotate_with_gt_ops=annotate_with_gt_ops)
-        logging.info(f"\n\nCREATED {len(dataset.trajectories)} DEMONSTRATIONS")
-
-        with open(dataset_fname, "wb") as f:
-            pkl.dump(dataset, f)
-    return dataset
+        if CFG.robo_kitchen_load_dataset:
+            dataset_fname = f"robokitchen__{robocasa_task}__{CFG.num_train_tasks}.pkl"
+            if os.path.exists(dataset_fname):
+                with open(dataset_fname, "rb") as f:
+                    dataset = pkl.load(f)
+                return dataset
+            else:
+                raise ValueError(f"Dataset not found at {dataset_fname}")
+        else:
+            dataset = create_demo_data_from_robocasa(env, train_tasks, known_options, robocasa_task)
+            if CFG.robo_kitchen_save_dataset:
+                dataset_fname = f"robokitchen__{robocasa_task}__{CFG.num_train_tasks}.pkl"
+                with open(dataset_fname, "wb") as f:
+                    pkl.dump(dataset, f)
+            return dataset
 
 
 def _create_demo_data_with_loading(env: BaseEnv, train_tasks: List[Task],
