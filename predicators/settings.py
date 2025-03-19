@@ -16,7 +16,7 @@ class GlobalSettings:
     robo_kitchen_task = "OpenSingleDoor"
     # robo_kitchen_viz_debug = False # i think the use_gui flag covers this
     robo_kitchen_contact_smoothing_window = 21
-    robo_kitchen_load_dataset = False # this has priority, if False, then save flag is considered
+    robo_kitchen_load_dataset = True # this has priority, if False, then save flag is considered
     robo_kitchen_save_dataset = not robo_kitchen_load_dataset
     robo_kitchen_save_traj_by_segment = False
     robo_kitchen_policy_model = "simple_ds" # "simple_ds" or "node
@@ -26,7 +26,7 @@ class GlobalSettings:
     """Unchanging settings."""
     # global parameters
     num_train_tasks = 10 # in robocasa, either the max demo number or num_train_tasks will be used
-    num_test_tasks = 2
+    num_test_tasks = 10
     # Perform online learning for this many cycles or until this many
     # transitions have been collected, whichever happens first.
     num_online_learning_cycles = 10
@@ -682,7 +682,7 @@ class GlobalSettings:
     grammar_search_bf_weight = 1
     grammar_search_operator_complexity_weight = 0.0
     grammar_search_pred_complexity_weight = 1e-4
-    grammar_search_max_predicates = 200
+    grammar_search_max_predicates = 50
     grammar_search_predicate_cost_upper_bound = 6
     grammar_search_prune_redundant_preds = True
     grammar_search_score_function = "expected_nodes_created"

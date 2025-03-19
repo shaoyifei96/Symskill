@@ -8,7 +8,7 @@
         "program": "${workspaceFolder}/predicators_robocasa/predicators/main.py",
         "args": ["--env", "robo_kitchen", "--approach", "oracle", "--seed", "0", "--debug", "--use_gui", "--execution_monitor", "expected_atoms_robocasa"],
         "console": "integratedTerminal",
-        "pythonPath": "/home/yifei/miniconda3/envs/task_plan_casa2/bin/python"
+        "pythonPath": "/home/yifei/miniconda3/envs/task_plan_casa3/bin/python"
         // plan without sim does not work
       },
       {
@@ -18,16 +18,16 @@
         "program": "${workspaceFolder}/predicators_robocasa/predicators/main.py",
         "args": ["--env", "burger", "--approach", "oracle", "--seed", "0", "--debug", "--use_gui"],
         "console": "integratedTerminal",
-        "pythonPath": "/home/yifei/miniconda3/envs/task_plan_casa2/bin/python"
+        "pythonPath": "/home/yifei/miniconda3/envs/task_plan_casa3/bin/python"
       },
       {
         "name": "Debug Grammer Search Invention",
         "type": "python",
         "request": "launch",
         "program": "${workspaceFolder}/predicators_robocasa/predicators/main.py",
-        "args": ["--env", "robo_kitchen", "--approach", "grammar_search_invention", "--seed", "0", "--bilevel_plan_without_sim", "True","--debug", "--excluded_predicates", "all"],
+        "args": ["--env", "robo_kitchen", "--use_gui", "--approach", "grammar_search_invention", "--seed", "0", "--bilevel_plan_without_sim", "True","--debug", "--excluded_predicates", "all", "--option_learner", "direct_bc"],
         "console": "integratedTerminal",
-        "pythonPath": "/home/yifei/miniconda3/envs/task_plan_casa2/bin/python"
+        "pythonPath": "/home/yifei/miniconda3/envs/task_plan_casa3/bin/python"
       },
       {
         "name": "Playback dataset",
@@ -36,7 +36,7 @@
         "program": "${workspaceFolder}/robocasa/robocasa/demos/demo_tasks.py",
         "args": ["--task", "OpenSingleDoor"],
         "console": "integratedTerminal",
-        "pythonPath": "/home/yifei/miniconda3/envs/task_plan_casa2/bin/python"
+        "pythonPath": "/home/yifei/miniconda3/envs/task_plan_casa3/bin/python"
       },
       {
 
@@ -48,7 +48,7 @@
         "program": "${workspaceFolder}/robocasa/robocasa/demos/demo_teleop.py",
       "args": ["--robot","PandaOmron","--task", "OpenSingleDoor", "--layout", "2", "--style", "0"],
         "console": "integratedTerminal",
-        "pythonPath": "/home/yifei/miniconda3/envs/task_plan_casa2/bin/python"
+        "pythonPath": "/home/yifei/miniconda3/envs/task_plan_casa3/bin/python"
       }
     ]
   }

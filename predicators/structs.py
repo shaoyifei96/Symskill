@@ -940,7 +940,6 @@ class NSRT:
     name: str
     parameters: Sequence[Variable]
     preconditions: Set[LiftedAtom]
-    maintain_effects: Set[LiftedAtom]
     add_effects: Set[LiftedAtom]
     delete_effects: Set[LiftedAtom]
     ignore_effects: Set[Predicate]
@@ -950,6 +949,7 @@ class NSRT:
     option_vars: Sequence[Variable]
     # A sampler maps a state, RNG, and objects to option parameters.
     _sampler: NSRTSampler = field(repr=False)
+    maintain_effects: Set[LiftedAtom] = field(default_factory=set)
 
     @cached_property
     def _str(self) -> str:
@@ -1036,9 +1036,9 @@ class NSRT:
         add_effects = {atom.ground(sub) for atom in self.add_effects}
         delete_effects = {atom.ground(sub) for atom in self.delete_effects}
         option_objs = [sub[v] for v in self.option_vars]
-        return _GroundNSRT(self, objects, preconditions, maintain_effects,add_effects,
+        return _GroundNSRT(self, objects, preconditions,add_effects,
                            delete_effects, self.option, option_objs,
-                           self._sampler)
+                           self._sampler, maintain_effects)
 
     def filter_predicates(self, kept: Collection[Predicate]) -> NSRT:
         """Keep only the given predicates in the preconditions, add effects,
@@ -1055,9 +1055,9 @@ class NSRT:
             for a in self.delete_effects if a.predicate in kept
         }
         ignore_effects = {a for a in self.ignore_effects if a in kept}
-        return NSRT(self.name, self.parameters, preconditions, maintain_effects, add_effects,
+        return NSRT(self.name, self.parameters, preconditions, add_effects,
                     delete_effects, ignore_effects, self.option,
-                    self.option_vars, self._sampler)
+                    self.option_vars, self._sampler, maintain_effects)
 
 
 @dataclass(frozen=True, repr=False, eq=False)
@@ -1069,12 +1069,12 @@ class _GroundNSRT:
     parent: NSRT
     objects: Sequence[Object]
     preconditions: Set[GroundAtom]
-    maintain_effects: Set[GroundAtom]
     add_effects: Set[GroundAtom]
     delete_effects: Set[GroundAtom]
     option: ParameterizedOption
     option_objs: Sequence[Object]
     _sampler: NSRTSampler = field(repr=False)
+    maintain_effects: Set[GroundAtom] = field(default_factory=set)
 
     @cached_property
     def _str(self) -> str:

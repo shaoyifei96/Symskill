@@ -66,13 +66,13 @@ class RoboKitchenGroundTruthNSRTFactory(GroundTruthNSRTFactory):
             "OpenGripper",
             parameters,
             preconditions,
-            maintain_effects,
             add_effects,
             delete_effects,
             ignore_effects,
             option,
             option_vars,
             open_gripper_sampler,
+            maintain_effects,
         )
         nsrts.add(open_gripper_nsrt)
 
@@ -93,13 +93,13 @@ class RoboKitchenGroundTruthNSRTFactory(GroundTruthNSRTFactory):
             "MoveToHandle",
             parameters,
             preconditions,
-            maintain_effects,
             add_effects,
             delete_effects,
             ignore_effects,
             option,
             option_vars,
             move_to_handle_sampler,
+            maintain_effects,
         )
         nsrts.add(move_to_handle_nsrt)
 
@@ -120,13 +120,13 @@ class RoboKitchenGroundTruthNSRTFactory(GroundTruthNSRTFactory):
             "GrabHandle",
             parameters,
             preconditions,
-            maintain_effects,
             add_effects,
             delete_effects,
             ignore_effects,
             option,
             option_vars,
             grab_handle_sampler,
+            maintain_effects,
         )
         nsrts.add(grab_handle_nsrt)
 
@@ -147,13 +147,13 @@ class RoboKitchenGroundTruthNSRTFactory(GroundTruthNSRTFactory):
             "MoveToAndGrabHandle",
             parameters,
             preconditions,
-            maintain_effects,
             add_effects,
             delete_effects,
             ignore_effects,
             option,
             option_vars,
             move_to_and_grab_handle_sampler,
+            maintain_effects,   
         )
         # nsrts.add(move_to_and_grab_handle_nsrt)
 
@@ -174,13 +174,13 @@ class RoboKitchenGroundTruthNSRTFactory(GroundTruthNSRTFactory):
             "PullOpenDoor",
             parameters,
             preconditions,
-            maintain_effects,
             add_effects,
             delete_effects,
             ignore_effects,
             option,
             option_vars,
             pull_open_door_sampler,
+            maintain_effects,
         )
         nsrts.add(pull_open_door_nsrt)
 
