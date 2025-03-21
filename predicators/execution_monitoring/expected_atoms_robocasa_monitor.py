@@ -33,9 +33,9 @@ class ExpectedAtomsRobocasaExecutionMonitor(BaseExecutionMonitor):
     
     def _record_failure(self, option_name: str, state: State, reason_of_failure: str) -> None:
         """Record failure."""
-        gripper = RoboKitchenEnv.object_name_to_object("gripper")
-        gripper_state = state.vec([gripper])
-        failure_info = OptionFailureInfo(option_name, reason_of_failure, gripper_state)
+        # gripper = RoboKitchenEnv.object_name_to_object("gripper")
+        # gripper_state = state.vec([gripper])
+        failure_info = OptionFailureInfo(option_name, reason_of_failure, state)
         self._failure_memory.append(failure_info)
 
     def step(self, state: State) -> bool:

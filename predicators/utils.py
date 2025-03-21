@@ -59,7 +59,7 @@ from predicators.structs import NSRT, Action, Array, DummyOption, \
     _GroundNSRT, _GroundSTRIPSOperator, _Option, _TypedEntity, OptionFailureInfo
 from predicators.third_party.fast_downward_translator.translate import \
     main as downward_translate
-
+from predicators.meshcat_visualizer import MeshcatVisualizer
 if TYPE_CHECKING:
     from predicators.envs import BaseEnv
 
@@ -1271,13 +1271,13 @@ def option_policy_to_policy(
     option_policy: Callable[[State], _Option],
     max_option_steps: Optional[int] = None,
     raise_error_on_repeated_state: bool = False,
-) -> Callable[[State], Action]:
+) -> Callable[[State, Optional[MeshcatVisualizer]], Action]:
     """Create a policy that executes a policy over options."""
     cur_option = DummyOption
     num_cur_option_steps = 0
     last_state: Optional[State] = None
 
-    def _policy(state: State) -> Action:
+    def _policy(state: State, visualizer: Optional[MeshcatVisualizer] = None) -> Action:
         nonlocal cur_option, num_cur_option_steps, last_state
 
         if cur_option is DummyOption:
@@ -1300,7 +1300,7 @@ def option_policy_to_policy(
 
         if cur_option is DummyOption or cur_option.terminal(state):
             try:
-                cur_option = option_policy(state)
+                cur_option = option_policy(state, visualizer)
             except OptionExecutionFailure as e:
                 e.info["last_failed_option"] = last_option
                 raise e
@@ -1343,7 +1343,7 @@ def nsrt_plan_to_greedy_option_policy(
     fail_info: List[OptionFailureInfo],
     rng: np.random.Generator,
     necessary_atoms_seq: Optional[Sequence[Set[GroundAtom]]] = None
-) -> Callable[[State], _Option]:
+) -> Callable[[State, Optional[MeshcatVisualizer]], _Option]:
     """Greedily execute an NSRT plan, assuming downward refinability and that
     any sample will work.
 
@@ -1358,7 +1358,7 @@ def nsrt_plan_to_greedy_option_policy(
     assert len(necessary_atoms_seq) == len(nsrt_plan) + 1
     necessary_atoms_queue = list(necessary_atoms_seq)
 
-    def _option_policy(state: State) -> _Option:
+    def _option_policy(state: State, visualizer: Optional[MeshcatVisualizer] = None) -> _Option:
         nonlocal cur_nsrt
         if not nsrt_queue:
             raise OptionExecutionFailure("NSRT plan exhausted.")
@@ -1367,7 +1367,7 @@ def nsrt_plan_to_greedy_option_policy(
             raise OptionExecutionFailure(
                 "Executing the NSRT failed to achieve the necessary atoms.")
         cur_nsrt = nsrt_queue.pop(0)
-        cur_option = cur_nsrt.sample_option(state, goal, fail_info, rng)
+        cur_option = cur_nsrt.sample_option(state, goal, fail_info, rng, visualizer)
         logging.debug(f"\033[32mUsing option {cur_option.name}{cur_option.objects}"
                       f"{cur_option.params} from NSRT plan.\033[0m")
         return cur_option
@@ -1381,7 +1381,7 @@ def nsrt_plan_to_greedy_policy(
     fail_info: List[OptionFailureInfo],
     rng: np.random.Generator,
     necessary_atoms_seq: Optional[Sequence[Set[GroundAtom]]] = None
-) -> Callable[[State], Action]:
+) -> Callable[[State, Optional[MeshcatVisualizer]], Action]:
     """Greedily execute an NSRT plan, assuming downward refinability and that
     any sample will work.
 

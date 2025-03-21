@@ -16,6 +16,7 @@ from predicators.envs import BaseEnv
 from predicators.settings import CFG
 from predicators.structs import Action, EnvironmentTask, Image, Object, \
     Observation, Predicate, State, Type, Video
+from predicators.meshcat_visualizer import MeshcatVisualizer
 import matplotlib
 from collections import OrderedDict
 from termcolor import colored
@@ -189,7 +190,7 @@ class RoboKitchenEnv(BaseEnv):
             init_obs = self._reset_initial_state(seed, train_or_test, task_name)
             # let's not do that since we are not using reset from initial state
             # init_obs = {}
-            task = EnvironmentTask(init_obs, goal_description)
+            task = EnvironmentTask(init_obs, goal_description, visualizer=MeshcatVisualizer())
             tasks.append(task)
 
         return tasks

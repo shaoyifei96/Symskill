@@ -24,7 +24,7 @@ from predicators.settings import CFG
 from predicators.structs import Action, Dataset, EnvironmentTask, GroundAtom, \
     InteractionRequest, InteractionResult, LowLevelTrajectory, Metrics, \
     Observation, State, Task, Video, _Option
-
+from predicators.meshcat_visualizer import MeshcatVisualizer
 
 class CogMan:
     """Cognitive manager."""
@@ -34,7 +34,7 @@ class CogMan:
         self._approach = approach
         self._perceiver = perceiver
         self._exec_monitor = execution_monitor
-        self._current_policy: Optional[Callable[[State], Action]] = None
+        self._current_policy: Optional[Callable[[State, Optional[MeshcatVisualizer]], Action]] = None
         self._current_goal: Optional[Set[GroundAtom]] = None
         self._override_policy: Optional[Callable[[State], Action]] = None
         self._termination_fn: Optional[Callable[[State], bool]] = None
@@ -65,7 +65,7 @@ class CogMan:
             imgs = self._perceiver.render_mental_images(task.init, env_task)
             self._episode_images.extend(imgs)
 
-    def step(self, observation: Observation) -> Optional[Action]:
+    def step(self, observation: Observation, visualizer: Optional[MeshcatVisualizer] = None) -> Optional[Action]:
         """Receive an observation and produce an action, or None for done."""
         state = self._perceiver.step(observation)
         if CFG.make_cogman_videos:
@@ -96,7 +96,7 @@ class CogMan:
             if self._override_policy is None:
                 assert not self._exec_monitor.step(state)
         assert self._current_policy is not None
-        act = self._current_policy(state)
+        act = self._current_policy(state, visualizer)
         self._exec_monitor.update_action(act)
         self._episode_action_history.append(act)
         return act
@@ -191,7 +191,8 @@ def run_episode_and_get_observations(
     do_env_reset: bool = True,
     terminate_on_goal_reached: bool = True,
     exceptions_to_break_on: Optional[Set[TypingType[Exception]]] = None,
-    monitor: Optional[utils.LoggingMonitor] = None
+    monitor: Optional[utils.LoggingMonitor] = None,
+    visualizer: Optional[MeshcatVisualizer] = None
 ) -> Tuple[Tuple[List[Observation], List[Action]], bool, Metrics]:
     """Execute cogman starting from the initial state of a train or test task
     in the environment.
@@ -227,7 +228,7 @@ def run_episode_and_get_observations(
             exception_raised_in_step = False
             try:
                 start_time = time.perf_counter()
-                act = cogman.step(obs)
+                act = cogman.step(obs, visualizer)
                 metrics["policy_call_time"] += time.perf_counter() - start_time
                 if act is None:
                     break

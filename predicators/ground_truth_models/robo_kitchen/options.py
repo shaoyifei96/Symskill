@@ -26,6 +26,7 @@ from predicators.envs.robo_kitchen import RoboKitchenEnv
 from predicators.ground_truth_models import GroundTruthOptionFactory
 from predicators.pybullet_helpers.geometry import Pose3D
 from predicators.structs import Action, Array, GroundAtom, Object, ParameterizedOption, ParameterizedTerminal, Predicate, State, Type
+from predicators.meshcat_visualizer import MeshcatVisualizer
 
 import torch
 from predicators.DS_models.gen_demo_model import DynamicalSystem
@@ -106,13 +107,13 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
                     'k_init': 10
                 }
             }
-            ds_policy = DSPolicy(x, x_dot, q, omega, model_config=model_config, dt=1/60, switch=False)
+            demo_traj_probs = np.ones(len(x))
+            ds_policy = DSPolicy(x, x_dot, q, omega, model_config=model_config, dt=1/60, switch=False, demo_traj_probs=demo_traj_probs)
             memory["ds_policy"] = ds_policy
             _init_handle_transform(memory, state, objects, offset_handle_frame)
             
-            visualizer = RuntimeVisualizer_plotly(x)
+            visualizer = MeshcatVisualizer(x, list(demo_traj_probs))
             memory["visualizer"] = visualizer
-            memory["visualizer"]._run()
 
         def _create_simple_ds_model(memory: Dict, state: State, objects: Sequence[Object], offset_handle_frame: Optional[np.ndarray] = None) -> None:
             """Helper to create and initialize the DS model in memory."""
@@ -159,8 +160,8 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
             if "fail_memory" in memory and memory["fail_memory"]:
                 for option_failure_info in memory["fail_memory"]:
                     if option_failure_info.option_name == "DS_move_towards_option": 
-                        gripper_pos = option_failure_info.location[:3]
-                        memory["ds_policy"].update_demo_traj_probs(gripper_pos, radius=0.1, penalty=0.5, lookahead=10)
+                        state = option_failure_info.state
+                        memory["ds_policy"].update_demo_traj_probs(state, radius=0.1, penalty=0.5, lookahead=10)
             return True
         
         # DS_move_away_option - always initiable, empty policy, never terminates
@@ -172,17 +173,26 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
         
         def _DS_move_away_option_initiable_node(state: State, memory: Dict, objects: Sequence[Object], params: Array) -> bool:
             if "ds_policy" not in memory:
-                _create_ds_policy(memory, state, objects, option="move_away", offset_handle_frame=np.array([-0.6, -0.6, 0.0]))
+                _create_ds_policy(memory, state, objects, option="move_away", offset_handle_frame=np.array([0.0, 0.0, 0.0]))
             
             # If there's failure memory, update the trajectory probabilities
             if "fail_memory" in memory and memory["fail_memory"]:
                 for option_failure_info in memory["fail_memory"]:
                     if option_failure_info.option_name == "DS_move_away_option": 
-                        gripper_pos = option_failure_info.location[:3]
-                        memory["ds_policy"].update_demo_traj_probs(gripper_pos, radius=0.1, penalty=0.5, lookahead=10)
+                        gripper_state = state.vec([RoboKitchenEnv.object_name_to_object("gripper")])
+                        gripper_pos_in_handle, gripper_rot_in_handle = gripper_world_to_handle(gripper_state[:3], gripper_state[3:7], memory["handle_init_pos"], memory["handle_init_rot"])
+                        memory["ds_policy"].update_demo_traj_probs(gripper_pos_in_handle, radius=0.05, penalty=0.5, lookahead=10)
             return True
         
-
+        def gripper_world_to_handle(gripper_in_world_pos: np.ndarray, gripper_in_world_quat: np.ndarray, handle_pos: np.ndarray, handle_rot: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:                
+                gripper_rot = R.from_quat(gripper_in_world_quat).as_matrix()
+                
+                rel_pos_world = gripper_in_world_pos - handle_pos
+                
+                gripper_pos_in_handle = handle_rot.T @ rel_pos_world
+                gripper_rot_in_handle = handle_rot.T @ gripper_rot
+                
+                return gripper_pos_in_handle, gripper_rot_in_handle
         
         def _DS_general_move_option_policy(state: State, memory: Dict, objects: Sequence[Object], params: Array) -> Action:
             # Get objects
@@ -192,13 +202,8 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
             # Get positions
             gripper_pos = np.array([state.get(gripper, "x"), state.get(gripper, "y"), state.get(gripper, "z")])
             gripper_quat = np.array([state.get(gripper, "qx"), state.get(gripper, "qy"), state.get(gripper, "qz"), state.get(gripper, "qw")])
-            gripper_rot = R.from_quat(gripper_quat).as_matrix()
-            # Compute relative position in world frame
-            rel_pos_world = gripper_pos - handle_init_pos
-            # Transform relative position to handle frame
-            pos_in_handle = handle_init_rot.T @ rel_pos_world
-            # Transform gripper rotation to handle frame
-            rot_in_handle = handle_init_rot.T @ gripper_rot
+
+            pos_in_handle, rot_in_handle = gripper_world_to_handle(gripper_pos, gripper_quat, handle_init_pos, handle_init_rot)
 
             expected_relative_rot_handle = R.from_quat(np.array([0.5, 0.5, 0.5, -0.5]))
 
@@ -243,7 +248,8 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
                 ds_policy = memory["ds_policy"]
 
                 if "visualizer" in memory:
-                    memory["visualizer"].update_position(pos_in_handle, ds_policy.ref_traj_idx)
+                    memory["visualizer"].update_robot_position(pos_in_handle)
+                    memory["visualizer"].update_demo_traj_probs(ds_policy.demo_traj_probs)
                 
                 vel = ds_policy.get_action(np.concatenate([pos_in_handle, R.from_matrix(rot_in_handle).as_quat()]), clf=True, alpha_V=100.0, lookahead=10)
                 x_dot_handle = vel[:3]
@@ -338,7 +344,8 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
                 ds_policy = memory["ds_policy"]
 
                 if "visualizer" in memory:
-                    memory["visualizer"].update_position(pos_in_handle, ds_policy.ref_traj_idx)
+                    memory["visualizer"].update_robot_position(pos_in_handle)
+                    memory["visualizer"].update_demo_traj_probs(ds_policy.demo_traj_probs)
                 
                 vel = ds_policy.get_action(np.concatenate([pos_in_handle, R.from_matrix(rot_in_handle).as_quat()]), clf=True, alpha_V=100.0, lookahead=10)
                 x_dot_handle = vel[:3]

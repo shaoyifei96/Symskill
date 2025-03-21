@@ -12,7 +12,7 @@ from predicators.structs import Action, Dataset, InteractionRequest, \
     InteractionResult, Metrics, ParameterizedOption, Predicate, State, Task, \
     Type
 from predicators.utils import ExceptionWithInfo
-
+from predicators.meshcat_visualizer import MeshcatVisualizer
 
 class BaseApproach(abc.ABC):
     """Base approach."""
@@ -44,7 +44,7 @@ class BaseApproach(abc.ABC):
         raise NotImplementedError("Override me!")
 
     @abc.abstractmethod
-    def _solve(self, task: Task, timeout: int) -> Callable[[State], Action]:
+    def _solve(self, task: Task, timeout: int) -> Callable[[State, Optional[MeshcatVisualizer]], Action]:
         """Return a policy for the given task, within the given number of
         seconds.
 
@@ -62,16 +62,16 @@ class BaseApproach(abc.ABC):
         """
         return []
 
-    def solve(self, task: Task, timeout: int, stay_close_to_previous_plan: bool = None) -> Callable[[State], Action]:
+    def solve(self, task: Task, timeout: int, stay_close_to_previous_plan: bool = None) -> Callable[[State, Optional[MeshcatVisualizer]], Action]:
         """Light wrapper around the abstract self._solve().
 
         Checks that actions are in the action space.
         """
         pi = self._solve(task, timeout, stay_close_to_previous_plan)
 
-        def _policy(state: State) -> Action:
+        def _policy(state: State, visualizer: Optional[MeshcatVisualizer] = None) -> Action:
             assert isinstance(state, State)
-            act = pi(state)
+            act = pi(state, visualizer)
             assert self._action_space.contains(act.arr)
             return act
 

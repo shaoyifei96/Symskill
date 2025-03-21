@@ -412,7 +412,8 @@ def _run_testing(env: BaseEnv, cogman: CogMan) -> Metrics:
                 "test",
                 test_task_idx,
                 max_num_steps=CFG.horizon,
-                monitor=monitor)
+                monitor=monitor,
+                visualizer=env_task.visualizer)
             num_opt = execution_metrics["num_options_executed"]
             metrics[f"PER_TASK_task{test_task_idx}_options_executed"] = num_opt
             exec_time = execution_metrics["policy_call_time"]
