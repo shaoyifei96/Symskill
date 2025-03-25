@@ -53,7 +53,6 @@ class BilevelPlanningApproach(BaseApproach):
         self._last_atoms_seq: List[Set[GroundAtom]] = []  # plan WITHOUT sim
         self._last_maintain_effects: List[Set[GroundAtom]] = []  # plan WITHOUT sim
         self._last_fail_info: List[OptionFailureInfo] = []  # plan WITHOUT sim
-        self._replan = False
 
     def _solve(self, task: Task, timeout: int, stay_close_to_previous_plan: bool = None) -> Callable[[State], Action]:
         self._num_calls += 1
@@ -74,8 +73,7 @@ class BilevelPlanningApproach(BaseApproach):
             self._last_maintain_effects.append(set()) # padding last_maintain_effects with empty set above
             policy = utils.nsrt_plan_to_greedy_policy(nsrt_plan, task.goal,
                                                       self._last_fail_info,
-                                                      self._rng,
-                                                      replan=self._replan)
+                                                      self._rng)
             logging.debug("Current Task Plan:")
             for act in nsrt_plan:
                 logging.debug(act)

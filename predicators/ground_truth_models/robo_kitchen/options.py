@@ -171,7 +171,6 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
         def _DS_move_away_option_initiable_node(state: State, memory: Dict, objects: Sequence[Object], params: Array) -> bool:
             if "ds_policy" not in memory:
                 _create_ds_policy(memory, state, objects, option="move_away", offset_handle_frame=np.array([0.0, 0.0, 0.0]))
-            # if not memory["replan"]:
             if "DS_move_away_option" not in CFG.option_to_init_pose:
                 _init_handle_transform(memory, state, objects, offset_handle_frame=np.array([0.0, 0.0, 0.0]))
                 CFG.option_to_init_pose["DS_move_away_option"] = [memory["handle_init_pos"], memory["handle_init_rot"]]

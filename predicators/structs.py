@@ -641,14 +641,14 @@ class ParameterizedOption:
     def __hash__(self) -> int:
         return self._hash
 
-    def ground(self, objects: Sequence[Object], params: Array, fail_info: List[OptionFailureInfo] = [], replan: bool = False) -> _Option:
+    def ground(self, objects: Sequence[Object], params: Array, fail_info: List[OptionFailureInfo] = []) -> _Option:
         """Ground into an Option, given objects and parameter values."""
         assert len(objects) == len(self.types)
         for obj, t in zip(objects, self.types):
             assert obj.is_instance(t)
         params = np.array(params, dtype=self.params_space.dtype)
         assert self.params_space.contains(params)
-        memory: Dict = {"fail_memory": fail_info, "replan": replan}  # each option has its own memory dict
+        memory: Dict = {"fail_memory": fail_info}  # each option has its own memory dict
         return _Option(
             self.name,
             lambda s: self.policy(s, memory, objects, params),
@@ -1134,7 +1134,7 @@ class _GroundNSRT:
         return str(self) > str(other)
 
     def sample_option(self, state: State, goal: Set[GroundAtom], fail_info: List[OptionFailureInfo],
-                      rng: np.random.Generator, replan: bool = False) -> _Option:
+                      rng: np.random.Generator) -> _Option:
         """Sample an _Option for this ground NSRT, by invoking the contained
         sampler.
 
@@ -1148,7 +1148,7 @@ class _GroundNSRT:
         low = self.option.params_space.low
         high = self.option.params_space.high
         params = np.clip(params, low, high)
-        return self.option.ground(self.option_objs, params, fail_info, replan)
+        return self.option.ground(self.option_objs, params, fail_info)
 
     def copy_with(self, **kwargs: Any) -> _GroundNSRT:
         """Create a copy of the ground NSRT, optionally while replacing any of

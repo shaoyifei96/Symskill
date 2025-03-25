@@ -1342,8 +1342,7 @@ def nsrt_plan_to_greedy_option_policy(
     goal: Set[GroundAtom],
     fail_info: List[OptionFailureInfo],
     rng: np.random.Generator,
-    necessary_atoms_seq: Optional[Sequence[Set[GroundAtom]]] = None,
-    replan: bool = False
+    necessary_atoms_seq: Optional[Sequence[Set[GroundAtom]]] = None
 ) -> Callable[[State], _Option]:
     """Greedily execute an NSRT plan, assuming downward refinability and that
     any sample will work.
@@ -1368,7 +1367,7 @@ def nsrt_plan_to_greedy_option_policy(
             raise OptionExecutionFailure(
                 "Executing the NSRT failed to achieve the necessary atoms.")
         cur_nsrt = nsrt_queue.pop(0)
-        cur_option = cur_nsrt.sample_option(state, goal, fail_info, rng, replan)
+        cur_option = cur_nsrt.sample_option(state, goal, fail_info, rng)
         logging.debug(f"\033[32mUsing option {cur_option.name}{cur_option.objects}"
                       f"{cur_option.params} from NSRT plan.\033[0m")
         return cur_option
@@ -1382,7 +1381,6 @@ def nsrt_plan_to_greedy_policy(
     fail_info: List[OptionFailureInfo],
     rng: np.random.Generator,
     necessary_atoms_seq: Optional[Sequence[Set[GroundAtom]]] = None,
-    replan: bool = False
 ) -> Callable[[State], Action]:
     """Greedily execute an NSRT plan, assuming downward refinability and that
     any sample will work.
@@ -1391,7 +1389,7 @@ def nsrt_plan_to_greedy_policy(
     OptionExecutionFailure is raised.
     """
     option_policy = nsrt_plan_to_greedy_option_policy(
-        nsrt_plan, goal, fail_info, rng, necessary_atoms_seq=necessary_atoms_seq, replan=replan)
+        nsrt_plan, goal, fail_info, rng, necessary_atoms_seq=necessary_atoms_seq)
     return option_policy_to_policy(option_policy)
 
 
