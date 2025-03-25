@@ -160,8 +160,9 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
                 for option_failure_info in memory["fail_memory"]:
                     if option_failure_info.option_name == "DS_move_towards_option": 
                         gripper_state = state.vec([RoboKitchenEnv.object_name_to_object("gripper")])
-                        gripper_pos_in_handle, gripper_rot_in_handle = gripper_world_to_handle(gripper_state[:3], gripper_state[3:7], memory["handle_init_pos"], memory["handle_init_rot"])
-                        memory["ds_policy"].update_demo_traj_probs(gripper_pos_in_handle, radius=0.05, penalty=0.5, lookahead=10)
+                        gripper_pos_in_handle, gripper_rot_in_handle = frame_transform(gripper_state[:3], gripper_state[3:7], memory["handle_init_pos"], memory["handle_init_rot"])
+                        gripper_quat_in_handle = R.from_matrix(gripper_rot_in_handle).as_quat()
+                        memory["ds_policy"].update_demo_traj_probs(np.concatenate([gripper_pos_in_handle, gripper_quat_in_handle]), radius=0.05, angle_threshold=np.pi/2, penalty=0.5, lookahead=10)
                 CFG.visualizer.update_demo_traj_probs(memory["ds_policy"].demo_traj_probs)
             return True
         
@@ -187,20 +188,21 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
                 for option_failure_info in memory["fail_memory"]:
                     if option_failure_info.option_name == "DS_move_away_option": 
                         gripper_state = state.vec([RoboKitchenEnv.object_name_to_object("gripper")])
-                        gripper_pos_in_handle, gripper_rot_in_handle = gripper_world_to_handle(gripper_state[:3], gripper_state[3:7], memory["handle_init_pos"], memory["handle_init_rot"])
-                        memory["ds_policy"].update_demo_traj_probs(gripper_pos_in_handle, radius=0.05, penalty=0.5, lookahead=10)
+                        gripper_pos_in_handle, gripper_rot_in_handle = frame_transform(gripper_state[:3], gripper_state[3:7], memory["handle_init_pos"], memory["handle_init_rot"])
+                        gripper_quat_in_handle = R.from_matrix(gripper_rot_in_handle).as_quat()
+                        memory["ds_policy"].update_demo_traj_probs(np.concatenate([gripper_pos_in_handle, gripper_quat_in_handle]), radius=0.02, angle_threshold=np.pi/4, penalty=0.5, lookahead=10)
                 CFG.visualizer.update_demo_traj_probs(memory["ds_policy"].demo_traj_probs)
             return True
         
-        def gripper_world_to_handle(gripper_in_world_pos: np.ndarray, gripper_in_world_quat: np.ndarray, handle_pos: np.ndarray, handle_rot: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:                
-                gripper_rot = R.from_quat(gripper_in_world_quat).as_matrix()
+        def frame_transform(pos_in_init: np.ndarray, quat_in_init: np.ndarray, target_pos: np.ndarray, target_rot: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:                
+                rot_in_init = R.from_quat(quat_in_init).as_matrix()
                 
-                rel_pos_world = gripper_in_world_pos - handle_pos
+                rel_pos_init = pos_in_init - target_pos
                 
-                gripper_pos_in_handle = handle_rot.T @ rel_pos_world
-                gripper_rot_in_handle = handle_rot.T @ gripper_rot
+                pos_in_target = target_rot.T @ rel_pos_init
+                rot_in_target = target_rot.T @ rot_in_init
                 
-                return gripper_pos_in_handle, gripper_rot_in_handle
+                return pos_in_target, rot_in_target
         
         def _DS_general_move_option_policy(state: State, memory: Dict, objects: Sequence[Object], params: Array) -> Action:
             # Get objects
@@ -211,7 +213,7 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
             gripper_pos = np.array([state.get(gripper, "x"), state.get(gripper, "y"), state.get(gripper, "z")])
             gripper_quat = np.array([state.get(gripper, "qx"), state.get(gripper, "qy"), state.get(gripper, "qz"), state.get(gripper, "qw")])
 
-            pos_in_handle, rot_in_handle = gripper_world_to_handle(gripper_pos, gripper_quat, handle_init_pos, handle_init_rot)
+            pos_in_handle, rot_in_handle = frame_transform(gripper_pos, gripper_quat, handle_init_pos, handle_init_rot)
 
             expected_relative_rot_handle = R.from_quat(np.array([0.5, 0.5, 0.5, -0.5]))
 
@@ -387,9 +389,11 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
             return Action(arr)
 
         def _DS_move_towards_option_terminal(state: State, memory: Dict, objects: Sequence[Object], params: Array) -> bool:
-            handle_init_pos = memory["handle_init_pos"]
+            # handle_init_pos = memory["handle_init_pos"]
             gripper, _, base = objects
             gripper_pos = np.array([state.get(gripper, "x"), state.get(gripper, "y"), state.get(gripper, "z")])
+            gripper_state = state.vec([RoboKitchenEnv.object_name_to_object("gripper")])
+            gripper_pos_in_handle, _ = frame_transform(gripper_state[:3], gripper_state[3:7], memory["handle_init_pos"], memory["handle_init_rot"])
             
             # Store previous gripper position if not already in memory
             if "prev_gripper_pos" not in memory:
@@ -400,7 +404,9 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
             velocity = np.linalg.norm(gripper_pos - memory["prev_gripper_pos"])
             memory["prev_gripper_pos"] = gripper_pos
             
-            if np.linalg.norm(gripper_pos - handle_init_pos) <= RoboKitchenEnv.offset_inwards_from_handle and velocity < 0.01:
+            if np.linalg.norm(gripper_pos_in_handle[0]) <= 0.1 and \
+                gripper_pos_in_handle[1] > 0 and \
+                velocity < 0.01:
                 return True
             return False
         

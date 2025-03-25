@@ -21,7 +21,7 @@ import predicators.utils as utils  # pylint: disable=consider-using-from-import
 from predicators.settings import CFG
 
 
-@dataclass(frozen=True, order=True, repr=True)
+@dataclass(frozen=True, order=True)
 class OptionFailureInfo:
     """Struct to store information about option failures."""
     option_name: str
@@ -31,7 +31,7 @@ class OptionFailureInfo:
     # there is extra info in option that can be populated
     # TODO: add objects to the option failure info
     cause: str
-    state: State
+    state: State = field(repr=False)
 
 @dataclass(frozen=True, order=True)
 class Type:
