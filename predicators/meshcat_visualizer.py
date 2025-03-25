@@ -17,9 +17,13 @@ class MeshcatVisualizer:
         self.vis["robot"].set_object(g.Sphere(0.01))
         if self.demo_trajs is not None and self.demo_traj_probs is not None:
             for i in range(len(self.demo_trajs)):
+                # Calculate color based on probability: higher prob is black (0x000000), lower is light gray (0xCCCCCC)
+                color_value = int(0xCC * (1.0 - self.demo_traj_probs[i]))
+                color = (color_value << 16) | (color_value << 8) | color_value
+                
                 self.vis[f"traj_{i}"].set_object(g.Line(
                     g.PointsGeometry(self.demo_trajs[i].T),
-                    g.MeshBasicMaterial(color=0xff0000, opacity=self.demo_traj_probs[i], transparent=True, linewidth=3) # Red line with opacity based on probability and increased thickness
+                    g.MeshBasicMaterial(color=color, linewidth=3) # Color based on probability
                 ))
 
     def set_demo_trajs(self, demo_trajs: list[np.ndarray], demo_traj_probs: Optional[np.ndarray] = None):
@@ -27,9 +31,13 @@ class MeshcatVisualizer:
         self.demo_traj_probs = demo_traj_probs if demo_traj_probs is not None else np.ones(len(demo_trajs))
         if self.demo_trajs is not None and self.demo_traj_probs is not None:
             for i in range(len(self.demo_trajs)):
+                # Calculate color based on probability: higher prob is black (0x000000), lower is light gray (0xCCCCCC)
+                color_value = int(0xCC * (1.0 - self.demo_traj_probs[i]))
+                color = (color_value << 16) | (color_value << 8) | color_value
+                
                 self.vis[f"traj_{i}"].set_object(g.Line(
                     g.PointsGeometry(self.demo_trajs[i].T),
-                    g.MeshBasicMaterial(color=0xff0000, opacity=self.demo_traj_probs[i], transparent=True)
+                    g.MeshBasicMaterial(color=color, linewidth=3) # Color based on probability
                 ))
 
     def update_robot_position(self, position: np.ndarray):
@@ -40,10 +48,14 @@ class MeshcatVisualizer:
             # Store the new probability
             self.demo_traj_probs[i] = float(demo_traj_probs[i])
             
+            # Calculate color based on probability: higher prob is black (0x000000), lower is light gray (0xCCCCCC)
+            color_value = int(0xCC * (1.0 - self.demo_traj_probs[i]))
+            color = (color_value << 16) | (color_value << 8) | color_value
+            
             # Recreate the line with updated material
             self.vis[f"traj_{i}"].set_object(g.Line(
                 g.PointsGeometry(self.demo_trajs[i].T),
-                g.MeshBasicMaterial(color=0xff0000, opacity=self.demo_traj_probs[i], transparent=True)
+                g.MeshBasicMaterial(color=color, linewidth=3) # Color based on probability
             ))
 
     def shutdown(self):
@@ -66,5 +78,6 @@ if __name__ == "__main__":
     # Live update loop
     for i in range(steps):
         visualizer.update_robot_position(np.array([robot_x_pos[i], 0, 0]))
+        visualizer.update_demo_traj_probs(np.random.rand(len(trajectories)))
         # Sleep to simulate real-time updates
         time.sleep(dt)

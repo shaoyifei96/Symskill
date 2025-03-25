@@ -33,6 +33,7 @@ class OptionFailureInfo:
     cause: str
     state: State = field(repr=False)
 
+
 @dataclass(frozen=True, order=True)
 class Type:
     """Struct defining a type."""
