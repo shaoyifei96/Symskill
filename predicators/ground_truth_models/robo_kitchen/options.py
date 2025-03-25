@@ -109,7 +109,7 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
             demo_traj_probs = np.ones(len(x))
             ds_policy = DSPolicy(x, x_dot, q, omega, model_config=model_config, dt=1/60, switch=False, demo_traj_probs=demo_traj_probs)
             memory["ds_policy"] = ds_policy
-            if CFG.visualizer and CFG.visualizer.demo_trajs is None:
+            if CFG.visualizer:
                 CFG.visualizer.set_demo_trajs(x, demo_traj_probs)
 
         def _create_simple_ds_model(memory: Dict, state: State, objects: Sequence[Object], offset_handle_frame: Optional[np.ndarray] = None) -> None:
@@ -149,16 +149,20 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
             if "fail_memory" in memory:
                 print("fail_memory of DS_move_towards_option")
                 print(memory["fail_memory"])
+
             if "ds_policy" not in memory:
                 # _create_ds_policy(memory, state, objects, option="move_towards", offset_handle_frame=np.array([0.0, cls.offset_inwards_from_handle, 0.0]))
                 _create_ds_policy(memory, state, objects, option="move_towards", offset_handle_frame=np.array([0.0, 0.0, 0.0]))
+
+            _init_handle_transform(memory, state, objects, offset_handle_frame=np.array([0.0, 0.0, 0.0]))
             
-            # If there's failure memory, update the trajectory probabilities
             if "fail_memory" in memory and memory["fail_memory"]:
                 for option_failure_info in memory["fail_memory"]:
                     if option_failure_info.option_name == "DS_move_towards_option": 
-                        state = option_failure_info.state
-                        memory["ds_policy"].update_demo_traj_probs(state, radius=0.1, penalty=0.5, lookahead=10)
+                        gripper_state = state.vec([RoboKitchenEnv.object_name_to_object("gripper")])
+                        gripper_pos_in_handle, gripper_rot_in_handle = gripper_world_to_handle(gripper_state[:3], gripper_state[3:7], memory["handle_init_pos"], memory["handle_init_rot"])
+                        memory["ds_policy"].update_demo_traj_probs(gripper_pos_in_handle, radius=0.05, penalty=0.5, lookahead=10)
+                CFG.visualizer.update_demo_traj_probs(memory["ds_policy"].demo_traj_probs)
             return True
         
         # DS_move_away_option - always initiable, empty policy, never terminates
@@ -171,13 +175,14 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
         def _DS_move_away_option_initiable_node(state: State, memory: Dict, objects: Sequence[Object], params: Array) -> bool:
             if "ds_policy" not in memory:
                 _create_ds_policy(memory, state, objects, option="move_away", offset_handle_frame=np.array([0.0, 0.0, 0.0]))
+
             if "DS_move_away_option" not in CFG.option_to_init_pose:
                 _init_handle_transform(memory, state, objects, offset_handle_frame=np.array([0.0, 0.0, 0.0]))
                 CFG.option_to_init_pose["DS_move_away_option"] = [memory["handle_init_pos"], memory["handle_init_rot"]]
             else:
                 memory["handle_init_pos"] = CFG.option_to_init_pose["DS_move_away_option"][0]
                 memory["handle_init_rot"] = CFG.option_to_init_pose["DS_move_away_option"][1]
-            # If there's failure memory, update the trajectory probabilities
+
             if "fail_memory" in memory and memory["fail_memory"]:
                 for option_failure_info in memory["fail_memory"]:
                     if option_failure_info.option_name == "DS_move_away_option": 
@@ -408,8 +413,7 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
             # Unused params
             params_space=Box(-5, 5, (1,)),
             policy=_DS_general_move_option_policy,
-            initiable=_DS_move_towards_option_initiable_linear, # TODO
-            # if CFG.robo_kitchen_policy_model == "simple_ds" else _DS_move_towards_option_initiable_node,
+            initiable=_DS_move_towards_option_initiable_linear if CFG.robo_kitchen_policy_model == "simple_ds" else _DS_move_towards_option_initiable_node,
             terminal=_DS_move_towards_option_terminal,
         )
 
