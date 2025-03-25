@@ -48,7 +48,7 @@ class RoboKitchenEnv(BaseEnv):
     base_type = Type("base_type", ["x", "y", "z", "qx", "qy", "qz", "qw"], parent=object_type)
     handle_type = Type("handle_type", ["x", "y", "z", "qx", "qy", "qz", "qw"], parent=object_type)
     gripper_type = Type("gripper_type", ["x", "y", "z", "qx", "qy", "qz", "qw", "angle"], parent=object_type)
-    hinge_type = Type("hinge_type", ["angle"])
+    hinge_type = Type("hinge_type", ["x", "y", "z", "qx", "qy", "qz", "qw", "angle"], parent=object_type)
 
     obj_name_to_type = {
         "handle": handle_type,
@@ -196,7 +196,7 @@ class RoboKitchenEnv(BaseEnv):
 
     def goal_reached(self) -> bool:
         # check success
-        #print angle of handle
+        # print angle of handle
         state = self.state_info_to_state(
             self._current_observation["state_info"])
         goal_desc = self._current_task.goal_description
@@ -490,12 +490,12 @@ class RoboKitchenEnv(BaseEnv):
                     "qz": val[5],
                     "qw": val[6]
                 }
-            elif key.endswith("_angle"):
-                obj_name = key[:-6]
-                obj = cls.object_name_to_object(obj_name)
-                state_dict[obj] = {
-                    "angle": val #currently only support 1 door, double door doesn't work
-                }
+            # elif key.endswith("_angle"):
+            #     obj_name = key[:-6]
+            #     obj = cls.object_name_to_object(obj_name)
+            #     state_dict[obj] = {
+            #         "angle": val #currently only support 1 door, double door doesn't work
+            #     }
             elif key.endswith("_quat"):
                 obj_name = key[:-5]  # Remove _pos
                 pos_val = state_info[key[:-5] + "_pos"]
