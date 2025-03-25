@@ -41,6 +41,7 @@ import time
 from collections import defaultdict
 from pathlib import Path
 from typing import List, Optional, Sequence, Tuple
+import copy
 
 # Disable JAX debug messages
 logging.getLogger('jax._src.cache_key').setLevel(logging.ERROR)
@@ -412,8 +413,7 @@ def _run_testing(env: BaseEnv, cogman: CogMan) -> Metrics:
                 "test",
                 test_task_idx,
                 max_num_steps=CFG.horizon,
-                monitor=monitor,
-                visualizer=env_task.visualizer)
+                monitor=monitor)
             num_opt = execution_metrics["num_options_executed"]
             metrics[f"PER_TASK_task{test_task_idx}_options_executed"] = num_opt
             exec_time = execution_metrics["policy_call_time"]
@@ -510,9 +510,12 @@ def _save_test_results(results: Metrics,
     logging.info(f"Average time for successes: {avg_suc_time:.5f} seconds")
     outfile = (f"{CFG.results_dir}/{utils.get_config_path_str()}__"
                f"{online_learning_cycle}.pkl")
-    # Save CFG alongside results.
+    # Save CFG alongside results, but exclude the visualizer attribute
+    cfg_copy = copy.copy(CFG)
+    if hasattr(cfg_copy, 'visualizer'):
+        delattr(cfg_copy, 'visualizer')
     outdata = {
-        "config": CFG,
+        "config": cfg_copy,
         "results": results.copy(),
         # "git_commit_hash": utils.get_git_commit_hash()
     }

@@ -812,6 +812,7 @@ class _PrunedGrammar(_DataBasedPredicateGrammar):
             # self._state_sequence.
             gripper_obj = RoboKitchenEnv.object_name_to_object("gripper") # TODO: hardcoded no good
             handle_obj = RoboKitchenEnv.object_name_to_object("handle") # TODO: hardcoded no good
+            # TODO: hinge
             for i, traj in enumerate(self.dataset.trajectories):
                 # The init_atoms and final_atoms are not used.
                 seg_traj = segment_trajectory(traj, predicates=set())

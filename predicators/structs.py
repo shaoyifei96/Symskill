@@ -19,7 +19,7 @@ from tabulate import tabulate
 import predicators.pretrained_model_interface
 import predicators.utils as utils  # pylint: disable=consider-using-from-import
 from predicators.settings import CFG
-from predicators.meshcat_visualizer import MeshcatVisualizer
+
 
 @dataclass(frozen=True, order=True, repr=True)
 class OptionFailureInfo:
@@ -543,7 +543,6 @@ class EnvironmentTask:
     goal_description: GoalDescription
     # See Task._alt_goal for the reason for this field.
     alt_goal_desc: Optional[GoalDescription] = field(default=None)
-    visualizer: Optional[MeshcatVisualizer] = None
 
     @cached_property
     def task(self) -> Task:
@@ -642,24 +641,23 @@ class ParameterizedOption:
     def __hash__(self) -> int:
         return self._hash
 
-    def ground(self, objects: Sequence[Object], params: Array, fail_info: List[OptionFailureInfo] = [], visualizer: Optional[MeshcatVisualizer] = None) -> _Option:
+    def ground(self, objects: Sequence[Object], params: Array, fail_info: List[OptionFailureInfo] = [], replan: bool = False) -> _Option:
         """Ground into an Option, given objects and parameter values."""
         assert len(objects) == len(self.types)
         for obj, t in zip(objects, self.types):
             assert obj.is_instance(t)
         params = np.array(params, dtype=self.params_space.dtype)
         assert self.params_space.contains(params)
-        memory: Dict = {"fail_memory": fail_info}  # each option has its own memory dict
+        memory: Dict = {"fail_memory": fail_info, "replan": replan}  # each option has its own memory dict
         return _Option(
             self.name,
-            lambda s: self.policy(s, memory, objects, params, visualizer),
+            lambda s: self.policy(s, memory, objects, params),
             initiable=lambda s: self.initiable(s, memory, objects, params),
             terminal=lambda s: self.terminal(s, memory, objects, params),
             parent=self,
             objects=objects,
             params=params,
-            memory=memory,
-            visualizer=visualizer)
+            memory=memory)
 
     def pddl_str(self) -> str:
         """Turn this option into a string that is PDDL-like."""
@@ -677,7 +675,7 @@ class _Option:
     """
     name: str
     # A policy maps a state to an action.
-    _policy: Callable[[State, Optional[MeshcatVisualizer]], Action] = field(repr=False)
+    _policy: Callable[[State], Action] = field(repr=False)
     # An initiation classifier maps a state to a bool, which is True
     # iff the option can start now.
     initiable: Callable[[State], bool] = field(repr=False)
@@ -692,10 +690,9 @@ class _Option:
     params: Array
     # The memory dictionary for this option.
     memory: Dict = field(repr=False)
-    visualizer: Optional[MeshcatVisualizer] = field(repr=False)
     def policy(self, state: State) -> Action:
         """Call the policy and set the action's option."""
-        action = self._policy(state, self.visualizer)
+        action = self._policy(state)
         action.set_option(self)
         return action
 
@@ -1137,7 +1134,7 @@ class _GroundNSRT:
         return str(self) > str(other)
 
     def sample_option(self, state: State, goal: Set[GroundAtom], fail_info: List[OptionFailureInfo],
-                      rng: np.random.Generator, visualizer: Optional[MeshcatVisualizer] = None) -> _Option:
+                      rng: np.random.Generator, replan: bool = False) -> _Option:
         """Sample an _Option for this ground NSRT, by invoking the contained
         sampler.
 
@@ -1151,7 +1148,7 @@ class _GroundNSRT:
         low = self.option.params_space.low
         high = self.option.params_space.high
         params = np.clip(params, low, high)
-        return self.option.ground(self.option_objs, params, fail_info, visualizer)
+        return self.option.ground(self.option_objs, params, fail_info, replan)
 
     def copy_with(self, **kwargs: Any) -> _GroundNSRT:
         """Create a copy of the ground NSRT, optionally while replacing any of

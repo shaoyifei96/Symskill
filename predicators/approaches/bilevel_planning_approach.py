@@ -18,7 +18,7 @@ from predicators.planning import PlanningFailure, PlanningTimeout, \
 from predicators.settings import CFG
 from predicators.structs import NSRT, Action, GroundAtom, Metrics, \
     ParameterizedOption, Predicate, State, Task, Type, _GroundNSRT, _Option, OptionFailureInfo
-from predicators.meshcat_visualizer import MeshcatVisualizer
+
 
 class BilevelPlanningApproach(BaseApproach):
     """Bilevel planning approach."""
@@ -53,8 +53,9 @@ class BilevelPlanningApproach(BaseApproach):
         self._last_atoms_seq: List[Set[GroundAtom]] = []  # plan WITHOUT sim
         self._last_maintain_effects: List[Set[GroundAtom]] = []  # plan WITHOUT sim
         self._last_fail_info: List[OptionFailureInfo] = []  # plan WITHOUT sim
+        self._replan = False
 
-    def _solve(self, task: Task, timeout: int, stay_close_to_previous_plan: bool = None) -> Callable[[State, Optional[MeshcatVisualizer]], Action]:
+    def _solve(self, task: Task, timeout: int, stay_close_to_previous_plan: bool = None) -> Callable[[State], Action]:
         self._num_calls += 1
         # ensure random over successive calls
         seed = self._seed + self._num_calls
@@ -73,7 +74,8 @@ class BilevelPlanningApproach(BaseApproach):
             self._last_maintain_effects.append(set()) # padding last_maintain_effects with empty set above
             policy = utils.nsrt_plan_to_greedy_policy(nsrt_plan, task.goal,
                                                       self._last_fail_info,
-                                                      self._rng)
+                                                      self._rng,
+                                                      replan=self._replan)
             logging.debug("Current Task Plan:")
             for act in nsrt_plan:
                 logging.debug(act)
@@ -88,9 +90,9 @@ class BilevelPlanningApproach(BaseApproach):
 
         self._save_metrics(metrics, nsrts, preds)
 
-        def _policy(s: State, visualizer: Optional[MeshcatVisualizer] = None) -> Action:
+        def _policy(s: State) -> Action:
             try:
-                return policy(s, visualizer)
+                return policy(s)
             except utils.OptionExecutionFailure as e:
                 raise ApproachFailure(e.args[0], e.info)
 

@@ -6,9 +6,10 @@ Anything that varies between runs should be a command-line arg
 
 from collections import defaultdict
 from types import SimpleNamespace
-from typing import Any, Dict, Set
+from typing import Any, Dict, List, Set
 
 import numpy as np
+from predicators.meshcat_visualizer import MeshcatVisualizer
 
 
 class GlobalSettings:
@@ -16,12 +17,14 @@ class GlobalSettings:
     robo_kitchen_task = "OpenSingleDoor"
     # robo_kitchen_viz_debug = False # i think the use_gui flag covers this
     robo_kitchen_contact_smoothing_window = 21
-    robo_kitchen_load_dataset = True # this has priority, if False, then save flag is considered
-    robo_kitchen_save_dataset = not robo_kitchen_load_dataset
-    robo_kitchen_save_traj_by_segment = False
+    robo_kitchen_load_dataset = False # this has priority, if False, then save flag is considered
+    robo_kitchen_save_dataset = False
+    robo_kitchen_save_traj_by_segment = True
     robo_kitchen_policy_model = "node" # "simple_ds" or "node
     make_test_videos = False
     loglevel = 10
+    visualizer = MeshcatVisualizer()
+    option_to_init_pose: Dict[str, List[np.ndarray]] = {}
 
     """Unchanging settings."""
     # global parameters
