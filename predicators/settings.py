@@ -25,6 +25,7 @@ class GlobalSettings:
     loglevel = 10
     visualizer = MeshcatVisualizer()
     option_to_init_pose: Dict[str, List[np.ndarray]] = {}
+    option_to_policy = {}
 
     """Unchanging settings."""
     # global parameters

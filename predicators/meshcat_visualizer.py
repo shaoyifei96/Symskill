@@ -9,6 +9,8 @@ class MeshcatVisualizer:
     def __init__(self, demo_trajs: Optional[list[np.ndarray]] = None, demo_traj_probs: Optional[np.ndarray] = None):
         self.vis = meshcat.Visualizer()
         self.vis.open()
+        self.vis["/Grid"].set_property("visible", False)
+        self.vis["/Background"].set_property("visible", False)
 
         self.demo_trajs = demo_trajs
         self.demo_traj_probs = demo_traj_probs
@@ -23,7 +25,7 @@ class MeshcatVisualizer:
                 
                 self.vis[f"traj_{i}"].set_object(g.Line(
                     g.PointsGeometry(self.demo_trajs[i].T),
-                    g.MeshBasicMaterial(color=color, linewidth=3) # Color based on probability
+                    g.MeshBasicMaterial(color=color, linewidth=100.0) # Color based on probability
                 ))
 
     def set_demo_trajs(self, demo_trajs: list[np.ndarray], demo_traj_probs: Optional[np.ndarray] = None):
@@ -37,7 +39,7 @@ class MeshcatVisualizer:
                 
                 self.vis[f"traj_{i}"].set_object(g.Line(
                     g.PointsGeometry(self.demo_trajs[i].T),
-                    g.MeshBasicMaterial(color=color, linewidth=3) # Color based on probability
+                    g.MeshBasicMaterial(color=color, linewidth=100.0) # Color based on probability
                 ))
 
     def update_robot_position(self, position: np.ndarray):
@@ -55,7 +57,7 @@ class MeshcatVisualizer:
             # Recreate the line with updated material
             self.vis[f"traj_{i}"].set_object(g.Line(
                 g.PointsGeometry(self.demo_trajs[i].T),
-                g.MeshBasicMaterial(color=color, linewidth=3) # Color based on probability
+                g.MeshBasicMaterial(color=color, linewidth=100.0) # Color based on probability
             ))
 
     def shutdown(self):

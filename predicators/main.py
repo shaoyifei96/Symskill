@@ -515,6 +515,8 @@ def _save_test_results(results: Metrics,
     cfg_copy = copy.copy(CFG)
     if hasattr(cfg_copy, 'visualizer'):
         delattr(cfg_copy, 'visualizer')
+    if hasattr(cfg_copy, 'option_to_policy'):
+        delattr(cfg_copy, 'option_to_policy')
     outdata = {
         "config": cfg_copy,
         "results": results.copy(),

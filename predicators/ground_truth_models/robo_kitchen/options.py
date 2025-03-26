@@ -151,19 +151,24 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
                 print("fail_memory of DS_move_towards_option")
                 print(memory["fail_memory"])
 
-            if "ds_policy" not in memory:
-                # _create_ds_policy(memory, state, objects, option="move_towards", offset_handle_frame=np.array([0.0, cls.offset_inwards_from_handle, 0.0]))
+            # if "ds_policy" not in memory:
+            #     _create_ds_policy(memory, state, objects, option="move_towards", offset_handle_frame=np.array([0.0, 0.0, 0.0]))
+            if "DS_move_towards_option" not in CFG.option_to_policy:
                 _create_ds_policy(memory, state, objects, option="move_towards", offset_handle_frame=np.array([0.0, 0.0, 0.0]))
+                CFG.option_to_policy["DS_move_towards_option"] = memory["ds_policy"]
+            else:
+                memory["ds_policy"] = CFG.option_to_policy["DS_move_towards_option"]
 
             _init_handle_transform(memory, state, objects, offset_handle_frame=np.array([0.0, 0.0, 0.0]))
             
             if "fail_memory" in memory and memory["fail_memory"]:
-                for option_failure_info in memory["fail_memory"]:
-                    if option_failure_info.option_name == "DS_move_towards_option": 
-                        gripper_state = state.vec([RoboKitchenEnv.object_name_to_object("gripper")])
+                for idx in range(len(memory["fail_memory"])-1, -1, -1):
+                    if memory["fail_memory"][idx].option_name == "DS_move_towards_option":
+                        gripper_state = memory["fail_memory"][idx].state.vec([RoboKitchenEnv.object_name_to_object("gripper")])
                         gripper_pos_in_handle, gripper_rot_in_handle = frame_transform(gripper_state[:3], gripper_state[3:7], memory["handle_init_pos"], memory["handle_init_rot"])
                         gripper_quat_in_handle = R.from_matrix(gripper_rot_in_handle).as_quat()
-                        memory["ds_policy"].update_demo_traj_probs(np.concatenate([gripper_pos_in_handle, gripper_quat_in_handle]), radius=0.05, angle_threshold=np.pi/2, penalty=0.5, lookahead=10)
+                        memory["ds_policy"].update_demo_traj_probs(np.concatenate([gripper_pos_in_handle, gripper_quat_in_handle]), "trajectory", penalty=0.8, traj_threshold=0.5, radius=0.05, angle_threshold=np.pi/2, lookahead=10)
+                        memory["fail_memory"].pop(idx)
                 CFG.visualizer.update_demo_traj_probs(memory["ds_policy"].demo_traj_probs)
             return True
         
@@ -175,14 +180,13 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
             return True
         
         def _DS_move_away_option_initiable_node(state: State, memory: Dict, objects: Sequence[Object], params: Array) -> bool:
-            if "ds_policy" not in memory:
-                _create_ds_policy(memory, state, objects, option="move_away", offset_handle_frame=np.array([0.0, 0.0, 0.0]))
-
-            # if "DS_move_away_option" not in CFG.option_to_policy:
+            # if "ds_policy" not in memory:
             #     _create_ds_policy(memory, state, objects, option="move_away", offset_handle_frame=np.array([0.0, 0.0, 0.0]))
-            #     CFG.option_to_policy["DS_move_away_option"] = memory["ds_policy"]
-            # else:
-            #     memory["ds_policy"] = CFG.option_to_policy["DS_move_away_option"]
+            if "DS_move_away_option" not in CFG.option_to_policy:
+                _create_ds_policy(memory, state, objects, option="move_away", offset_handle_frame=np.array([0.0, 0.0, 0.0]))
+                CFG.option_to_policy["DS_move_away_option"] = memory["ds_policy"]
+            else:
+                memory["ds_policy"] = CFG.option_to_policy["DS_move_away_option"]
             if "DS_move_away_option" not in CFG.option_to_init_pose:
                 _init_handle_transform(memory, state, objects, offset_handle_frame=np.array([0.0, 0.0, 0.0]))
                 CFG.option_to_init_pose["DS_move_away_option"] = [memory["handle_init_pos"], memory["handle_init_rot"]]
@@ -191,12 +195,13 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
                 memory["handle_init_rot"] = CFG.option_to_init_pose["DS_move_away_option"][1]
 
             if "fail_memory" in memory and memory["fail_memory"]:
-                for option_failure_info in memory["fail_memory"]:
-                    if option_failure_info.option_name == "DS_move_away_option": 
-                        gripper_state = option_failure_info.state.vec([RoboKitchenEnv.object_name_to_object("gripper")])
+                for idx in range(len(memory["fail_memory"])-1, -1, -1):
+                    if memory["fail_memory"][idx].option_name == "DS_move_away_option":
+                        gripper_state = memory["fail_memory"][idx].state.vec([RoboKitchenEnv.object_name_to_object("gripper")])
                         gripper_pos_in_handle, gripper_rot_in_handle = frame_transform(gripper_state[:3], gripper_state[3:7], CFG.option_to_init_pose["DS_move_away_option"][0], CFG.option_to_init_pose["DS_move_away_option"][1])
                         gripper_quat_in_handle = R.from_matrix(gripper_rot_in_handle).as_quat()
-                        memory["ds_policy"].update_demo_traj_probs(np.concatenate([gripper_pos_in_handle, gripper_quat_in_handle]), radius=0.05, angle_threshold=np.pi/2, penalty=0.5, lookahead=10)
+                        memory["ds_policy"].update_demo_traj_probs(np.concatenate([gripper_pos_in_handle, gripper_quat_in_handle]), "trajectory", penalty=0.8, traj_threshold=0.5, radius=0.05, angle_threshold=np.pi/2, lookahead=10)
+                        memory["fail_memory"].pop(idx)
                 CFG.visualizer.update_demo_traj_probs(memory["ds_policy"].demo_traj_probs)
             return True
         
