@@ -16,30 +16,41 @@ class MeshcatVisualizer:
         self.demo_traj_probs = demo_traj_probs
         self.generated_traj = []
 
-        self.vis["robot"].set_object(g.Sphere(0.01))
+        # Define colors for interpolation
+        self.purple = np.array([128, 0, 128])  # Purple RGB
+        self.orange = np.array([255, 165, 0])  # Orange RGB
+        self.red = np.array([255, 0, 0])  # Red RGB for robot
+
+        self.vis["robot"].set_object(g.Sphere(0.01), 
+                                    g.MeshBasicMaterial(color=0xff0000))  # Red color
         if self.demo_trajs is not None and self.demo_traj_probs is not None:
             for i in range(len(self.demo_trajs)):
-                # Calculate color based on probability: higher prob is black (0x000000), lower is light gray (0xCCCCCC)
-                color_value = int(0xCC * (1.0 - self.demo_traj_probs[i]))
-                color = (color_value << 16) | (color_value << 8) | color_value
+                # Interpolate between purple (low prob) and orange (high prob)
+                rgb = self._interpolate_color(self.demo_traj_probs[i])
+                color = (rgb[0] << 16) | (rgb[1] << 8) | rgb[2]
                 
                 self.vis[f"traj_{i}"].set_object(g.Line(
                     g.PointsGeometry(self.demo_trajs[i].T),
-                    g.MeshBasicMaterial(color=color, linewidth=100.0) # Color based on probability
+                    g.MeshBasicMaterial(color=float(color), linewidth=10) # Color based on probability
                 ))
+
+    def _interpolate_color(self, probability: float) -> np.ndarray:
+        """Interpolate between purple (low probability) and orange (high probability)"""
+        rgb = self.purple + probability * (self.orange - self.purple)
+        return rgb.astype(int)
 
     def set_demo_trajs(self, demo_trajs: list[np.ndarray], demo_traj_probs: Optional[np.ndarray] = None):
         self.demo_trajs = demo_trajs
         self.demo_traj_probs = demo_traj_probs if demo_traj_probs is not None else np.ones(len(demo_trajs))
         if self.demo_trajs is not None and self.demo_traj_probs is not None:
             for i in range(len(self.demo_trajs)):
-                # Calculate color based on probability: higher prob is black (0x000000), lower is light gray (0xCCCCCC)
-                color_value = int(0xCC * (1.0 - self.demo_traj_probs[i]))
-                color = (color_value << 16) | (color_value << 8) | color_value
+                # Interpolate between purple (low prob) and orange (high prob)
+                rgb = self._interpolate_color(self.demo_traj_probs[i])
+                color = (rgb[0] << 16) | (rgb[1] << 8) | rgb[2]
                 
                 self.vis[f"traj_{i}"].set_object(g.Line(
                     g.PointsGeometry(self.demo_trajs[i].T),
-                    g.MeshBasicMaterial(color=color, linewidth=100.0) # Color based on probability
+                    g.MeshBasicMaterial(color=float(color), linewidth=10) # Color based on probability
                 ))
 
     def update_robot_position(self, position: np.ndarray):
@@ -50,15 +61,18 @@ class MeshcatVisualizer:
             # Store the new probability
             self.demo_traj_probs[i] = float(demo_traj_probs[i])
             
-            # Calculate color based on probability: higher prob is black (0x000000), lower is light gray (0xCCCCCC)
-            color_value = int(0xCC * (1.0 - self.demo_traj_probs[i]))
-            color = (color_value << 16) | (color_value << 8) | color_value
+            # Interpolate between purple (low prob) and orange (high prob)
+            rgb = self._interpolate_color(self.demo_traj_probs[i])
+            color = (rgb[0] << 16) | (rgb[1] << 8) | rgb[2]
             
             # Recreate the line with updated material
             self.vis[f"traj_{i}"].set_object(g.Line(
                 g.PointsGeometry(self.demo_trajs[i].T),
-                g.MeshBasicMaterial(color=color, linewidth=100.0) # Color based on probability
+                g.MeshBasicMaterial(color=float(color), linewidth=10) # Color based on probability
             ))
+
+    def update_ref_traj(self, ref_traj_idx: int):
+        self.vis[f"traj_{ref_traj_idx}"].set_property("color", 0x0000FF)
 
     def shutdown(self):
         self.vis.close()

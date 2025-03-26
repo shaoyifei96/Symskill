@@ -33,7 +33,7 @@ class RoboKitchenGroundTruthNSRTFactory(GroundTruthNSRTFactory):
         base = Variable("?base", base_type)
 
         # Options
-        DS_move_option = options["DS_move_option"]
+        DS_move_towards_option = options["DS_move_towards_option"]
         DS_move_away_option = options["DS_move_away_option"]
         GripperOpen_option = options["GripperOpen_option"]
         GripperClose_option = options["GripperClose_option"]
@@ -83,7 +83,7 @@ class RoboKitchenGroundTruthNSRTFactory(GroundTruthNSRTFactory):
         add_effects = {LiftedAtom(ReadyGrabHandle, [gripper, handle])}
         delete_effects = set()
         ignore_effects = set()
-        option = DS_move_option
+        option = DS_move_towards_option
         option_vars = [gripper, handle, base]
 
         def move_to_handle_sampler(state: State, memory: dict, objects: Sequence[Object], params: Array) -> Array:

@@ -467,6 +467,7 @@ def _run_testing(env: BaseEnv, cogman: CogMan) -> Metrics:
             video = monitor.get_video()
             utils.save_video(video_file, video)
         CFG.option_to_init_pose = {} # NOTE: reset option_to_init_pose for next test
+        CFG.option_to_policy = {} # NOTE: reset option_to_policy for next test
     metrics["num_solved"] = num_solved
     metrics["num_total"] = len(test_tasks)
     metrics["avg_suc_time"] = (total_suc_time /
