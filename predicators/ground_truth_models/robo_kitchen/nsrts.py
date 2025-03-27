@@ -51,14 +51,14 @@ class RoboKitchenGroundTruthNSRTFactory(GroundTruthNSRTFactory):
         nsrts = set()
 
         # ReachBehindandPull
-        parameters = [gripper, handle, hinge, base]
-        preconditions = {LiftedAtom(DoorHalfOpen, [hinge])}
+        parameters = [gripper, handle, base, hinge]
+        preconditions = {LiftedAtom(DoorHalfOpen, [hinge]), LiftedAtom(GripperOpen, [gripper])}
         maintain_effects = set()
-        add_effects = {}# this should be the following but disabled for now #{LiftedAtom(HingeOpen, [hinge])}
+        add_effects = {LiftedAtom(HingeOpen, [hinge])}# this should be the following but disabled for now #{LiftedAtom(HingeOpen, [hinge])}
         delete_effects = {LiftedAtom(DoorHalfOpen, [hinge])}
         ignore_effects = set()
         option = ReachBehindandPull_option
-        option_vars = [gripper, handle, hinge, base]
+        option_vars = [gripper, handle, base]
 
         def reach_behind_and_pull_sampler(state: State, memory: dict, objects: Sequence[Object], params: Array) -> Array:
             return np.array([0], dtype=np.float32)
@@ -190,7 +190,7 @@ class RoboKitchenGroundTruthNSRTFactory(GroundTruthNSRTFactory):
         parameters = [gripper, handle, hinge, base]
         preconditions = {LiftedAtom(HingeClosed, [hinge]), LiftedAtom(GripperClosed, [gripper]), LiftedAtom(InContact, [gripper, handle])}
         maintain_effects = {LiftedAtom(InContact, [gripper, handle])}
-        add_effects = {LiftedAtom(HingeOpen, [hinge]), LiftedAtom(DoorHalfOpen, [hinge])}
+        add_effects = {LiftedAtom(DoorHalfOpen, [hinge]), LiftedAtom(HingeOpen, [hinge])}
         delete_effects = {LiftedAtom(HingeClosed, [hinge])}
         ignore_effects = set()
         option = DS_move_away_option

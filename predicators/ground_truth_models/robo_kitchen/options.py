@@ -78,18 +78,21 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
 
         def _init_handle_transform(memory: Dict, state: State, objects: Sequence[Object], offset_handle_frame: Optional[np.ndarray] = None) -> None:
             """Helper to initialize handle transform data in memory."""
-            gripper, handle, base = objects
+            if len(objects) == 4:
+                gripper, handle, base, hinge = objects
+            else:
+                gripper, handle, base = objects
             handle_quat = np.array([state.get(handle, "qx"), state.get(handle, "qy"), 
                                   state.get(handle, "qz"), state.get(handle, "qw")])
             handle_pos = np.array([state.get(handle, "x"), state.get(handle, "y"), 
                                  state.get(handle, "z")])
             handle_rot = R.from_quat(handle_quat).as_matrix()
-            memory["handle_init_rot"] = handle_rot
             if offset_handle_frame is not None:
                 # Transform offset from handle frame to world frame before adding
                 offset_world = handle_rot @ offset_handle_frame
                 handle_pos = handle_pos + offset_world
-            memory["handle_init_pos"] = handle_pos
+            return handle_pos, handle_rot
+
 
         def _create_ds_policy(memory: Dict, state: State, objects: Sequence[Object], option: str, offset_handle_frame: Optional[np.ndarray] = None) -> None:
             if option == "move_towards":
@@ -132,15 +135,18 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
             model_path = os.path.join(current_dir, "..", "..", "DS_models", "models", "model.pt")
             model.load_state_dict(torch.load(model_path, map_location="cpu", weights_only=True))
             model.eval()
-            memory["model"] = model
-            _init_handle_transform(memory, state, objects, offset_handle_frame)
+            handle_pos, handle_rot = _init_handle_transform(memory, state, objects, offset_handle_frame)
+            return model, handle_pos, handle_rot
 
         def _DS_move_towards_option_initiable_linear(state: State, memory: Dict, objects: Sequence[Object], params: Array) -> bool:
             if "fail_memory" in memory:
                 print("fail_memory of DS_move_towards_option")
                 print(memory["fail_memory"])
             if "model" not in memory:
-                _create_simple_ds_model(memory, state, objects, offset_handle_frame=np.array([0.0, RoboKitchenEnv.offset_inwards_from_handle, 0.0]))
+                model, handle_pos, handle_rot = _create_simple_ds_model(memory, state, objects, offset_handle_frame=np.array([0.0, RoboKitchenEnv.offset_inwards_from_handle, 0.0]))
+                memory["handle_init_pos"] = handle_pos
+                memory["handle_init_rot"] = handle_rot
+                memory["model"] = model
             return True
 
         # DS_move_option - always initiable, empty policy, never terminates
@@ -149,7 +155,9 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
                 print("fail_memory of DS_move_towards_option")
                 print(memory["fail_memory"])
             
-            _init_handle_transform(memory, state, objects, offset_handle_frame=np.array([0.0, 0.0, 0.0]))
+            handle_pos, handle_rot = _init_handle_transform(memory, state, objects, offset_handle_frame=np.array([0.0, 0.0, 0.0]))
+            memory["handle_init_pos"] = handle_pos
+            memory["handle_init_rot"] = handle_rot
 
             # if "ds_policy" not in memory:
             #     _create_ds_policy(memory, state, objects, option="move_towards", offset_handle_frame=np.array([0.0, 0.0, 0.0]))
@@ -177,14 +185,18 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
         # DS_move_away_option - always initiable, empty policy, never terminates
         def _DS_move_away_option_initiable_linear(state: State, memory: Dict, objects: Sequence[Object], params: Array) -> bool:
             if "model" not in memory:
-                _create_simple_ds_model(memory, state, objects, offset_handle_frame=np.array([-0.6, -0.6, 0.0]))
-                # NOTE: this means open the door to the left, some doors open to the right and won't work
+                model, handle_pos, handle_rot = _create_simple_ds_model(memory, state, objects, offset_handle_frame=np.array([-0.6, -0.6, 0.0]))
+                memory["handle_init_pos"] = handle_pos
+                memory["handle_init_rot"] = handle_rot
+                memory["model"] = model
             return True
         
         def _DS_move_away_option_initiable_node(state: State, memory: Dict, objects: Sequence[Object], params: Array) -> bool:
             if "DS_move_away_option" not in CFG.option_to_init_pose:
-                _init_handle_transform(memory, state, objects, offset_handle_frame=np.array([0.0, 0.0, 0.0]))
-                CFG.option_to_init_pose["DS_move_away_option"] = [memory["handle_init_pos"], memory["handle_init_rot"]]
+                handle_pos, handle_rot = _init_handle_transform(memory, state, objects, offset_handle_frame=np.array([0.0, 0.0, 0.0]))
+                CFG.option_to_init_pose["DS_move_away_option"] = [handle_pos, handle_rot]
+                memory["handle_init_pos"] = handle_pos
+                memory["handle_init_rot"] = handle_rot
             else:
                 memory["handle_init_pos"] = CFG.option_to_init_pose["DS_move_away_option"][0]
                 memory["handle_init_rot"] = CFG.option_to_init_pose["DS_move_away_option"][1]
@@ -560,46 +572,79 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
         # ReachBehindandPull_option
         def _ReachBehindandPull_option_initiable(state: State, memory: Dict, objects: Sequence[Object], params: Array) -> bool:
             # in memory, add a few waypoints, move first downwards, -z, then move forward, x, then move upwards, z, then -x 
-            raise ValueError("ReachBehindandPull_option_initiable is not working, frame of waypoints is not correct")
+            # raise ValueError("ReachBehindandPull_option_initiable is not working, frame of waypoints is not correct")
             #print in red 
-            gripper, handle, hinge, base = objects
-            gripper_pos = np.array([state.get(gripper, "x"), state.get(gripper, "y"), state.get(gripper, "z")])
-            memory["waypoints"] = [ # body frame
-                np.array([gripper_pos[0], gripper_pos[1]-0.2, gripper_pos[2]]),
-                np.array([gripper_pos[0] -0.4 , gripper_pos[1]-0.2, gripper_pos[2]]),
-                np.array([gripper_pos[0] -0.4 , gripper_pos[1]+0.2, gripper_pos[2]]),
-                np.array([gripper_pos[0] , gripper_pos[1]+0.2, gripper_pos[2]]),
+
+            waypoints = [
+                np.array([0.0, -0.1, 0.0]),
+                np.array([0.2, -0.1, 0.0]), 
+                np.array([0.2, 0.1, 0.0]),
+                np.array([-0.2, 0.1, 0.0])
             ]
+            memory["num_waypoints"] = len(waypoints)
+            memory["waypoints"] = []
+            memory["current_waypoint"] = 0
+            
+            for i, waypoint in enumerate(waypoints):
+                model, handle_pos, handle_rot = _create_simple_ds_model(
+                    memory, state, objects, 
+                    offset_handle_frame=waypoint
+                )
+                # memory[f"model{i}"] = model
+                if i == 0:
+                    memory["model"] = model
+                    memory["handle_init_pos"] = handle_pos 
+                    memory["handle_init_rot"] = handle_rot
+
+                else:
+                    memory[f"model{i}"] = model
+                    memory[f"handle_init_pos{i}"] = handle_pos 
+                    memory[f"handle_init_rot{i}"] = handle_rot
+                memory["waypoints"].append(handle_pos)
+
             return True
 
         def _ReachBehindandPull_option_policy(state: State, memory: Dict, objects: Sequence[Object], params: Array) -> Action:
-            # move to under the door, move forward, and upwards, and then pull the door
-            waypoint = memory["waypoints"][0]
-            gripper, handle, hinge, base = objects
-            gripper_pos = np.array([state.get(gripper, "x"), state.get(gripper, "y"), state.get(gripper, "z")])
-            # pop the first waypoint if it's already reached
-            if np.linalg.norm(gripper_pos - memory["waypoints"][0]) < 0.02:
-                memory["waypoints"].pop(0)
-            robot_base_quat = np.array([state.get(base, "qx"), state.get(base, "qy"), state.get(base, "qz"), state.get(base, "qw")])
-            robot_base_rot = R.from_quat(robot_base_quat).as_matrix()
-
-
-            gripper_to_waypoint = waypoint - gripper_pos
-
-            velocity_robot_base = robot_base_rot.T @ gripper_to_waypoint
+            if memory["current_waypoint"] == len(memory["waypoints"]):
+                return Action(np.zeros(7, dtype=np.float32))
+            
+            # Get current gripper position and transform to handle frame
+            gripper_state = state.vec([objects[0]])
+            # Store previous state if not already stored
+            if "prev_gripper_state" not in memory:
+                memory["prev_gripper_state"] = gripper_state
+            
+            # Check if gripper is not moving much
+            # gripper_movement = np.linalg.norm(gripper_state[:3] - memory["prev_gripper_state"][:3])
+            # if gripper_movement < 0.01:
+            #     memory["stationary_count"] += 1
+            # else:
+            #     memory["stationary_count"] = 0
                 
-            # Create action array
-            arr = np.zeros(7, dtype=np.float32)
-            arr[:3] = velocity_robot_base
-
-            return Action(arr)
+            # # Update previous state
+            # memory["prev_gripper_state"] = gripper_state
+            
+            # If within threshold of current waypoint or gripper is stuck, move to next one
+            print (np.linalg.norm(gripper_state[:3] - memory["waypoints"][memory["current_waypoint"]]))
+            if (np.linalg.norm(gripper_state[:3] - memory["waypoints"][memory["current_waypoint"]]) < 0.06):
+                memory["current_waypoint"] += 1
+                print(f"Reached waypoint {memory['current_waypoint']}")
+                if memory["current_waypoint"] == len(memory["waypoints"]):
+                    print("Reached end of waypoints")
+                    return Action(np.zeros(7, dtype=np.float32))
+                # Otherwise use this waypoint's model and transform
+                memory["model"] = memory[f"model{memory['current_waypoint']}"]
+                memory["handle_init_pos"] = memory[f"handle_init_pos{memory['current_waypoint']}"]
+                memory["handle_init_rot"] = memory[f"handle_init_rot{memory['current_waypoint']}"]
+                
+            return _DS_general_move_option_policy(state, memory, objects, params)
 
         def _ReachBehindandPull_option_terminal(state: State, memory: Dict, objects: Sequence[Object], params: Array) -> bool:
             return False
             
         ReachBehindandPull_option = ParameterizedOption(
             "ReachBehindandPull_option",
-            types=[gripper, handle, hinge, base],
+            types=[gripper, handle, base],
             params_space=Box(-5, 5, (1,)),
             policy=_ReachBehindandPull_option_policy,
             initiable=_ReachBehindandPull_option_initiable,
