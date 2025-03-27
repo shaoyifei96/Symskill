@@ -221,6 +221,26 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
                 
                 return pos_in_target, rot_in_target
         
+        def _is_robot_stuck(memory: Dict, velocity: float, velocity_threshold: float = 0.005, stuck_time_threshold: int = 10) -> bool:
+            # Initialize velocity history if not already in memory
+            if "velocity_history" not in memory:
+                memory["velocity_history"] = []
+            
+            # Add current velocity to history
+            memory["velocity_history"].append(velocity)
+            
+            # Keep only the most recent velocities for memory efficiency
+            if len(memory["velocity_history"]) > stuck_time_threshold + 10:
+                memory["velocity_history"] = memory["velocity_history"][-stuck_time_threshold - 10:]
+            
+            # Check if we have enough history to make a determination
+            if len(memory["velocity_history"]) < stuck_time_threshold:
+                return False
+            
+            # Check if the robot has been moving slowly for the threshold duration
+            recent_velocities = memory["velocity_history"][-stuck_time_threshold:]
+            return all(v < velocity_threshold for v in recent_velocities)
+        
         def _DS_general_move_option_policy(state: State, memory: Dict, objects: Sequence[Object], params: Array) -> Action:
             # Get objects
             gripper, _, base = objects
@@ -429,13 +449,35 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
             velocity = np.linalg.norm(gripper_pos - memory["prev_gripper_pos"])
             memory["prev_gripper_pos"] = gripper_pos
             
+            # Check if the robot is stuck (velocity too small for too long)
+            if _is_robot_stuck(memory, velocity):
+                return True
+            
+            # Original success condition
             if np.linalg.norm(gripper_pos_in_handle[0]) <= 0.1 and \
                 gripper_pos_in_handle[1] > 0 and \
                 velocity < 0.01:
                 return True
+            
             return False
         
         def _DS_move_away_terminal(state: State, memory: Dict, objects: Sequence[Object], params: Array) -> bool:
+            gripper, _, base = objects
+            gripper_pos = np.array([state.get(gripper, "x"), state.get(gripper, "y"), state.get(gripper, "z")])
+            
+            # Store previous gripper position if not already in memory
+            if "prev_gripper_pos" not in memory:
+                memory["prev_gripper_pos"] = gripper_pos
+                return False
+            
+            # Calculate velocity
+            velocity = np.linalg.norm(gripper_pos - memory["prev_gripper_pos"])
+            memory["prev_gripper_pos"] = gripper_pos
+            
+            # Check if the robot is stuck (velocity too small for too long)
+            if _is_robot_stuck(memory, velocity):
+                return True
+            
             return False
 
         DS_move_towards_option = ParameterizedOption(
