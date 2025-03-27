@@ -553,6 +553,55 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
 
         options.add(DummyOption)
 
+        # ReachBehindandPull_option
+        def _ReachBehindandPull_option_initiable(state: State, memory: Dict, objects: Sequence[Object], params: Array) -> bool:
+            # in memory, add a few waypoints, move first downwards, -z, then move forward, x, then move upwards, z, then -x 
+            raise ValueError("ReachBehindandPull_option_initiable is not working, frame of waypoints is not correct")
+            #print in red 
+            gripper, handle, hinge, base = objects
+            gripper_pos = np.array([state.get(gripper, "x"), state.get(gripper, "y"), state.get(gripper, "z")])
+            memory["waypoints"] = [ # body frame
+                np.array([gripper_pos[0], gripper_pos[1]-0.2, gripper_pos[2]]),
+                np.array([gripper_pos[0] -0.4 , gripper_pos[1]-0.2, gripper_pos[2]]),
+                np.array([gripper_pos[0] -0.4 , gripper_pos[1]+0.2, gripper_pos[2]]),
+                np.array([gripper_pos[0] , gripper_pos[1]+0.2, gripper_pos[2]]),
+            ]
+            return True
+
+        def _ReachBehindandPull_option_policy(state: State, memory: Dict, objects: Sequence[Object], params: Array) -> Action:
+            # move to under the door, move forward, and upwards, and then pull the door
+            waypoint = memory["waypoints"][0]
+            gripper, handle, hinge, base = objects
+            gripper_pos = np.array([state.get(gripper, "x"), state.get(gripper, "y"), state.get(gripper, "z")])
+            # pop the first waypoint if it's already reached
+            if np.linalg.norm(gripper_pos - memory["waypoints"][0]) < 0.02:
+                memory["waypoints"].pop(0)
+            robot_base_quat = np.array([state.get(base, "qx"), state.get(base, "qy"), state.get(base, "qz"), state.get(base, "qw")])
+            robot_base_rot = R.from_quat(robot_base_quat).as_matrix()
+
+
+            gripper_to_waypoint = waypoint - gripper_pos
+
+            velocity_robot_base = robot_base_rot.T @ gripper_to_waypoint
+                
+            # Create action array
+            arr = np.zeros(7, dtype=np.float32)
+            arr[:3] = velocity_robot_base
+
+            return Action(arr)
+
+        def _ReachBehindandPull_option_terminal(state: State, memory: Dict, objects: Sequence[Object], params: Array) -> bool:
+            return False
+            
+        ReachBehindandPull_option = ParameterizedOption(
+            "ReachBehindandPull_option",
+            types=[gripper, handle, hinge, base],
+            params_space=Box(-5, 5, (1,)),
+            policy=_ReachBehindandPull_option_policy,
+            initiable=_ReachBehindandPull_option_initiable,
+            terminal=_ReachBehindandPull_option_terminal,
+        )
+        options.add(ReachBehindandPull_option)
         return options
 
 class RuntimeVisualizer_plotly:

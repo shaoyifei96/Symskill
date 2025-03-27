@@ -37,6 +37,7 @@ class RoboKitchenEnv(BaseEnv):
     """Kitchen environment using robosuite."""
 
     hinge_open_thresh = 0.8 # 0-1
+    hinge_half_open_thresh = 0.4 # 0-1
     gripper_open_thresh = 0.038 # m 
     gripper_closed_thresh = 0.03 # m
     close_distance_thresh = 0.02  #m
@@ -316,6 +317,7 @@ class RoboKitchenEnv(BaseEnv):
             Predicate("HingeOpen", [cls.hinge_type], cls._HingeOpen_holds),
             Predicate("HingeClosed", [cls.hinge_type], cls._HingeClosed_holds),
             Predicate("InContact", [cls.object_type, cls.object_type], cls._InContact_holds),
+            Predicate("DoorHalfOpen", [cls.hinge_type], cls._DoorHalfOpen_holds),
         }
 
         return {p.name: p for p in preds}
@@ -561,6 +563,14 @@ class RoboKitchenEnv(BaseEnv):
         obj = objects[0]
         if obj.is_instance(cls.hinge_type):
             return state.get(obj, "angle") <= cls.hinge_open_thresh
+        return False
+    
+    @classmethod
+    def _DoorHalfOpen_holds(cls, state: State, objects: Sequence[Object]) -> bool:
+        """Made public for use in ground-truth options."""
+        obj = objects[0]
+        if obj.is_instance(cls.hinge_type):
+            return state.get(obj, "angle") > cls.hinge_half_open_thresh
         return False
 
     @classmethod

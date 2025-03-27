@@ -42,10 +42,12 @@ class CogMan:
         self._episode_action_history: List[Action] = []
         self._episode_images: Video = []
         self._episode_num = -1
+        self._num_times_stay_close_to_previous_plan = 0
 
     def reset(self, env_task: EnvironmentTask) -> None:
         """Start a new episode of environment interaction."""
         logging.info("[CogMan] Reset called.")
+        self._num_times_stay_close_to_previous_plan = 0
         self._episode_num += 1
         task = self._perceiver.reset(env_task)
         self._current_env_task = env_task
@@ -57,6 +59,7 @@ class CogMan:
         self._reset_policy(task)
         self._exec_monitor.update_approach_info(
             self._approach.get_execution_monitoring_info())
+        self._approach._last_nsrt_plan = []
         self._episode_state_history = [task.init]
         self._episode_action_history = []
         self._episode_images = []
@@ -86,7 +89,12 @@ class CogMan:
             assert self._current_goal is not None
             task = Task(state, self._current_goal)
             self._exec_monitor.reset(task, reset_failure_memory=False)
-            self._reset_policy(task, stay_close_to_previous_plan = True) # approach is updated
+            if self._num_times_stay_close_to_previous_plan < 3:
+                self._reset_policy(task, stay_close_to_previous_plan = True) # approach is updated
+                self._num_times_stay_close_to_previous_plan += 1
+            else:
+                self._reset_policy(task, stay_close_to_previous_plan = False) # approach is updated
+                self._num_times_stay_close_to_previous_plan = 0
             self._exec_monitor.update_approach_info(
                 self._approach.get_execution_monitoring_info())
             # We only reset the approach if the override policy is
