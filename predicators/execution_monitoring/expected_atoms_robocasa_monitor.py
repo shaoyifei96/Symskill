@@ -26,6 +26,7 @@ class ExpectedAtomsRobocasaExecutionMonitor(BaseExecutionMonitor):
         self._option_start_timestep: int = 0
         self._max_option_exe_timesteps: int = 200  # Maximum timesteps before considering option failed
         self._current_nsrt_step = 0
+        self._NSRT_plan_executed = False
 
     @classmethod
     def get_name(cls) -> str:
@@ -45,6 +46,11 @@ class ExpectedAtomsRobocasaExecutionMonitor(BaseExecutionMonitor):
         if not self._validate_approach():
             return False
 
+        if self._NSRT_plan_executed:
+            self._NSRT_plan_executed = False
+            failure_reason = self._format_failure_reason("Exhausted", set())
+            self._record_failure(self._running_option_name, state, failure_reason)
+            return True
         # Update option tracking
         new_option_bool, last_option_name = self._update_option_tracking()
 

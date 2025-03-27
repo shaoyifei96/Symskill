@@ -24,6 +24,7 @@ from predicators.settings import CFG
 from predicators.structs import Action, Dataset, EnvironmentTask, GroundAtom, \
     InteractionRequest, InteractionResult, LowLevelTrajectory, Metrics, \
     Observation, State, Task, Video, _Option
+from predicators.approaches import ApproachFailure
 
 class CogMan:
     """Cognitive manager."""
@@ -263,6 +264,9 @@ def run_episode_and_get_observations(
                 actions.append(act)
                 observations.append(obs)
             except Exception as e:
+                if isinstance(e,ApproachFailure) and e.args[0] == 'NSRT plan exhausted.':
+                    cogman._exec_monitor._NSRT_plan_executed = True
+                    continue
                 if exceptions_to_break_on is not None and \
                    any(issubclass(type(e), c) for c in exceptions_to_break_on):
                     if monitor_observed:
