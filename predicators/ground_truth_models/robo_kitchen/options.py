@@ -620,8 +620,8 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
             waypoints = [
                 np.array([0.0, -0.1, 0.0]),
                 np.array([0.2, -0.1, 0.0]), 
-                np.array([0.2, 0.1, 0.0]),
-                np.array([-0.2, 0.1, 0.0])
+                np.array([0.2, 0.4, 0.0]),
+                np.array([-0.4, 0.4, 0.0])
             ]
             memory["num_waypoints"] = len(waypoints)
             memory["waypoints"] = []
