@@ -17,26 +17,28 @@ class MeshcatVisualizer:
         self.generated_traj = []
 
         # Define colors for interpolation
-        self.purple = np.array([128, 0, 128])  # Purple RGB
-        self.orange = np.array([255, 165, 0])  # Orange RGB
-        self.red = np.array([255, 0, 0])  # Red RGB for robot
+        self.low_prob_color = np.array([128, 0, 128])  # Purple RGB
+        self.high_prob_color = np.array([255, 165, 0])  # Orange RGB
+        self.robot_color = np.array([255, 0, 0])  # Red RGB for robot
+        self.ref_traj_color = np.array([0, 0, 255])  # Blue RGB for ref traj
 
         self.vis["robot"].set_object(g.Sphere(0.01), 
-                                    g.MeshBasicMaterial(color=0xff0000))  # Red color
+                                    g.MeshBasicMaterial(color=color_array_to_hex(self.robot_color)))  # Red color
+        self.vis["ref_point"].set_object(g.Sphere(0.01), 
+                                    g.MeshBasicMaterial(color=color_array_to_hex(self.ref_traj_color)))  # Blue color
         if self.demo_trajs is not None and self.demo_traj_probs is not None:
             for i in range(len(self.demo_trajs)):
                 # Interpolate between purple (low prob) and orange (high prob)
                 rgb = self._interpolate_color(self.demo_traj_probs[i])
-                color = (rgb[0] << 16) | (rgb[1] << 8) | rgb[2]
                 
                 self.vis[f"traj_{i}"].set_object(g.Line(
                     g.PointsGeometry(self.demo_trajs[i].T),
-                    g.MeshBasicMaterial(color=float(color), linewidth=10) # Color based on probability
+                    g.MeshBasicMaterial(color=color_array_to_hex(rgb), linewidth=10) # Color based on probability
                 ))
 
     def _interpolate_color(self, probability: float) -> np.ndarray:
         """Interpolate between purple (low probability) and orange (high probability)"""
-        rgb = self.purple + probability * (self.orange - self.purple)
+        rgb = self.low_prob_color + probability * (self.high_prob_color - self.low_prob_color)
         return rgb.astype(int)
 
     def set_demo_trajs(self, demo_trajs: list[np.ndarray], demo_traj_probs: Optional[np.ndarray] = None):
@@ -46,11 +48,10 @@ class MeshcatVisualizer:
             for i in range(len(self.demo_trajs)):
                 # Interpolate between purple (low prob) and orange (high prob)
                 rgb = self._interpolate_color(self.demo_traj_probs[i])
-                color = (rgb[0] << 16) | (rgb[1] << 8) | rgb[2]
                 
                 self.vis[f"traj_{i}"].set_object(g.Line(
                     g.PointsGeometry(self.demo_trajs[i].T),
-                    g.MeshBasicMaterial(color=float(color), linewidth=10) # Color based on probability
+                    g.MeshBasicMaterial(color=color_array_to_hex(rgb), linewidth=10) # Color based on probability
                 ))
 
     def update_robot_position(self, position: np.ndarray):
@@ -63,20 +64,27 @@ class MeshcatVisualizer:
             
             # Interpolate between purple (low prob) and orange (high prob)
             rgb = self._interpolate_color(self.demo_traj_probs[i])
-            color = (rgb[0] << 16) | (rgb[1] << 8) | rgb[2]
             
             # Recreate the line with updated material
             self.vis[f"traj_{i}"].set_object(g.Line(
                 g.PointsGeometry(self.demo_trajs[i].T),
-                g.MeshBasicMaterial(color=float(color), linewidth=10) # Color based on probability
+                g.MeshBasicMaterial(color=color_array_to_hex(rgb), linewidth=10) # Color based on probability
             ))
 
     def update_ref_traj(self, ref_traj_idx: int):
-        self.vis[f"traj_{ref_traj_idx}"].set_property("color", 0x0000FF)
+        self.vis[f"traj_{ref_traj_idx}"].set_object(g.Line(
+                    g.PointsGeometry(self.demo_trajs[ref_traj_idx].T),
+                    g.MeshBasicMaterial(color=color_array_to_hex(self.ref_traj_color), linewidth=10)
+                ))
+        
+    def update_ref_point(self, ref_point_position: np.ndarray):
+        self.vis["ref_point"].set_transform(tf.translation_matrix(ref_point_position))
 
     def shutdown(self):
         self.vis.close()
 
+def color_array_to_hex(color: np.ndarray) -> int:
+    return float((color[0] << 16) | (color[1] << 8) | color[2])
 
 if __name__ == "__main__":
     trajectories = []
@@ -94,6 +102,9 @@ if __name__ == "__main__":
     # Live update loop
     for i in range(steps):
         visualizer.update_robot_position(np.array([robot_x_pos[i], 0, 0]))
-        visualizer.update_demo_traj_probs(np.random.rand(len(trajectories)))
+        # visualizer.update_demo_traj_probs(np.random.rand(len(trajectories)))
+        if i == 0:
+            visualizer.update_ref_traj(np.random.randint(len(trajectories)))
+
         # Sleep to simulate real-time updates
         time.sleep(dt)
