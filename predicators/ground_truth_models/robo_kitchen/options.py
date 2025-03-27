@@ -166,7 +166,7 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
                         handle_state = memory["fail_memory"][idx].state.vec([RoboKitchenEnv.object_name_to_object("handle")])
                         gripper_pos_in_handle, gripper_rot_in_handle = frame_transform(gripper_state[:3], gripper_state[3:7], handle_state[:3], R.from_quat(handle_state[3:7]).as_matrix())
                         gripper_quat_in_handle = R.from_matrix(gripper_rot_in_handle).as_quat()
-                        memory["ds_policy"].update_demo_traj_probs(np.concatenate([gripper_pos_in_handle, gripper_quat_in_handle]), "trajectory", penalty=0.8, traj_threshold=0.2, radius=0.05, angle_threshold=np.pi/2, lookahead=10)
+                        memory["ds_policy"].update_demo_traj_probs(np.concatenate([gripper_pos_in_handle, gripper_quat_in_handle]), "point", penalty=0.8, traj_threshold=0.2, radius=0.02, angle_threshold=np.pi/2, lookahead=10)
                         memory["fail_memory"].pop(idx)
             
             if CFG.visualizer:
@@ -203,7 +203,7 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
                         gripper_state = memory["fail_memory"][idx].state.vec([RoboKitchenEnv.object_name_to_object("gripper")])
                         gripper_pos_in_handle, gripper_rot_in_handle = frame_transform(gripper_state[:3], gripper_state[3:7], CFG.option_to_init_pose["DS_move_away_option"][0], CFG.option_to_init_pose["DS_move_away_option"][1])
                         gripper_quat_in_handle = R.from_matrix(gripper_rot_in_handle).as_quat()
-                        memory["ds_policy"].update_demo_traj_probs(np.concatenate([gripper_pos_in_handle, gripper_quat_in_handle]), "trajectory", penalty=0.8, traj_threshold=0.2, radius=0.05, angle_threshold=np.pi/2, lookahead=10)
+                        memory["ds_policy"].update_demo_traj_probs(np.concatenate([gripper_pos_in_handle, gripper_quat_in_handle]), "point", penalty=0.8, traj_threshold=0.2, radius=0.02, angle_threshold=np.pi/2, lookahead=10)
                         memory["fail_memory"].pop(idx)
             
             if CFG.visualizer:
@@ -274,11 +274,13 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
                 # Use DS policy
                 ds_policy = memory["ds_policy"]
 
-                vel = ds_policy.get_action(np.concatenate([pos_in_handle, R.from_matrix(rot_in_handle).as_quat()]), clf=True, alpha_V=100.0, lookahead=10)
+                vel = ds_policy.get_action(np.concatenate([pos_in_handle, R.from_matrix(rot_in_handle).as_quat()]), clf=True, alpha_V=50.0, lookahead=20)
 
                 if CFG.visualizer:
                     CFG.visualizer.update_robot_position(pos_in_handle)
-                
+                    CFG.visualizer.update_ref_traj(ds_policy.ref_traj_idx)
+                    CFG.visualizer.update_ref_point(ds_policy.x[ds_policy.ref_traj_idx][ds_policy.ref_point_idx])
+                    
                 x_dot_handle = vel[:3]
                 r_dot_handle = vel[3:]
                 
@@ -371,10 +373,12 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
                 # Use DS policy
                 ds_policy = memory["ds_policy"]
                 
-                vel = ds_policy.get_action(np.concatenate([pos_in_handle, R.from_matrix(rot_in_handle).as_quat()]), clf=True, alpha_V=100.0, lookahead=10)
+                vel = ds_policy.get_action(np.concatenate([pos_in_handle, R.from_matrix(rot_in_handle).as_quat()]), clf=True, alpha_V=50.0, lookahead=20)
 
                 if CFG.visualizer:
                     CFG.visualizer.update_robot_position(pos_in_handle)
+                    CFG.visualizer.update_ref_traj(ds_policy.ref_traj_idx)
+                    CFG.visualizer.update_ref_point(ds_policy.x[ds_policy.ref_traj_idx][ds_policy.ref_point_idx])
 
                 x_dot_handle = vel[:3]
                 r_dot_handle = vel[3:]
