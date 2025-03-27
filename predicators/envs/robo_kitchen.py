@@ -24,6 +24,7 @@ import os
 import mujoco
 import time
 import logging
+from scipy.spatial.transform import Rotation as R
 
 # Disable JAX debug messages
 logging.getLogger('jax._src.cache_key').setLevel(logging.ERROR)
@@ -521,17 +522,34 @@ class RoboKitchenEnv(BaseEnv):
     @classmethod
     def _ReadyGrabHandle_holds(cls, state: State, objects: Sequence[Object]) -> bool:
         """Check if gripper is ready to grip handle."""
+        def frame_transform(pos_in_init: np.ndarray, quat_in_init: np.ndarray, target_pos: np.ndarray, target_rot: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:                
+                rot_in_init = R.from_quat(quat_in_init).as_matrix()
+                
+                rel_pos_init = pos_in_init - target_pos
+                
+                pos_in_target = target_rot.T @ rel_pos_init
+                rot_in_target = target_rot.T @ rot_in_init
+                
+                return pos_in_target, rot_in_target
         gripper, handle = objects
         # Check if gripper is open
         if not state.get(gripper, "angle") > cls.gripper_open_thresh:
             return False
         # Check if position of gripper is close to handle
-        gripper_pos = np.array([state.get(gripper, "x"), state.get(gripper, "y"), state.get(gripper, "z")])
-        handle_pos = np.array([state.get(handle, "x"), state.get(handle, "y"), state.get(handle, "z")])
-        if np.linalg.norm(gripper_pos - handle_pos) > (cls.close_distance_thresh + cls.offset_inwards_from_handle):
-            return False
-        # Check if orientation of gripper is close to handle
-        return True
+        # gripper_pos = np.array([state.get(gripper, "x"), state.get(gripper, "y"), state.get(gripper, "z")])
+        # handle_pos = np.array([state.get(handle, "x"), state.get(handle, "y"), state.get(handle, "z")])
+        gripper_state = state.vec([RoboKitchenEnv.object_name_to_object("gripper")])
+        handle_state = state.vec([RoboKitchenEnv.object_name_to_object("handle")])
+        gripper_pos_in_handle, _ = frame_transform(gripper_state[:3], gripper_state[3:7], handle_state[:3], R.from_quat(handle_state[3:7]).as_matrix())
+        
+        if np.linalg.norm(gripper_pos_in_handle[0]) <= 0.1 and \
+                gripper_pos_in_handle[1] > 0:
+            return True
+        return False
+        # if np.linalg.norm(gripper_pos_in_handle) > (cls.close_distance_thresh + cls.offset_inwards_from_handle):
+        #     return False
+        # # Check if orientation of gripper is close to handle
+        # return True
 
     @classmethod
     def _GripperOpen_holds(cls, state: State, objects: Sequence[Object]) -> bool:

@@ -80,8 +80,7 @@ class ExpectedAtomsRobocasaExecutionMonitor(BaseExecutionMonitor):
         if new_option_bool:
             unsat_atoms = self._check_predicates(state, next_expected_atoms)
             # it seems in nsrt_plan_to_greedy_policy, there is check for unsat atoms already
-            # TODO: test if this function really checks for unsat atoms
-            unsat_atoms = {}
+            # TODO: test if this function really checks for unsat atoms    # unsat_atoms = {}
             if unsat_atoms:
                 failure_reason = self._format_failure_reason("New", unsat_atoms)
                 self._record_failure(last_option_name, state, failure_reason)
