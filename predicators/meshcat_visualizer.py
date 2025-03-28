@@ -42,6 +42,9 @@ class MeshcatVisualizer:
         return rgb.astype(int)
 
     def set_demo_trajs(self, demo_trajs: list[np.ndarray], demo_traj_probs: Optional[np.ndarray] = None):
+        if self.demo_trajs is not None: 
+            for i in range(len(self.demo_trajs)):
+                self.vis[f"traj_{i}"].delete()
         self.demo_trajs = demo_trajs
         self.demo_traj_probs = demo_traj_probs if demo_traj_probs is not None else np.ones(len(demo_trajs))
         if self.demo_trajs is not None and self.demo_traj_probs is not None:

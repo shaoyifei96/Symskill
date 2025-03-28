@@ -219,7 +219,7 @@ class RoboKitchenEnv(BaseEnv):
         # Create or recreate environment if needed
         warnings.warn("Resetting environment to initial state from seed not implemented for robosuite kitchen")
         if self._env is None:
-            # complex_config = True # TODO: this should be removed. only for mac
+            complex_config = True # TODO: this should be removed. only for mac
             if complex_config:
                 robot_type = "PandaOmron"
                 controller_config = load_composite_controller_config(robot=robot_type)

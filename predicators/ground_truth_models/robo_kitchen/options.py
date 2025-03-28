@@ -95,10 +95,7 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
 
 
         def _create_ds_policy(memory: Dict, state: State, objects: Sequence[Object], option: str, offset_handle_frame: Optional[np.ndarray] = None) -> None:
-            if option == "move_towards":
-                x, x_dot, q, omega = load_data(option="move_towards", transform_to_handle_frame=True, debug_on=False)
-            elif option == "move_away":
-                x, x_dot, q, omega = load_data(option="move_away", transform_to_handle_frame=True, debug_on=False)
+            x, x_dot, q, omega = load_data(option=option, transform_to_handle_frame=True, debug_on=False)
             model_config = {
                 'pos_model': {
                     'special_mode': 'none',
@@ -612,7 +609,7 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
         options.add(DummyOption)
 
         # ReachBehindandPull_option
-        def _ReachBehindandPull_option_initiable(state: State, memory: Dict, objects: Sequence[Object], params: Array) -> bool:
+        def _ReachBehindandPull_option_initiable_linear(state: State, memory: Dict, objects: Sequence[Object], params: Array) -> bool:
             # in memory, add a few waypoints, move first downwards, -z, then move forward, x, then move upwards, z, then -x 
             # raise ValueError("ReachBehindandPull_option_initiable is not working, frame of waypoints is not correct")
             #print in red 
@@ -645,6 +642,33 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
                 memory["waypoints"].append(handle_pos)
 
             return True
+        
+        def _ReachBehindandPull_option_initiable_node(state: State, memory: Dict, objects: Sequence[Object], params: Array) -> bool:
+            handle_pos, handle_rot = _init_handle_transform(memory, state, objects, offset_handle_frame=np.array([0.0, 0.0, 0.0]))
+            memory["handle_init_pos"] = handle_pos
+            memory["handle_init_rot"] = handle_rot
+
+            if "DS_reach_behind_and_pull_option" not in CFG.option_to_policy:
+                _create_ds_policy(memory, state, objects, option="reach_behind_and_pull", offset_handle_frame=np.array([0.0, 0.0, 0.0]))
+                CFG.option_to_policy["DS_reach_behind_and_pull_option"] = memory["ds_policy"]
+            else:
+                memory["ds_policy"] = CFG.option_to_policy["DS_reach_behind_and_pull_option"]
+
+            if "fail_memory" in memory and memory["fail_memory"]:
+                for idx in range(len(memory["fail_memory"])-1, -1, -1):
+                    if memory["fail_memory"][idx].option_name == "DS_reach_behind_and_pull_option":
+                        gripper_state = memory["fail_memory"][idx].state.vec([RoboKitchenEnv.object_name_to_object("gripper")])
+                        handle_state = memory["fail_memory"][idx].state.vec([RoboKitchenEnv.object_name_to_object("handle")])
+                        gripper_pos_in_handle, gripper_rot_in_handle = frame_transform(gripper_state[:3], gripper_state[3:7], handle_state[:3], R.from_quat(handle_state[3:7]).as_matrix())
+                        gripper_quat_in_handle = R.from_matrix(gripper_rot_in_handle).as_quat()
+                        memory["ds_policy"].update_demo_traj_probs(np.concatenate([gripper_pos_in_handle, gripper_quat_in_handle]), "point", penalty=0.8, traj_threshold=0.2, radius=0.02, angle_threshold=np.pi/2, lookahead=10)
+                        memory["fail_memory"].pop(idx)
+
+            if CFG.visualizer:
+                CFG.visualizer.set_demo_trajs(memory["ds_policy"].x, memory["ds_policy"].demo_traj_probs)
+
+            return True
+
 
         def _ReachBehindandPull_option_policy(state: State, memory: Dict, objects: Sequence[Object], params: Array) -> Action:
             if memory["current_waypoint"] == len(memory["waypoints"]):
@@ -682,14 +706,30 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
             return _DS_general_move_option_policy(state, memory, objects, params)
 
         def _ReachBehindandPull_option_terminal(state: State, memory: Dict, objects: Sequence[Object], params: Array) -> bool:
+            gripper, _, base = objects
+            gripper_pos = np.array([state.get(gripper, "x"), state.get(gripper, "y"), state.get(gripper, "z")])
+            
+            # Store previous gripper position if not already in memory
+            if "prev_gripper_pos" not in memory:
+                memory["prev_gripper_pos"] = gripper_pos
+                return False
+            
+            # Calculate velocity
+            velocity = np.linalg.norm(gripper_pos - memory["prev_gripper_pos"])
+            memory["prev_gripper_pos"] = gripper_pos
+            
+            # Check if the robot is stuck (velocity too small for too long)
+            if _is_robot_stuck(memory, velocity):
+                return True
+            
             return False
             
         ReachBehindandPull_option = ParameterizedOption(
             "ReachBehindandPull_option",
             types=[gripper, handle, base],
             params_space=Box(-5, 5, (1,)),
-            policy=_ReachBehindandPull_option_policy,
-            initiable=_ReachBehindandPull_option_initiable,
+            policy=_DS_general_move_option_policy,
+            initiable=_ReachBehindandPull_option_initiable_linear if CFG.robo_kitchen_policy_model == "simple_ds" else _ReachBehindandPull_option_initiable_node,
             terminal=_ReachBehindandPull_option_terminal,
         )
         options.add(ReachBehindandPull_option)
