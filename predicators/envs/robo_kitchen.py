@@ -259,14 +259,13 @@ class RoboKitchenEnv(BaseEnv):
         # Reset environment with seed
         obs = self._env.reset()
 
-        self.device = Keyboard(
-            env=self._env,
-            pos_sensitivity=4.0,
-            rot_sensitivity=4.0,
-        )
-        self.device.start_control()
-
-
+        if CFG.use_teleop:
+            self.device = Keyboard(
+                env=self._env,
+                pos_sensitivity=4.0,
+                rot_sensitivity=4.0,
+            )
+            self.device.start_control()
 
         # Update objects of interest based on task
         self.objects_of_interest = self.get_objects_of_interest(task_name)
@@ -348,10 +347,10 @@ class RoboKitchenEnv(BaseEnv):
         Convert 7D predicators action [dx, dy, dz, droll, dpitch, dyaw, gripper]
         to 12D robocasa action [right_pose(6), right_gripper(1), base(3), torso(1), extra(1)]
         """
-
-        input_ac_dict = self.device.input2action(mirror_actions=True)
-        # print(f"input_ac_dict: {input_ac_dict}")
-        # action_keyboard = self._env.robots[0].create_action_vector(input_ac_dict)
+        if CFG.use_teleop:
+            input_ac_dict = self.device.input2action(mirror_actions=True)
+            # print(f"input_ac_dict: {input_ac_dict}")
+            # action_keyboard = self._env.robots[0].create_action_vector(input_ac_dict)
 
         # Debug print
         # print("\n" + "="*50)
@@ -375,7 +374,8 @@ class RoboKitchenEnv(BaseEnv):
         env_action[0:3] = pos_delta  # position control
         env_action[3:6] = rot_delta  # rotation control
         env_action[6] = gripper_cmd  # gripper control
-        env_action[7:10] = input_ac_dict["base"]
+        if CFG.use_teleop:
+            env_action[7:10] = input_ac_dict["base"]
         # env_action[7:10] are zeros (no base movement)
         # env_action[10] is zero (no torso movement)
         # env_action[11] is zero (extra dimension)

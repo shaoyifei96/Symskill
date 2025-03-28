@@ -26,11 +26,12 @@ class GlobalSettings:
     visualizer = MeshcatVisualizer()
     option_to_init_pose: Dict[str, List[np.ndarray]] = {}
     option_to_policy = {}
+    use_teleop = False
 
     """Unchanging settings."""
     # global parameters
     num_train_tasks = 0 # in robocasa, either the max demo number or num_train_tasks will be used
-    num_test_tasks = 1
+    num_test_tasks = 5
     # Perform online learning for this many cycles or until this many
     # transitions have been collected, whichever happens first.
     num_online_learning_cycles = 10
@@ -751,7 +752,7 @@ class GlobalSettings:
                 {
                     # For certain environments, actions are lower level, so
                     # tasks take more actions to complete.
-                    "robo_kitchen": 10000,
+                    "robo_kitchen": 1000,
                     "pybullet_cover": 1000,
                     "pybullet_blocks": 1000,
                     "doors": 1000,
