@@ -69,7 +69,6 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
         mujoco.mju_euler2Quat(angled_quat, np.array([-3 * np.pi / 4, 0.0, -np.pi / 2]), "xyz")
 
         # Types
-        hinge = types["hinge_type"]
         gripper = types["gripper_type"]
         handle = types["handle_type"]
         base = types["base_type"]
@@ -79,10 +78,8 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
         def _init_handle_transform(memory: Dict, state: State, objects: Sequence[Object], offset_handle_frame: Optional[np.ndarray] = None) -> None:
             """Helper to initialize handle transform data in memory."""
             gripper, handle, base = objects
-            handle_quat = np.array([state.get(handle, "qx"), state.get(handle, "qy"), 
-                                  state.get(handle, "qz"), state.get(handle, "qw")])
-            handle_pos = np.array([state.get(handle, "x"), state.get(handle, "y"), 
-                                 state.get(handle, "z")])
+            handle_quat = state.get(handle, "quaternion")
+            handle_pos = state.get(handle, "translation")
             handle_rot = R.from_quat(handle_quat).as_matrix()
             memory["handle_init_rot"] = handle_rot
             if offset_handle_frame is not None:
@@ -109,7 +106,7 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
             ds_policy = DSPolicy(x, x_dot, q, omega, model_config=model_config, dt=1/60, switch=False)
             memory["ds_policy"] = ds_policy
             _init_handle_transform(memory, state, objects, offset_handle_frame)
-            
+
             # visualizer = RuntimeVisualizer_plotly(x)
             # memory["visualizer"] = visualizer
             # memory["visualizer"]._run()
@@ -156,28 +153,27 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
                 _create_ds_policy(memory, state, objects, option="move_towards", offset_handle_frame=np.array([0.0, 0.0, 0.0]))
 
             return True
-        
+
         # DS_move_away_option - always initiable, empty policy, never terminates
         def _DS_move_away_option_initiable_linear(state: State, memory: Dict, objects: Sequence[Object], params: Array) -> bool:
             if "model" not in memory:
                 _create_simple_ds_model(memory, state, objects, offset_handle_frame=np.array([-0.6, -0.6, 0.0]))
                 # NOTE: this means open the door to the left, some doors open to the right and won't work
             return True
-        
+
         def _DS_move_away_option_initiable_node(state: State, memory: Dict, objects: Sequence[Object], params: Array) -> bool:
             if "ds_policy" not in memory:
                 _create_ds_policy(memory, state, objects, option="move_away", offset_handle_frame=np.array([-0.6, -0.6, 0.0]))
             return True
 
-        
         def _DS_general_move_option_policy(state: State, memory: Dict, objects: Sequence[Object], params: Array) -> Action:
             # Get objects
             gripper, _, base = objects
             handle_init_pos = memory["handle_init_pos"]
             handle_init_rot = memory["handle_init_rot"]
             # Get positions
-            gripper_pos = np.array([state.get(gripper, "x"), state.get(gripper, "y"), state.get(gripper, "z")])
-            gripper_quat = np.array([state.get(gripper, "qx"), state.get(gripper, "qy"), state.get(gripper, "qz"), state.get(gripper, "qw")])
+            gripper_pos = state.get(gripper, "translation")
+            gripper_quat = state.get(gripper, "quaternion")
             gripper_rot = R.from_quat(gripper_quat).as_matrix()
             # Compute relative position in world frame
             rel_pos_world = gripper_pos - handle_init_pos
@@ -195,8 +191,8 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
             # move that difference to the base frame
             world_w = handle_init_rot @ angular_w_handle
 
-            robot_base_pos = np.array([state.get(base, "x"), state.get(base, "y"), state.get(base, "z")])
-            robot_base_quat = np.array([state.get(base, "qx"), state.get(base, "qy"), state.get(base, "qz"), state.get(base, "qw")])
+            robot_base_pos = state.get(base, "translation")
+            robot_base_quat = state.get(base, "quaternion")
             robot_base_rot = R.from_quat(robot_base_quat).as_matrix()
 
             robot_base_w = robot_base_rot.T @ world_w
@@ -210,7 +206,7 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
                 net = memory["model"]
                 with torch.no_grad():
                     velocity_in_handle = net(torch.from_numpy(pos_in_handle).float())
-                
+
                 warnings.warn("Velocity getting scaled, plz remove")
                 velocity_in_handle[0] = velocity_in_handle[0] * 0.5 #handle frame x is the direction towards handle
                 velocity_in_handle[1] = velocity_in_handle[1] * 0.05
@@ -218,23 +214,23 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
                 # Transform velocity back to world frame
                 velocity_world = handle_init_rot @ velocity_in_handle.numpy()
                 velocity_robot_base = robot_base_rot.T @ velocity_world
-                
+
                 # Create action array
                 arr = np.zeros(7, dtype=np.float32)
                 arr[:3] = velocity_robot_base
                 arr[3:6] = 0.3 * robot_base_w
-            
+
             elif "ds_policy" in memory:
                 # Use DS policy
                 ds_policy = memory["ds_policy"]
 
                 if "visualizer" in memory:
                     memory["visualizer"].update_position(pos_in_handle, ds_policy.ref_traj_idx)
-                
+
                 vel = ds_policy.get_action(np.concatenate([pos_in_handle, R.from_matrix(rot_in_handle).as_quat()]), clf=True, alpha_V=100.0, lookahead=10)
                 x_dot_handle = vel[:3]
                 r_dot_handle = vel[3:]
-                
+
                 # Transform velocity back to world frame
                 x_dot_world = handle_init_rot @ x_dot_handle
                 x_dot_robot_base = robot_base_rot.T @ x_dot_world
@@ -249,7 +245,7 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
                 arr = np.zeros(7, dtype=np.float32)
                 arr[:3] = x_dot_robot_base
                 arr[3:6] = r_dot_robot_base
-            
+
             else:
                 # Fallback if neither model is available
                 raise ValueError("No DS option policy found")
@@ -264,21 +260,21 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
         def _DS_move_towards_option_terminal(state: State, memory: Dict, objects: Sequence[Object], params: Array) -> bool:
             handle_init_pos = memory["handle_init_pos"]
             gripper, _, base = objects
-            gripper_pos = np.array([state.get(gripper, "x"), state.get(gripper, "y"), state.get(gripper, "z")])
-            
+            gripper_pos = state.get(gripper, "translation")
+
             # Store previous gripper position if not already in memory
             if "prev_gripper_pos" not in memory:
                 memory["prev_gripper_pos"] = gripper_pos
                 return False
-            
+
             # Update previous gripper position
             velocity = np.linalg.norm(gripper_pos - memory["prev_gripper_pos"])
             memory["prev_gripper_pos"] = gripper_pos
-            
+
             if np.linalg.norm(gripper_pos - handle_init_pos) <= RoboKitchenEnv.offset_inwards_from_handle and velocity < 0.01:
                 return True
             return False
-        
+
         def _DS_move_away_terminal(state: State, memory: Dict, objects: Sequence[Object], params: Array) -> bool:
             return False
 
@@ -291,7 +287,6 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
             initiable=_DS_move_towards_option_initiable_linear if CFG.robo_kitchen_policy_model == "simple_ds" else _DS_move_towards_option_initiable_node,
             terminal=_DS_move_towards_option_terminal,
         )
-
 
         DS_move_away_option = ParameterizedOption(
             "DS_move_away_option",
@@ -315,26 +310,32 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
             return Action(np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -1.0], dtype=np.float32))  # Open gripper
 
         def _GripperOpen_option_terminal(state: State, memory: Dict, objects: Sequence[Object], params: Array) -> bool:
-            # Get current gripper angle
-            curr_angle = state.get(objects[0], "angle")
-            
-            # Store previous angle in memory if not already there
-            if "prev_angle" not in memory:
-                memory["prev_angle"] = curr_angle
+            # Get current gripper quaternion
+            left_finger, right_finger = objects
+            curr_quat = state.get(left_finger, "quaternion")
+
+            # Store previous quaternion in memory if not already there
+            if "prev_quat" not in memory:
+                memory["prev_quat"] = curr_quat
                 return False
-                
-            # Check if angle hasn't changed and gripper is open
-            angle_unchanged = abs(curr_angle - memory["prev_angle"]) < 1e-3
-            is_open = RoboKitchenEnv._GripperOpen_holds(state, objects)
-            
+
+            # Check if quaternion hasn't changed and gripper is open
+            quat_unchanged = np.allclose(curr_quat, memory["prev_quat"], atol=1e-3)
+            # Use the finger objects passed in
+            is_open = RoboKitchenEnv._GripperOpen_holds(state, [left_finger, right_finger])
+
             # Update memory
-            memory["prev_angle"] = curr_angle
-            
-            return angle_unchanged and is_open
+            memory["prev_quat"] = curr_quat
+
+            return quat_unchanged and is_open
+
+        # Get finger types
+        left_finger = types["left_finger_type"]
+        right_finger = types["right_finger_type"]
 
         GripperOpen_option = ParameterizedOption(
             "GripperOpen_option",
-            types=[gripper],  # Adjust type requirements as needed.
+            types=[left_finger, right_finger],  # Include both finger types
             params_space=Box(-5, 5, (1,)),
             policy=_GripperOpen_option_policy,
             initiable=_GripperOpen_option_initiable,
@@ -351,26 +352,28 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
             return Action(np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0], dtype=np.float32))  # Close gripper
 
         def _GripperClose_option_terminal(state: State, memory: Dict, objects: Sequence[Object], params: Array) -> bool:
-            # Get current gripper angle
-            curr_angle = state.get(objects[0], "angle")
-            
-            # Store previous angle in memory if not already there
-            if "prev_angle" not in memory:
-                memory["prev_angle"] = curr_angle
+            # Get current gripper quaternion
+            left_finger, right_finger = objects
+            curr_quat = state.get(left_finger, "quaternion")
+
+            # Store previous quaternion in memory if not already there
+            if "prev_quat" not in memory:
+                memory["prev_quat"] = curr_quat
                 return False
-                
-            # Check if angle hasn't changed and gripper is closed
-            angle_unchanged = abs(curr_angle - memory["prev_angle"]) < 1e-3
-            is_closed = RoboKitchenEnv._GripperClosed_holds(state, objects)
-            
+
+            # Check if quaternion hasn't changed and gripper is closed
+            quat_unchanged = np.allclose(curr_quat, memory["prev_quat"], atol=1e-3)
+            # Use the finger objects passed in
+            is_closed = RoboKitchenEnv._GripperClosed_holds(state, [left_finger, right_finger])
+
             # Update memory
-            memory["prev_angle"] = curr_angle
-            
-            return angle_unchanged and is_closed
+            memory["prev_quat"] = curr_quat
+
+            return quat_unchanged and is_closed
 
         GripperClose_option = ParameterizedOption(
             "GripperClose_option",
-            types=[gripper],  # Adjust type requirements as needed.
+            types=[left_finger, right_finger],  # Include both finger types
             params_space=Box(-5, 5, (1,)),
             policy=_GripperClose_option_policy,
             initiable=_GripperClose_option_initiable,

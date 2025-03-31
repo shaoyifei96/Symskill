@@ -36,24 +36,28 @@ MAX_ROTATION_DISPLACEMENT = 1.0
 class RoboKitchenEnv(BaseEnv):
     """Kitchen environment using robosuite."""
 
-    hinge_open_thresh = 0.8 # 0-1
-    gripper_open_thresh = 0.038 # m 
-    gripper_closed_thresh = 0.03 # m
-    close_distance_thresh = 0.02  #m
+    hinge_open_thresh = 0.9 # rad
+    close_distance_thresh = 0.02 # m
+    gripper_fingers_distance_thresh = 0.08  # m
+    offset_inwards_from_handle = 0.10 # m
 
-    offset_inwards_from_handle = 0.10 #m
-
-    # Types (similar to original kitchen)
-    object_type = Type("object_type", ["x", "y", "z", "qx", "qy", "qz", "qw"])
-    base_type = Type("base_type", ["x", "y", "z", "qx", "qy", "qz", "qw"], parent=object_type)
-    handle_type = Type("handle_type", ["x", "y", "z", "qx", "qy", "qz", "qw"], parent=object_type)
-    gripper_type = Type("gripper_type", ["x", "y", "z", "qx", "qy", "qz", "qw", "angle"], parent=object_type)
-    hinge_type = Type("hinge_type", ["x", "y", "z", "qx", "qy", "qz", "qw", "angle"], parent=object_type)
+    # Types
+    object_type = Type("object_type", ["translation", "quaternion"])
+    base_type = Type("base_type", ["translation", "quaternion"], parent=object_type)
+    gripper_type = Type("gripper_type", ["translation", "quaternion"], parent=object_type)
+    left_finger_type = Type("left_finger_type", ["translation", "quaternion"], parent=object_type)
+    right_finger_type = Type("right_finger_type", ["translation", "quaternion"], parent=object_type)
+    cabinet_type = Type("cabinet_type", ["translation", "quaternion"], parent=object_type)
+    door_type = Type("door_type", ["translation", "quaternion"], parent=object_type)
+    handle_type = Type("handle_type", ["translation", "quaternion"], parent=object_type)
 
     obj_name_to_type = {
         "handle": handle_type,
         "gripper": gripper_type,
-        "hinge": hinge_type,
+        "left_finger": left_finger_type,
+        "right_finger": right_finger_type,
+        "cabinet": cabinet_type,
+        "door": door_type,
         "robot0_base": base_type,
     }
 
@@ -196,13 +200,15 @@ class RoboKitchenEnv(BaseEnv):
 
     def goal_reached(self) -> bool:
         # check success
-        # print angle of handle
+        # check door state using quaternions
         state = self.state_info_to_state(
             self._current_observation["state_info"])
         goal_desc = self._current_task.goal_description
 
         if goal_desc == "OpenSingleDoor":
-            if self._HingeOpen_holds(state, [self.object_name_to_object("hinge")]):
+            door = self.object_name_to_object("door")
+            cabinet = self.object_name_to_object("cabinet")
+            if self._HingeOpen_holds(state, [door, cabinet]):
                 return True
         else:
             return False
@@ -310,10 +316,10 @@ class RoboKitchenEnv(BaseEnv):
         """Exposed for perceiver."""
         preds = {
             Predicate("ReadyGrabHandle", [cls.gripper_type, cls.handle_type], cls._ReadyGrabHandle_holds),
-            Predicate("GripperOpen", [cls.gripper_type], cls._GripperOpen_holds),
-            Predicate("GripperClosed", [cls.gripper_type], cls._GripperClosed_holds),
-            Predicate("HingeOpen", [cls.hinge_type], cls._HingeOpen_holds),
-            Predicate("HingeClosed", [cls.hinge_type], cls._HingeClosed_holds),
+            Predicate("GripperOpen", [cls.left_finger_type, cls.right_finger_type], cls._GripperOpen_holds),
+            Predicate("GripperClosed", [cls.left_finger_type, cls.right_finger_type], cls._GripperClosed_holds),
+            Predicate("HingeOpen", [cls.door_type, cls.cabinet_type], cls._HingeOpen_holds),
+            Predicate("HingeClosed", [cls.door_type, cls.cabinet_type], cls._HingeClosed_holds),
             Predicate("InContact", [cls.object_type, cls.object_type], cls._InContact_holds),
         }
 
@@ -409,10 +415,13 @@ class RoboKitchenEnv(BaseEnv):
         """Get the set of types that are given with this environment."""
         return {
             self.object_type, 
-            self.hinge_type,
-            self.gripper_type,
-            self.handle_type,
             self.base_type,
+            self.gripper_type,
+            self.left_finger_type,
+            self.right_finger_type,
+            self.cabinet_type,
+            self.door_type,
+            self.handle_type,
         }
 
     def get_observation(self) -> Observation:
@@ -464,50 +473,35 @@ class RoboKitchenEnv(BaseEnv):
     @classmethod
     def state_info_to_state(cls, state_info: Dict[str, Any], contact_set: set[Tuple[Object, Object]] = None) -> State:
         state_dict = {}
-        for key, val in state_info.items():            
+
+        # Process any other objects with standard format
+        for key, val in state_info.items():                
             if key.endswith("_pos_quat_angle"):
                 obj_name = key[:-15]
                 obj = cls.object_name_to_object(obj_name)
+                translation = np.array([val[0], val[1], val[2]])
+                quaternion = np.array([val[3], val[4], val[5], val[6]])
                 state_dict[obj] = {
-                    "x": val[0],
-                    "y": val[1],
-                    "z": val[2],
-                    "qx": val[3],
-                    "qy": val[4],
-                    "qz": val[5],
-                    "qw": val[6],
-                    "angle": val[7]
+                    "translation": translation,
+                    "quaternion": quaternion
                 }
             elif key.endswith("_pos_quat"):
                 obj_name = key[:-9]
                 obj = cls.object_name_to_object(obj_name)
+                translation = np.array([val[0], val[1], val[2]])
+                quaternion = np.array([val[3], val[4], val[5], val[6]])
                 state_dict[obj] = {
-                    "x": val[0],
-                    "y": val[1],
-                    "z": val[2],
-                    "qx": val[3],
-                    "qy": val[4],
-                    "qz": val[5],
-                    "qw": val[6]
+                    "translation": translation,
+                    "quaternion": quaternion
                 }
-            # elif key.endswith("_angle"):
-            #     obj_name = key[:-6]
-            #     obj = cls.object_name_to_object(obj_name)
-            #     state_dict[obj] = {
-            #         "angle": val #currently only support 1 door, double door doesn't work
-            #     }
             elif key.endswith("_quat"):
                 obj_name = key[:-5]  # Remove _pos
-                pos_val = state_info[key[:-5] + "_pos"]
+                translation = np.array(state_info[key[:-5] + "_pos"])
+                quaternion = np.array(val)
                 obj = cls.object_name_to_object(obj_name)
-                state_dict[obj] = { # robosuite is xyzw
-                    "x": pos_val[0],
-                    "y": pos_val[1],
-                    "z": pos_val[2],
-                    "qx": val[0],
-                    "qy": val[1],
-                    "qz": val[2],
-                    "qw": val[3],
+                state_dict[obj] = {
+                    "translation": translation,
+                    "quaternion": quaternion
                 }
 
         state = utils.create_state_from_dict(state_dict)
@@ -519,12 +513,9 @@ class RoboKitchenEnv(BaseEnv):
     def _ReadyGrabHandle_holds(cls, state: State, objects: Sequence[Object]) -> bool:
         """Check if gripper is ready to grip handle."""
         gripper, handle = objects
-        # Check if gripper is open
-        if not state.get(gripper, "angle") > cls.gripper_open_thresh:
-            return False
         # Check if position of gripper is close to handle
-        gripper_pos = np.array([state.get(gripper, "x"), state.get(gripper, "y"), state.get(gripper, "z")])
-        handle_pos = np.array([state.get(handle, "x"), state.get(handle, "y"), state.get(handle, "z")])
+        gripper_pos = state.get(gripper, "translation")
+        handle_pos = state.get(handle, "translation")
         if np.linalg.norm(gripper_pos - handle_pos) > (cls.close_distance_thresh + cls.offset_inwards_from_handle):
             return False
         # Check if orientation of gripper is close to handle
@@ -532,35 +523,77 @@ class RoboKitchenEnv(BaseEnv):
 
     @classmethod
     def _GripperOpen_holds(cls, state: State, objects: Sequence[Object]) -> bool:
-        """Made public for use in ground-truth options."""
-        obj = objects[0]
-        if obj.is_instance(cls.gripper_type):
-            return state.get(obj, "angle") > cls.gripper_open_thresh
-        return False
+        """Check if gripper is open by measuring distance between fingers."""
+        left_finger, right_finger = objects
+
+        # Get positions of both fingers
+        left_pos = state.get(left_finger, "translation")
+        right_pos = state.get(right_finger, "translation")
+
+        # Calculate distance between fingers
+        distance = np.linalg.norm(left_pos - right_pos)
+
+        # If distance is greater than threshold, gripper is open
+        return distance > cls.gripper_fingers_distance_thresh
 
     @classmethod
     def _GripperClosed_holds(cls, state: State, objects: Sequence[Object]) -> bool:
-        """Made public for use in ground-truth options."""
-        obj = objects[0]
-        if obj.is_instance(cls.gripper_type):
-            return state.get(obj, "angle") <= cls.gripper_closed_thresh
-        return False
+        """Check if gripper is closed by measuring distance between fingers."""
+        left_finger, right_finger = objects
+
+        # Get positions of both fingers
+        left_pos = state.get(left_finger, "translation")
+        right_pos = state.get(right_finger, "translation")
+
+        # Calculate distance between fingers
+        distance = np.linalg.norm(left_pos - right_pos)
+
+        # If distance is less than threshold, gripper is closed
+        return distance <= cls.gripper_fingers_distance_thresh
 
     @classmethod
     def _HingeOpen_holds(cls, state: State, objects: Sequence[Object]) -> bool:
-        """Made public for use in ground-truth options."""
-        obj = objects[0]
-        if obj.is_instance(cls.hinge_type):
-            return state.get(obj, "angle") > cls.hinge_open_thresh
-        return False
+        """Check if door is open by comparing rotation between door and cabinet."""
+        door, cabinet = objects
+
+        # Get quaternions from the objects passed in
+        door_quat = state.get(door, "quaternion")
+        cabinet_quat = state.get(cabinet, "quaternion")
+
+        # Convert quaternions to rotation matrices
+        from scipy.spatial.transform import Rotation
+        door_rot = Rotation.from_quat(door_quat)
+        cabinet_rot = Rotation.from_quat(cabinet_quat)
+
+        # Calculate relative rotation
+        rel_rot = cabinet_rot.inv() * door_rot
+
+        # Extract rotation value (approximation for hinge rotation)
+        rotation_value = abs(rel_rot.as_euler('xyz')[0])  # Use x-axis rotation
+
+        return rotation_value > cls.hinge_open_thresh
 
     @classmethod
     def _HingeClosed_holds(cls, state: State, objects: Sequence[Object]) -> bool:
-        """Made public for use in ground-truth options."""
-        obj = objects[0]
-        if obj.is_instance(cls.hinge_type):
-            return state.get(obj, "angle") <= cls.hinge_open_thresh
-        return False
+        """Check if door is closed by comparing rotation between door and cabinet."""
+        door, cabinet = objects
+
+        # Get quaternions from the objects passed in
+        door_quat = state.get(door, "quaternion")
+        cabinet_quat = state.get(cabinet, "quaternion")
+
+        # Convert quaternions to rotation matrices
+        from scipy.spatial.transform import Rotation
+        door_rot = Rotation.from_quat(door_quat)
+        cabinet_rot = Rotation.from_quat(cabinet_quat)
+
+        # Calculate relative rotation
+        rel_rot = cabinet_rot.inv() * door_rot
+
+        # Extract rotation value (approximation for hinge rotation)
+        rotation_value = abs(rel_rot.as_euler('xyz')[0])  # Use x-axis rotation
+
+        return rotation_value <= cls.hinge_open_thresh
 
     @classmethod
     def _InContact_holds(cls, 
@@ -569,50 +602,3 @@ class RoboKitchenEnv(BaseEnv):
         """Check if two objects are in contact using robosuite's contact checking."""
         obj1, obj2 = objects
         return (obj1, obj2) in state.items_in_contact or (obj2, obj1) in state.items_in_contact
-
-    def _add_debug_visualization(self):
-        """Add debug visualization markers at important locations."""
-        # Get the viewer from the simulation
-        viewer = self._env.viewer
-        if viewer is None:
-            return
-
-        # Clear existing visualizations
-        viewer.user_scn.ngeom = 0
-        geom_count = 0
-
-        # Add visualization for each object's important sites/geoms
-        for obj_name, obj in self.objects.items():
-            # Get object position and orientation
-            obj_pos = sim.data.body_xpos[self.obj_body_id[obj_name]]
-
-            # Create a sphere at object position
-            mujoco.mjv_initGeom(
-                viewer.user_scn.geoms[geom_count],
-                type=mujoco.mjtGeom.mjGEOM_SPHERE,
-                size=[0.02, 0, 0],  # Small sphere
-                pos=obj_pos,
-                mat=np.eye(3).flatten(),
-                rgba=[1, 0, 0, 0.5]  # Semi-transparent red
-            )
-            geom_count += 1
-
-            # Add more visualizations for specific object types
-            if obj_name in ["microwave", "cabinet", "drawer"]:
-                # Add handle visualization
-                handle_site_id = sim.model.site_name2id(f"{obj_name}_handle")
-                if handle_site_id >= 0:
-                    handle_pos = sim.data.site_xpos[handle_site_id]
-                    mujoco.mjv_initGeom(
-                        viewer.user_scn.geoms[geom_count],
-                        type=mujoco.mjtGeom.mjGEOM_SPHERE,
-                        size=[0.015, 0, 0],
-                        pos=handle_pos,
-                        mat=np.eye(3).flatten(),
-                        rgba=[0, 1, 0, 0.5]  # Semi-transparent green
-                    )
-                    geom_count += 1
-
-        # Update the number of visualization geoms
-        viewer.user_scn.ngeom = geom_count
-        viewer.sync()
