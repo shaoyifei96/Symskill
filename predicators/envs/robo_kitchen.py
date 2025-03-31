@@ -1,4 +1,5 @@
 """A Kitchen environment wrapping robosuite kitchen."""
+
 import copy
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple, cast
 
@@ -14,8 +15,7 @@ from robocasa.utils.env_utils import create_env
 from predicators import utils
 from predicators.envs import BaseEnv
 from predicators.settings import CFG
-from predicators.structs import Action, EnvironmentTask, Image, Object, \
-    Observation, Predicate, State, Type, Video
+from predicators.structs import Action, EnvironmentTask, Image, Object, Observation, Predicate, State, Type, Video
 import matplotlib
 from collections import OrderedDict
 from termcolor import colored
@@ -26,20 +26,21 @@ import time
 import logging
 
 # Disable JAX debug messages
-logging.getLogger('jax._src.cache_key').setLevel(logging.ERROR)
-logging.getLogger('jax').setLevel(logging.ERROR)
+logging.getLogger("jax._src.cache_key").setLevel(logging.ERROR)
+logging.getLogger("jax").setLevel(logging.ERROR)
 
 # Constants from demo files
 MAX_CARTESIAN_DISPLACEMENT = 1.0
 MAX_ROTATION_DISPLACEMENT = 1.0
 
+
 class RoboKitchenEnv(BaseEnv):
     """Kitchen environment using robosuite."""
 
-    hinge_open_thresh = 0.9 # rad
-    close_distance_thresh = 0.02 # m
+    hinge_open_thresh = 0.9  # rad
+    close_distance_thresh = 0.02  # m
     gripper_fingers_distance_thresh = 0.08  # m
-    offset_inwards_from_handle = 0.10 # m
+    offset_inwards_from_handle = 0.10  # m
 
     # Types
     object_type = Type("object_type", ["translation", "quaternion"])
@@ -109,8 +110,7 @@ class RoboKitchenEnv(BaseEnv):
     def get_objects_of_interest(self, task_name: str) -> List[Object]:
         """Get the object of interest for the task."""
         if task_name == "OpenSingleDoor":
-            return [self.object_name_to_object("handle"), 
-                    self.object_name_to_object("door")]
+            return [self.object_name_to_object("handle"), self.object_name_to_object("door")]
         # by default, there are robot and gripper objects
         else:
             raise ValueError(f"Task {task_name} not supported")
@@ -123,16 +123,19 @@ class RoboKitchenEnv(BaseEnv):
 
             # Get the demo dataset path
             from robocasa.utils.dataset_registry import get_ds_path
+
             dataset_path = get_ds_path(self.task_selected, ds_type="human_raw")
 
             if dataset_path is None or not os.path.exists(dataset_path):
                 print(colored(f"Unable to find dataset for {self.task_selected}. Downloading...", "yellow"))
                 from robocasa.scripts.download_datasets import download_datasets
+
                 download_datasets(tasks=[self.task_selected], ds_types=["human_raw"])
                 dataset_path = get_ds_path(self.task_selected, ds_type="human_raw")
 
             # Load the demos
             import h5py
+
             f = h5py.File(dataset_path, "r")
             demos = list(f["data"].keys())
 
@@ -155,10 +158,7 @@ class RoboKitchenEnv(BaseEnv):
                 initial_state["ep_meta"] = demo.attrs.get("ep_meta", None)
 
                 # Create observation
-                obs = {
-                    "state_info": initial_state,
-                    "obs_images": []
-                }
+                obs = {"state_info": initial_state, "obs_images": []}
 
                 # Get goal description from task name
                 goal_description = self.task_selected
@@ -169,7 +169,7 @@ class RoboKitchenEnv(BaseEnv):
 
             f.close()
             return tasks
-        else:   
+        else:
             return self._get_tasks(num=CFG.num_train_tasks, train_or_test="train")
 
     def _generate_test_tasks(self) -> List[EnvironmentTask]:
@@ -201,8 +201,7 @@ class RoboKitchenEnv(BaseEnv):
     def goal_reached(self) -> bool:
         # check success
         # check door state using quaternions
-        state = self.state_info_to_state(
-            self._current_observation["state_info"])
+        state = self.state_info_to_state(self._current_observation["state_info"])
         goal_desc = self._current_task.goal_description
 
         if goal_desc == "OpenSingleDoor":
@@ -241,7 +240,7 @@ class RoboKitchenEnv(BaseEnv):
                     ignore_done=True,
                     use_camera_obs=False,
                     control_freq=20,
-                    renderer="mjviewer", 
+                    renderer="mjviewer",
                 )
 
                 self._env = VisualizationWrapper(self._env_raw)
@@ -249,9 +248,9 @@ class RoboKitchenEnv(BaseEnv):
             else:
                 print(f"Creating env for task: {task_name}, seed: {seed}, gui: {self._using_gui}")
                 self._env = create_env(
-                    env_name = task_name,
-                    render_onscreen = self._using_gui,
-                    seed = seed+4,# this seed the third demo opens to the right, will have replan
+                    env_name=task_name,
+                    render_onscreen=self._using_gui,
+                    seed=seed + 4,  # this seed the third demo opens to the right, will have replan
                 )
 
         # Reset environment with seed
@@ -264,20 +263,16 @@ class RoboKitchenEnv(BaseEnv):
         contact_set = self.get_object_level_contacts()
 
         # Return observation
-        return {
-            "state_info": obs,
-            "obs_images": [],
-            "contact_set": contact_set
-        }
+        return {"state_info": obs, "obs_images": [], "contact_set": contact_set}
 
     def get_object_level_contacts(self) -> set[Tuple[Object, Object]]:
         """Get all contacts between objects in the environment, default to have robot and gripper, in addition to the objects of interest
-        this has to be a method not a class method since we need env access """
+        this has to be a method not a class method since we need env access"""
 
         # only support panda robot for now
         contacts = set()
         # robot_contacts = self._env.get_contacts(self._env.robots[0].robot_model.models[0]) # robot
-        gripper_contact = self._env.get_contacts(self._env.robots[0].robot_model.models[1]) # gripper
+        gripper_contact = self._env.get_contacts(self._env.robots[0].robot_model.models[1])  # gripper
         # filter down to only include objects of interest
 
         object_names = [obj.name for obj in self.objects_of_interest]
@@ -332,7 +327,7 @@ class RoboKitchenEnv(BaseEnv):
 
     def step(self, action: Action) -> Observation:
         """Execute action and return observation.
-        
+
         Convert 7D predicators action [dx, dy, dz, droll, dpitch, dyaw, gripper]
         to 12D robocasa action [right_pose(6), right_gripper(1), base(3), torso(1), extra(1)]
         """
@@ -367,11 +362,7 @@ class RoboKitchenEnv(BaseEnv):
 
         contact_set = self.get_object_level_contacts()
 
-        observation = {
-            "state_info": obs,
-            "obs_images": [],
-            "contact_set": contact_set
-        }
+        observation = {"state_info": obs, "obs_images": [], "contact_set": contact_set}
 
         self._current_observation = observation
         return self._copy_observation(self._current_observation)
@@ -381,14 +372,10 @@ class RoboKitchenEnv(BaseEnv):
         self._current_task = self.get_task(train_or_test, task_idx)
         task_name = self._current_task.goal_description
         warnings.warn("Resetting environment to initial state from not implemented, just reset the env")
-        self._current_observation = self._reset_initial_state(
-            seed = task_idx,
-            train_or_test = train_or_test,
-            task_name = task_name
-        )   
+        self._current_observation = self._reset_initial_state(seed=task_idx, train_or_test=train_or_test, task_name=task_name)
         return self._copy_observation(self._current_observation)
-    def render(self, action: Optional[Action] = None, # this renders the robot observation, not the viewer??
-              caption: Optional[str] = None) -> Video:
+
+    def render(self, action: Optional[Action] = None, caption: Optional[str] = None) -> Video:  # this renders the robot observation, not the viewer??
         """Render current state."""
         return self._env.render()
 
@@ -414,7 +401,7 @@ class RoboKitchenEnv(BaseEnv):
     def types(self) -> Set[Type]:
         """Get the set of types that are given with this environment."""
         return {
-            self.object_type, 
+            self.object_type,
             self.base_type,
             self.gripper_type,
             self.left_finger_type,
@@ -431,13 +418,9 @@ class RoboKitchenEnv(BaseEnv):
         """Create copy of observation."""
         return copy.deepcopy(obs)
 
-    def render_state_plt(
-        self,
-        state: State,
-        task: EnvironmentTask,
-        action: Optional[Action] = None,
-        caption: Optional[str] = None) -> matplotlib.figure.Figure:
+    def render_state_plt(self, state: State, task: EnvironmentTask, action: Optional[Action] = None, caption: Optional[str] = None) -> matplotlib.figure.Figure:
         raise NotImplementedError("This env does not use Matplotlib")
+
     # Helper methods needed by predicates
 
     # def get_object_centric_state_info(self) -> Dict[str, Any]:
@@ -475,38 +458,29 @@ class RoboKitchenEnv(BaseEnv):
         state_dict = {}
 
         # Process any other objects with standard format
-        for key, val in state_info.items():                
+        for key, val in state_info.items():
             if key.endswith("_pos_quat_angle"):
                 obj_name = key[:-15]
                 obj = cls.object_name_to_object(obj_name)
                 translation = np.array([val[0], val[1], val[2]])
                 quaternion = np.array([val[3], val[4], val[5], val[6]])
-                state_dict[obj] = {
-                    "translation": translation,
-                    "quaternion": quaternion
-                }
+                state_dict[obj] = {"translation": translation, "quaternion": quaternion}
             elif key.endswith("_pos_quat"):
                 obj_name = key[:-9]
                 obj = cls.object_name_to_object(obj_name)
                 translation = np.array([val[0], val[1], val[2]])
                 quaternion = np.array([val[3], val[4], val[5], val[6]])
-                state_dict[obj] = {
-                    "translation": translation,
-                    "quaternion": quaternion
-                }
+                state_dict[obj] = {"translation": translation, "quaternion": quaternion}
             elif key.endswith("_quat"):
                 obj_name = key[:-5]  # Remove _pos
                 translation = np.array(state_info[key[:-5] + "_pos"])
                 quaternion = np.array(val)
                 obj = cls.object_name_to_object(obj_name)
-                state_dict[obj] = {
-                    "translation": translation,
-                    "quaternion": quaternion
-                }
+                state_dict[obj] = {"translation": translation, "quaternion": quaternion}
 
         state = utils.create_state_from_dict(state_dict)
         state.simulator_state = {}
-        state.items_in_contact = contact_set # when defaults, it means Not populated, when empty means no contact
+        state.items_in_contact = contact_set  # when defaults, it means Not populated, when empty means no contact
         return state
 
     @classmethod
@@ -562,6 +536,7 @@ class RoboKitchenEnv(BaseEnv):
 
         # Convert quaternions to rotation matrices
         from scipy.spatial.transform import Rotation
+
         door_rot = Rotation.from_quat(door_quat)
         cabinet_rot = Rotation.from_quat(cabinet_quat)
 
@@ -569,7 +544,8 @@ class RoboKitchenEnv(BaseEnv):
         rel_rot = cabinet_rot.inv() * door_rot
 
         # Extract rotation value (approximation for hinge rotation)
-        rotation_value = abs(rel_rot.as_euler('xyz')[0])  # Use x-axis rotation
+        rot_vec = rel_rot.as_rotvec()
+        rotation_value = np.linalg.norm(rot_vec)  # Total rotation angle in radians
 
         return rotation_value > cls.hinge_open_thresh
 
@@ -584,6 +560,7 @@ class RoboKitchenEnv(BaseEnv):
 
         # Convert quaternions to rotation matrices
         from scipy.spatial.transform import Rotation
+
         door_rot = Rotation.from_quat(door_quat)
         cabinet_rot = Rotation.from_quat(cabinet_quat)
 
@@ -591,14 +568,13 @@ class RoboKitchenEnv(BaseEnv):
         rel_rot = cabinet_rot.inv() * door_rot
 
         # Extract rotation value (approximation for hinge rotation)
-        rotation_value = abs(rel_rot.as_euler('xyz')[0])  # Use x-axis rotation
+        rot_vec = rel_rot.as_rotvec()
+        rotation_value = np.linalg.norm(rot_vec)  # Total rotation angle in radians
 
         return rotation_value <= cls.hinge_open_thresh
 
     @classmethod
-    def _InContact_holds(cls, 
-                         state: State, 
-                         objects: Sequence[Object]) -> bool:
+    def _InContact_holds(cls, state: State, objects: Sequence[Object]) -> bool:
         """Check if two objects are in contact using robosuite's contact checking."""
         obj1, obj2 = objects
         return (obj1, obj2) in state.items_in_contact or (obj2, obj1) in state.items_in_contact
