@@ -55,6 +55,7 @@ class RoboKitchenGroundTruthNSRTFactory(GroundTruthNSRTFactory):
         preconditions = {LiftedAtom(DoorHalfOpen, [hinge]), LiftedAtom(GripperOpen, [gripper])}
         maintain_effects = set()
         add_effects = {LiftedAtom(HingeOpen, [hinge])}# this should be the following but disabled for now #{LiftedAtom(HingeOpen, [hinge])}
+        # add_effects = set() # NOTE: this avoids using reach_behind_and_pull_option
         delete_effects = {LiftedAtom(DoorHalfOpen, [hinge])}
         ignore_effects = set()
         option = ReachBehindandPull_option
