@@ -24,6 +24,10 @@ import os
 import mujoco
 import time
 import logging
+from scipy.spatial.transform import Rotation as R
+
+from robosuite.devices import Keyboard
+
 
 # Disable JAX debug messages
 logging.getLogger('jax._src.cache_key').setLevel(logging.ERROR)
@@ -37,6 +41,7 @@ class RoboKitchenEnv(BaseEnv):
     """Kitchen environment using robosuite."""
 
     hinge_open_thresh = 0.8 # 0-1
+    hinge_half_open_thresh = 0.4 # 0-1
     gripper_open_thresh = 0.038 # m 
     gripper_closed_thresh = 0.03 # m
     close_distance_thresh = 0.02  #m
@@ -101,6 +106,8 @@ class RoboKitchenEnv(BaseEnv):
         if self.task_selected not in ALL_KITCHEN_ENVIRONMENTS:
             raise ValueError(f"Task {self.task_selected} not supported")
         print(colored(f"Selected task: {self.task_selected}", "green"))
+
+        self.device = None # control device
 
     def get_objects_of_interest(self, task_name: str) -> List[Object]:
         """Get the object of interest for the task."""
@@ -212,6 +219,7 @@ class RoboKitchenEnv(BaseEnv):
         # Create or recreate environment if needed
         warnings.warn("Resetting environment to initial state from seed not implemented for robosuite kitchen")
         if self._env is None:
+            complex_config = True # TODO: this should be removed. only for mac
             if complex_config:
                 robot_type = "PandaOmron"
                 controller_config = load_composite_controller_config(robot=robot_type)
@@ -220,7 +228,7 @@ class RoboKitchenEnv(BaseEnv):
                     "env_name": task_name,
                     "robots": robot_type,
                     "controller_configs": controller_config,
-                    "layout_ids": 0,
+                    "layout_ids": 2,
                     "style_ids": 0,
                     "translucent_robot": True,
                 }
@@ -250,6 +258,14 @@ class RoboKitchenEnv(BaseEnv):
 
         # Reset environment with seed
         obs = self._env.reset()
+
+        if CFG.use_teleop:
+            self.device = Keyboard(
+                env=self._env,
+                pos_sensitivity=4.0,
+                rot_sensitivity=4.0,
+            )
+            self.device.start_control()
 
         # Update objects of interest based on task
         self.objects_of_interest = self.get_objects_of_interest(task_name)
@@ -315,6 +331,7 @@ class RoboKitchenEnv(BaseEnv):
             Predicate("HingeOpen", [cls.hinge_type], cls._HingeOpen_holds),
             Predicate("HingeClosed", [cls.hinge_type], cls._HingeClosed_holds),
             Predicate("InContact", [cls.object_type, cls.object_type], cls._InContact_holds),
+            Predicate("DoorHalfOpen", [cls.hinge_type], cls._DoorHalfOpen_holds),
         }
 
         return {p.name: p for p in preds}
@@ -330,6 +347,11 @@ class RoboKitchenEnv(BaseEnv):
         Convert 7D predicators action [dx, dy, dz, droll, dpitch, dyaw, gripper]
         to 12D robocasa action [right_pose(6), right_gripper(1), base(3), torso(1), extra(1)]
         """
+        if CFG.use_teleop:
+            input_ac_dict = self.device.input2action(mirror_actions=True)
+            # print(f"input_ac_dict: {input_ac_dict}")
+            # action_keyboard = self._env.robots[0].create_action_vector(input_ac_dict)
+
         # Debug print
         # print("\n" + "="*50)
         # print("STEP DEBUG INFO:")
@@ -348,9 +370,12 @@ class RoboKitchenEnv(BaseEnv):
         # - Next 1D: torso (no movement)
         # - Last 1D: extra dimension (not used)
         env_action = np.zeros(12, dtype=np.float32)
+
         env_action[0:3] = pos_delta  # position control
         env_action[3:6] = rot_delta  # rotation control
         env_action[6] = gripper_cmd  # gripper control
+        if CFG.use_teleop:
+            env_action[7:10] = input_ac_dict["base"]
         # env_action[7:10] are zeros (no base movement)
         # env_action[10] is zero (no torso movement)
         # env_action[11] is zero (extra dimension)
@@ -518,17 +543,34 @@ class RoboKitchenEnv(BaseEnv):
     @classmethod
     def _ReadyGrabHandle_holds(cls, state: State, objects: Sequence[Object]) -> bool:
         """Check if gripper is ready to grip handle."""
+        def frame_transform(pos_in_init: np.ndarray, quat_in_init: np.ndarray, target_pos: np.ndarray, target_rot: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:                
+                rot_in_init = R.from_quat(quat_in_init).as_matrix()
+                
+                rel_pos_init = pos_in_init - target_pos
+                
+                pos_in_target = target_rot.T @ rel_pos_init
+                rot_in_target = target_rot.T @ rot_in_init
+                
+                return pos_in_target, rot_in_target
         gripper, handle = objects
         # Check if gripper is open
         if not state.get(gripper, "angle") > cls.gripper_open_thresh:
             return False
         # Check if position of gripper is close to handle
-        gripper_pos = np.array([state.get(gripper, "x"), state.get(gripper, "y"), state.get(gripper, "z")])
-        handle_pos = np.array([state.get(handle, "x"), state.get(handle, "y"), state.get(handle, "z")])
-        if np.linalg.norm(gripper_pos - handle_pos) > (cls.close_distance_thresh + cls.offset_inwards_from_handle):
-            return False
-        # Check if orientation of gripper is close to handle
-        return True
+        # gripper_pos = np.array([state.get(gripper, "x"), state.get(gripper, "y"), state.get(gripper, "z")])
+        # handle_pos = np.array([state.get(handle, "x"), state.get(handle, "y"), state.get(handle, "z")])
+        gripper_state = state.vec([RoboKitchenEnv.object_name_to_object("gripper")])
+        handle_state = state.vec([RoboKitchenEnv.object_name_to_object("handle")])
+        gripper_pos_in_handle, _ = frame_transform(gripper_state[:3], gripper_state[3:7], handle_state[:3], R.from_quat(handle_state[3:7]).as_matrix())
+        
+        if np.linalg.norm(gripper_pos_in_handle[0]) <= 0.1 and \
+                gripper_pos_in_handle[1] > 0:
+            return True
+        return False
+        # if np.linalg.norm(gripper_pos_in_handle) > (cls.close_distance_thresh + cls.offset_inwards_from_handle):
+        #     return False
+        # # Check if orientation of gripper is close to handle
+        # return True
 
     @classmethod
     def _GripperOpen_holds(cls, state: State, objects: Sequence[Object]) -> bool:
@@ -560,6 +602,14 @@ class RoboKitchenEnv(BaseEnv):
         obj = objects[0]
         if obj.is_instance(cls.hinge_type):
             return state.get(obj, "angle") <= cls.hinge_open_thresh
+        return False
+    
+    @classmethod
+    def _DoorHalfOpen_holds(cls, state: State, objects: Sequence[Object]) -> bool:
+        """Made public for use in ground-truth options."""
+        obj = objects[0]
+        if obj.is_instance(cls.hinge_type):
+            return state.get(obj, "angle") > cls.hinge_half_open_thresh
         return False
 
     @classmethod
