@@ -289,17 +289,7 @@ class RoboKitchenEnv(BaseEnv):
                 if obj_name in contact:
                     obj = self.object_name_to_object(obj_name)
                     contacts.add((gripper_obj, obj))
-        # Filter out gripper-door contact if gripper-handle contact exists
-        contacts = self._filter_door_handle_contacts(contacts, gripper_obj)
-        return contacts
 
-    def _filter_door_handle_contacts(self, contacts: set[Tuple[Object, Object]], gripper_obj: Object) -> set[Tuple[Object, Object]]:
-        """Filter out gripper-door contact if gripper-handle contact exists."""
-        handle_obj = self.object_name_to_object("handle")
-        door_obj = self.object_name_to_object("door")
-        gripper_handle_contact = (handle_obj, gripper_obj) in contacts or (gripper_obj, handle_obj) in contacts
-        if gripper_handle_contact:
-            contacts = {c for c in contacts if door_obj not in c}
         return contacts
 
     @classmethod

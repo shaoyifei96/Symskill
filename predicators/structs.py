@@ -191,6 +191,16 @@ class State:
             return type(val)(self._copy_state_value(v) for v in val)
         assert hasattr(val, "copy")
         return val.copy()
+    
+    def _compare_nested_arrays(self, a, b, atol=1e-3):
+        """Helper function to compare potentially nested arrays with tolerance."""
+        # Special Case: Both are numpy arrays with object data (contains other arrays)
+        if isinstance(a, np.ndarray) and isinstance(b, np.ndarray) and a.dtype == object and b.dtype == object:
+            if a.shape != b.shape:
+                return False
+            return all(self._compare_nested_arrays(x, y, atol) for x, y in zip(a, b))
+        # Original Case
+        return np.allclose(a, b, atol=atol)
 
     def allclose(self, other: State) -> bool:
         """Return whether this state is close enough to another one, i.e., its
@@ -205,7 +215,8 @@ class State:
         if not sorted(self.data) == sorted(other.data):
             return False
         for obj in self.data:
-            if not np.allclose(self.data[obj], other.data[obj], atol=1e-3):
+            # if not np.allclose(self.data[obj], other.data[obj], atol=1e-3):
+            if not self._compare_nested_arrays(self.data[obj], other.data[obj], atol=1e-3):
                 return False
         return True
 
