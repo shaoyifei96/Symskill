@@ -58,49 +58,32 @@ def _segment_with_contact_changes(
     """
 
     if CFG.env == "robo_kitchen":
-        # For robo_kitchen, we'll evaluate InContact live using the simulator
-        keep_pred_names = "InContact"
-        keep_pred =  RoboKitchenEnv.create_predicates()[keep_pred_names]
-        
-        all_keep_atoms = []
-
-        # Handle initial state with model and metadata
-        for state in ll_traj.states:
-            contact_set = state.items_in_contact
-            # Get initial state contacts
-            atoms = set()
-            for contact in contact_set:
-                obj1, obj2 = contact
-                atoms.add(GroundAtom(keep_pred, [obj1, obj2]))
-            all_keep_atoms.append(atoms)
-        include_last_segment = True
+        keep_pred_names = {"InContact"}
+    elif CFG.env == "stick_button":
+        keep_pred_names = {"Grasped", "Pressed"}
+    elif CFG.env in ("cover", "cover_multistep_options", "pybullet_cover"):
+        keep_pred_names = {"Covers", "HandEmpty", "Holding"}
+    elif CFG.env in ("blocks", "pybullet_blocks"):
+        keep_pred_names = {"Holding", "On", "OnTable"}
+    elif CFG.env == "doors":
+        keep_pred_names = {"TouchingDoor", "InRoom"}
+    elif CFG.env == "touch_point":
+        keep_pred_names = {"Touched"}
+    elif CFG.env == "coffee":
+        keep_pred_names = {"Holding", "HandEmpty", "MachineOn", "CupFilled"}
+    elif CFG.env == "exit_garage":
+        keep_pred_names = {"ObstacleCleared", "CarHasExited"}
     else:
-        # Original code path for other environments
-        if CFG.env == "stick_button":
-            keep_pred_names = {"Grasped", "Pressed"}
-        elif CFG.env in ("cover", "cover_multistep_options", "pybullet_cover"):
-            keep_pred_names = {"Covers", "HandEmpty", "Holding"}
-        elif CFG.env in ("blocks", "pybullet_blocks"):
-            keep_pred_names = {"Holding", "On", "OnTable"}
-        elif CFG.env == "doors":
-            keep_pred_names = {"TouchingDoor", "InRoom"}
-        elif CFG.env == "touch_point":
-            keep_pred_names = {"Touched"}
-        elif CFG.env == "coffee":
-            keep_pred_names = {"Holding", "HandEmpty", "MachineOn", "CupFilled"}
-        elif CFG.env == "exit_garage":
-            keep_pred_names = {"ObstacleCleared", "CarHasExited"}
-        else:
-            raise NotImplementedError("Contact-based segmentation not implemented "
-                                    f"for environment {CFG.env}.")
-        include_last_segment = False
+        raise NotImplementedError("Contact-based segmentation not implemented "
+                                f"for environment {CFG.env}.")
+    include_last_segment = False
 
-        env = get_or_create_env(CFG.env)
-        keep_preds = {p for p in env.predicates if p.name in keep_pred_names}
-        assert len(keep_preds) == len(keep_pred_names)
-        all_keep_atoms = []
-        for state in ll_traj.states:
-            all_keep_atoms.append(utils.abstract(state, keep_preds))
+    env = get_or_create_env(CFG.env)
+    keep_preds = {p for p in env.predicates if p.name in keep_pred_names}
+    assert len(keep_preds) == len(keep_pred_names)
+    all_keep_atoms = []
+    for state in ll_traj.states:
+        all_keep_atoms.append(utils.abstract(state, keep_preds))
 
     def _switch_fn(t: int) -> bool:
         return all_keep_atoms[t] != all_keep_atoms[t + 1]

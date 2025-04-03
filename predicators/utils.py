@@ -2529,13 +2529,6 @@ def abstract(state: State,
         true_vlm_atoms = query_vlm_for_atom_vals(vlm_atoms, state, vlm)
         atoms |= true_vlm_atoms
 
-
-    in_contact_pred = next((pred for pred in preds if str(pred) == "InContact"), None)
-    # Add InContact atoms if items_in_contact exists in state
-    if hasattr(state, "items_in_contact") and in_contact_pred:  
-        for obj1, obj2 in state.items_in_contact:
-            atoms.add(GroundAtom(in_contact_pred, [obj1, obj2]))
-
     return atoms
 
 
@@ -3739,6 +3732,11 @@ def parse_config_excluded_predicates(
             }
             logging.info(f"All non-goal predicates excluded: {excluded_names}")
             included = env.goal_predicates
+        elif CFG.excluded_predicates == "all_goal":
+            excluded_names = {
+                pred.name for pred in env.predicates
+            }
+            included = set()
         else:
             excluded_names = set(CFG.excluded_predicates.split(","))
             assert excluded_names.issubset(
@@ -3755,9 +3753,24 @@ def parse_config_excluded_predicates(
                 else:
                     assert env.goal_predicates.issubset(included), \
                     "Can't exclude a goal predicate!"
+    elif CFG.included_predicates:
+        included_names = set(CFG.included_predicates.split(","))
+        included = set()
+        if "goal" in included_names:
+            included_names.remove("goal")
+            included |= env.goal_predicates
+        assert included_names.issubset(
+            {pred.name for pred in env.predicates}), \
+            "Unrecognized predicate in included_predicates!"
+        included |= {
+            pred
+            for pred in env.predicates if pred.name in included_names
+        }
+        excluded_names = {pred.name for pred in env.predicates} - included_names
     else:
         excluded_names = set()
         included = env.predicates
+    print(f"Included predicates: {included}")
     excluded = {pred for pred in env.predicates if pred.name in excluded_names}
     return included, excluded
 

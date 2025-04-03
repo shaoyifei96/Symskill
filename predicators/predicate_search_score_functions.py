@@ -132,6 +132,7 @@ class _OperatorLearningBasedScoreFunction(_PredicateSearchScoreFunction):
         pruned_atom_data = utils.prune_ground_atom_dataset(
             self._atom_dataset,
             candidate_predicates | self._initial_predicates)
+        # print(f"Time to prune: {time.perf_counter()-start_time:.3f} seconds")
         segmented_trajs = [
             segment_trajectory(ll_traj, set(candidate_predicates), atom_seq)
             for (ll_traj, atom_seq) in pruned_atom_data
@@ -142,6 +143,7 @@ class _OperatorLearningBasedScoreFunction(_PredicateSearchScoreFunction):
         # low-level ground atoms sequence after segmentation.
         low_level_trajs = [ll_traj for ll_traj, _ in pruned_atom_data]
         del pruned_atom_data
+        # print(f"Time to segment: {time.perf_counter()-start_time:.3f} seconds")
         try:
             pnads = learn_strips_operators(low_level_trajs,
                                            self._train_tasks,

@@ -17,16 +17,9 @@ class RoboKitchenPerceiver(BasePerceiver):
         state = self._observation_to_state(env_task.init_obs)
         
         pred_name_to_pred = RoboKitchenEnv.create_predicates()
-        # OnTop = pred_name_to_pred["OnTop"]
-        # TurnedOn = pred_name_to_pred["TurnedOn"]
-        # KettleBoiling = pred_name_to_pred["KettleBoiling"]
+
         HingeOpen = pred_name_to_pred["HingeOpen"]
-        # kettle = RoboKitchenEnv.object_name_to_object("kettle")
-        # knob4 = RoboKitchenEnv.object_name_to_object("knob4")
-        # knob3 = RoboKitchenEnv.object_name_to_object("knob3")
-        # burner4 = RoboKitchenEnv.object_name_to_object("burner4")
-        # burner3 = RoboKitchenEnv.object_name_to_object("burner3")
-        # light = RoboKitchenEnv.object_name_to_object("light")
+
         door = RoboKitchenEnv.object_name_to_object("door")
         cabinet = RoboKitchenEnv.object_name_to_object("cabinet")
         goal_desc = env_task.goal_description
@@ -34,28 +27,6 @@ class RoboKitchenPerceiver(BasePerceiver):
             goal = {
                 GroundAtom(HingeOpen, [door, cabinet]),
             }
-        # elif goal_desc == "Move the kettle to the back left burner":
-        #     goal = {GroundAtom(OnTop, [kettle, burner4])}
-        # elif goal_desc == "Move the kettle to the back right burner":
-        #     goal = {GroundAtom(OnTop, [kettle, burner3])}
-        # elif goal_desc == "Turn on the back left burner":
-        #     goal = {
-        #         GroundAtom(TurnedOn, [knob4]),
-        #     }
-        # elif goal_desc == "Turn on the back right burner":
-        #     goal = {
-        #         GroundAtom(TurnedOn, [knob3]),
-        #     }
-        # elif goal_desc == "Turn on the light":
-        #     goal = {
-        #         GroundAtom(TurnedOn, [light]),
-        #     }
-        # elif goal_desc == ("Move the kettle to the back left burner "
-        #                    "and turn it on"):
-        #     goal = {GroundAtom(KettleBoiling, [kettle, burner4, knob4])}
-        # elif goal_desc == ("Move the kettle to the back right burner "
-        #                    "and turn it on"):
-        #     goal = {GroundAtom(KettleBoiling, [kettle, burner3, knob3])}
         else:
             raise NotImplementedError(f"Unrecognized goal: {goal_desc}")
         return Task(state, goal)

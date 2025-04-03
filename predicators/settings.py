@@ -47,6 +47,7 @@ class GlobalSettings:
     test_task_json_dir = None
     # The method to use for segmentation. By default, segment using options.
     # If you are learning options, you should change this via the command line.
+    # segmenter = "atom_changes"
     segmenter = "contacts"
     # The method to use for generating demonstrations: "oracle" or "human".
     demonstrator = "human"
@@ -669,8 +670,9 @@ class GlobalSettings:
     active_sampler_learning_init_cycles_to_pursue_goal = 1
 
     # grammar search invention parameters
+    grammar_search_use_trans_quat_features = True
     grammar_search_grammar_includes_givens = True
-    grammar_search_grammar_includes_foralls = True
+    grammar_search_grammar_includes_foralls = False
     grammar_search_grammar_use_diff_features = False
     grammar_search_grammar_use_euclidean_dist = False
     grammar_search_use_handcoded_debug_grammar = False
@@ -682,7 +684,7 @@ class GlobalSettings:
     grammar_search_bf_weight = 1
     grammar_search_operator_complexity_weight = 0.0
     grammar_search_pred_complexity_weight = 1e-4
-    grammar_search_max_predicates = 50
+    grammar_search_max_predicates = 100
     grammar_search_predicate_cost_upper_bound = 6
     grammar_search_prune_redundant_preds = True
     grammar_search_score_function = "expected_nodes_created"

@@ -659,6 +659,17 @@ class _BehaviorCloningOptionLearner(_OptionLearnerBase):
         If a variable has no changing feature indices, it is not
         included in the returned dict.
         """
+
+        def compare_nested_arrays(a, b, atol=1e-3):
+            """Helper function to compare potentially nested arrays with tolerance."""
+            # Special Case: Both are numpy arrays with object data (contains other arrays)
+            if isinstance(a, np.ndarray) and isinstance(b, np.ndarray) and a.dtype == object and b.dtype == object:
+                if a.shape != b.shape:
+                    raise ValueError("Arrays have different shapes.")
+                return all(compare_nested_arrays(x, y, atol) for x, y in zip(a, b))
+            # Original Case
+            return np.allclose(a, b, atol=atol)
+
         # Create sets of features first, because we want to use set update,
         # but then convert the features to a sorted list at the end.
         changing_var_to_feat_set: Dict[Variable, Set[int]] = {}
@@ -666,7 +677,8 @@ class _BehaviorCloningOptionLearner(_OptionLearnerBase):
             start = segment.states[0]
             end = segment.states[-1]
             for v, o in var_to_obj.items():
-                if np.allclose(start[o], end[o]):
+                # if np.allclose(start[o], end[o]):
+                if compare_nested_arrays(start[o], end[o]):
                     continue
                 if v not in changing_var_to_feat_set:
                     changing_var_to_feat_set[v] = set()

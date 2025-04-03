@@ -202,7 +202,7 @@ class RoboKitchenEnv(BaseEnv):
         # check success
         # check door state using quaternions
         state = self.state_info_to_state(self._current_observation["state_info"])
-        goal_desc = self._current_task.goal_description
+        goal_desc = self.task_selected
 
         if goal_desc == "OpenSingleDoor":
             door = self.object_name_to_object("door")
@@ -348,7 +348,6 @@ class RoboKitchenEnv(BaseEnv):
 
         # Execute action in environment (Robosuite:Mujoco Env)
         obs, _, _, _ = self._env.step(env_action)
-        # self._add_debug_visualization() # not working!
 
         contact_set = self.get_object_level_contacts()
 
@@ -377,7 +376,12 @@ class RoboKitchenEnv(BaseEnv):
     @property
     def goal_predicates(self) -> Set[Predicate]:
         """Get the subset of self.predicates that are used in goals."""
-        goal_preds = {self._pred_name_to_pred["HingeOpen"], self._pred_name_to_pred["HingeClosed"]}
+        goal_desc = self.task_selected
+        goal_preds = set()
+        if goal_desc == "OpenSingleDoor":
+            goal_preds = {self._pred_name_to_pred["HingeOpen"]}
+        elif goal_desc == "CloseSingleDoor":
+            goal_preds = {self._pred_name_to_pred["HingeClosed"]}
         return goal_preds
 
     @property
@@ -411,30 +415,6 @@ class RoboKitchenEnv(BaseEnv):
     def render_state_plt(self, state: State, task: EnvironmentTask, action: Optional[Action] = None, caption: Optional[str] = None) -> matplotlib.figure.Figure:
         raise NotImplementedError("This env does not use Matplotlib")
 
-    # Helper methods needed by predicates
-
-    # def get_object_centric_state_info(self) -> Dict[str, Any]:
-    #     """Parse State into Object Centric State."""
-    #     mujoco_model = self._gym_env.model  # type: ignore
-    #     mujoco_data = self._gym_env.data  # type: ignore
-    #     mujoco_model_names = self._gym_env.robot_env.model_names  # type: ignore
-    #     state_info = {}
-    #     for site in _TRACKED_SITES:
-    #         state_info[site] = get_site_xpos(mujoco_model, mujoco_data,
-    #                                          site).copy()
-    #         # Include rotation for gripper.
-    #         if site == "EEF":
-    #             xmat = get_site_xmat(mujoco_model, mujoco_data, site).copy()
-    #             quat = mat2quat(xmat)
-    #             state_info[site] = np.concatenate([state_info[site], quat])
-    #     for joint in _TRACKED_SITE_TO_JOINT.values():
-    #         state_info[joint] = get_joint_qpos(mujoco_model, mujoco_data,
-    #                                            joint).copy()
-    #     for body in _TRACKED_BODIES:
-    #         body_id = mujoco_model_names.body_name2id[body]
-    #         state_info[body] = mujoco_data.xpos[body_id].copy()
-    #     return state_info
-
     @classmethod
     def object_name_to_object(cls, obj_name: str) -> Object:
         """Made public for perceiver."""
@@ -449,24 +429,18 @@ class RoboKitchenEnv(BaseEnv):
 
         # Process any other objects with standard format
         for key, val in state_info.items():
-            if key.endswith("_pos_quat_angle"):
-                obj_name = key[:-15]
-                obj = cls.object_name_to_object(obj_name)
-                translation = np.array([val[0], val[1], val[2]])
-                quaternion = np.array([val[3], val[4], val[5], val[6]])
-                state_dict[obj] = {"translation": translation, "quaternion": quaternion}
-            elif key.endswith("_pos_quat"):
+            if key.endswith("_pos_quat"):
                 obj_name = key[:-9]
                 obj = cls.object_name_to_object(obj_name)
                 translation = np.array([val[0], val[1], val[2]])
                 quaternion = np.array([val[3], val[4], val[5], val[6]])
                 state_dict[obj] = {"translation": translation, "quaternion": quaternion}
-            elif key.endswith("_quat"):
-                obj_name = key[:-5]  # Remove _pos
-                translation = np.array(state_info[key[:-5] + "_pos"])
-                quaternion = np.array(val)
-                obj = cls.object_name_to_object(obj_name)
-                state_dict[obj] = {"translation": translation, "quaternion": quaternion}
+            # elif key.endswith("_quat"):
+            #     obj_name = key[:-5]  # Remove _pos
+            #     translation = np.array(state_info[key[:-5] + "_pos"])
+            #     quaternion = np.array(val)
+            #     obj = cls.object_name_to_object(obj_name)
+            #     state_dict[obj] = {"translation": translation, "quaternion": quaternion}
 
         state = utils.create_state_from_dict(state_dict)
         state.simulator_state = {}
