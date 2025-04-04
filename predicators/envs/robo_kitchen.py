@@ -65,34 +65,35 @@ class RoboKitchenEnv(BaseEnv):
         "cabinet": cabinet_type,
         "door": door_type,
         "robot0_base": base_type,
+        "obj": object_type,
     }
 
-    # tasks_extended = ['Lift', 'Stack', 'NutAssembly', 'NutAssemblySingle', 'NutAssemblySquare', 'NutAssemblyRound',
-    #                    'PickPlace', 'PickPlaceSingle', 'PickPlaceMilk', 'PickPlaceBread', 'PickPlaceCereal', 'PickPlaceCan',
-    #                    'Door', 'Wipe', 'ToolHang', 'TwoArmLift', 'TwoArmPegInHole', 'TwoArmHandover', 'TwoArmTransport', 'Kitchen',
-    #                      'KitchenDemo', 'CupcakeCleanup', 'OrganizeBakingIngredients', 'PastryDisplay', 'FillKettle', 'HeatMultipleWater',
-    #                        'VeggieBoil', 'ArrangeTea', 'KettleBoiling', 'PrepareCoffee', 'ArrangeVegetables', 'BreadSetupSlicing',
-    #                        'ClearingTheCuttingBoard', 'MeatTransfer', 'OrganizeVegetables', 'BowlAndCup', 'CandleCleanup',
-    #                        'ClearingCleaningReceptacles', 'CondimentCollection', 'DessertAssembly', 'DrinkwareConsolidation',
-    #                        'FoodCleanup', 'DefrostByCategory', 'MicrowaveThawing', 'QuickThaw', 'ThawInSink', 'AssembleCookingArray',
-    #                        'FryingPanAdjustment', 'MealPrepStaging', 'SearingMeat', 'SetupFrying', 'BreadSelection', 'CheesyBread',
-    #                        'PrepareToast', 'SweetSavoryToastSetup', 'PrepForTenderizing', 'PrepMarinatingMeat', 'ColorfulSalsa',
-    #                        'SetupJuicing', 'SpicyMarinade', 'HeatMug', 'MakeLoadedPotato', 'SimmeringSauce', 'WaffleReheat',
-    #                        'WarmCroissant', 'BeverageSorting', 'RestockBowls', 'RestockPantry', 'StockingBreakfastFoods',
-    #                        'CleanMicrowave', 'CountertopCleanup', 'PrepForSanitizing', 'PushUtensilsToSink', 'DessertUpgrade',
-    #                          'PanTransfer', 'PlaceFoodInBowls', 'PrepareSoupServing', 'ServeSteak', 'WineServingPrep',
-    #                          'ArrangeBreadBasket', 'BeverageOrganization', 'DateNight', 'SeasoningSpiceSetup',
-    #                          'SetBowlsForSoup', 'SizeSorting', 'BreadAndCheese', 'CerealAndBowl', 'MakeFruitBowl',
-    #                          'VeggieDipPrep', 'YogurtDelightPrep', 'MultistepSteaming', 'SteamInMicrowave', 'SteamVegetables',
-    #                          'ManipulateDrawer', 'OpenDrawer', 'CloseDrawer', 'DrawerUtensilSort', 'OrganizeCleaningSupplies',
-    #                          'PantryMishap', 'ShakerShuffle', 'SnackSorting', 'DryDishes', 'DryDrinkware', 'PreSoakPan', 'SortingCleanup',
-    #                          'StackBowlsInSink', 'AfterwashSorting', 'ClearClutter', 'DrainVeggies', 'PrewashFoodAssembly', 'PnPCoffee',
-    #                          'CoffeeSetupMug', 'CoffeeServeMug', 'CoffeePressButton', 'ManipulateDoor', 'OpenDoor', 'OpenSingleDoor',
-    #                          'OpenDoubleDoor', 'CloseDoor', 'CloseSingleDoor', 'CloseDoubleDoor', 'MicrowavePressButton', 'TurnOnMicrowave',
-    #                            'TurnOffMicrowave', 'NavigateKitchen', 'PnP', 'PnPCounterToCab', 'PnPCabToCounter', 'PnPCounterToSink',
-    #                            'PnPSinkToCounter', 'PnPCounterToMicrowave', 'PnPMicrowaveToCounter', 'PnPCounterToStove', 'PnPStoveToCounter',
-    #                            'ManipulateSinkFaucet', 'TurnOnSinkFaucet', 'TurnOffSinkFaucet', 'TurnSinkSpout', 'ManipulateStoveKnob',
-    #                              'TurnOnStove', 'TurnOffStove']
+    tasks_extended = ['Lift', 'Stack', 'NutAssembly', 'NutAssemblySingle', 'NutAssemblySquare', 'NutAssemblyRound',
+                       'PickPlace', 'PickPlaceSingle', 'PickPlaceMilk', 'PickPlaceBread', 'PickPlaceCereal', 'PickPlaceCan',
+                       'Door', 'Wipe', 'ToolHang', 'TwoArmLift', 'TwoArmPegInHole', 'TwoArmHandover', 'TwoArmTransport', 'Kitchen',
+                         'KitchenDemo', 'CupcakeCleanup', 'OrganizeBakingIngredients', 'PastryDisplay', 'FillKettle', 'HeatMultipleWater',
+                           'VeggieBoil', 'ArrangeTea', 'KettleBoiling', 'PrepareCoffee', 'ArrangeVegetables', 'BreadSetupSlicing',
+                           'ClearingTheCuttingBoard', 'MeatTransfer', 'OrganizeVegetables', 'BowlAndCup', 'CandleCleanup',
+                           'ClearingCleaningReceptacles', 'CondimentCollection', 'DessertAssembly', 'DrinkwareConsolidation',
+                           'FoodCleanup', 'DefrostByCategory', 'MicrowaveThawing', 'QuickThaw', 'ThawInSink', 'AssembleCookingArray',
+                           'FryingPanAdjustment', 'MealPrepStaging', 'SearingMeat', 'SetupFrying', 'BreadSelection', 'CheesyBread',
+                           'PrepareToast', 'SweetSavoryToastSetup', 'PrepForTenderizing', 'PrepMarinatingMeat', 'ColorfulSalsa',
+                           'SetupJuicing', 'SpicyMarinade', 'HeatMug', 'MakeLoadedPotato', 'SimmeringSauce', 'WaffleReheat',
+                           'WarmCroissant', 'BeverageSorting', 'RestockBowls', 'RestockPantry', 'StockingBreakfastFoods',
+                           'CleanMicrowave', 'CountertopCleanup', 'PrepForSanitizing', 'PushUtensilsToSink', 'DessertUpgrade',
+                             'PanTransfer', 'PlaceFoodInBowls', 'PrepareSoupServing', 'ServeSteak', 'WineServingPrep',
+                             'ArrangeBreadBasket', 'BeverageOrganization', 'DateNight', 'SeasoningSpiceSetup',
+                             'SetBowlsForSoup', 'SizeSorting', 'BreadAndCheese', 'CerealAndBowl', 'MakeFruitBowl',
+                             'VeggieDipPrep', 'YogurtDelightPrep', 'MultistepSteaming', 'SteamInMicrowave', 'SteamVegetables',
+                             'ManipulateDrawer', 'OpenDrawer', 'CloseDrawer', 'DrawerUtensilSort', 'OrganizeCleaningSupplies',
+                             'PantryMishap', 'ShakerShuffle', 'SnackSorting', 'DryDishes', 'DryDrinkware', 'PreSoakPan', 'SortingCleanup',
+                             'StackBowlsInSink', 'AfterwashSorting', 'ClearClutter', 'DrainVeggies', 'PrewashFoodAssembly', 'PnPCoffee',
+                             'CoffeeSetupMug', 'CoffeeServeMug', 'CoffeePressButton', 'ManipulateDoor', 'OpenDoor', 'OpenSingleDoor',
+                             'OpenDoubleDoor', 'CloseDoor', 'CloseSingleDoor', 'CloseDoubleDoor', 'MicrowavePressButton', 'TurnOnMicrowave',
+                               'TurnOffMicrowave', 'NavigateKitchen', 'PnP', 'PnPCounterToCab', 'PnPCabToCounter', 'PnPCounterToSink',
+                               'PnPSinkToCounter', 'PnPCounterToMicrowave', 'PnPMicrowaveToCounter', 'PnPCounterToStove', 'PnPStoveToCounter',
+                               'ManipulateSinkFaucet', 'TurnOnSinkFaucet', 'TurnOffSinkFaucet', 'TurnSinkSpout', 'ManipulateStoveKnob',
+                                 'TurnOnStove', 'TurnOffStove']
 
     def __init__(self, use_gui: bool = True) -> None:
         super().__init__(use_gui)
@@ -108,7 +109,7 @@ class RoboKitchenEnv(BaseEnv):
         self._env = None  # Will be created in reset
         self._env_raw = None
         self.task_selected = CFG.robo_kitchen_task
-        if self.task_selected not in ALL_KITCHEN_ENVIRONMENTS:
+        if self.task_selected not in self.tasks_extended:
             raise ValueError(f"Task {self.task_selected} not supported")
         print(colored(f"Selected task: {self.task_selected}", "green"))
 
@@ -119,6 +120,9 @@ class RoboKitchenEnv(BaseEnv):
         if task_name == "OpenSingleDoor":
             return [self.object_name_to_object("handle"), self.object_name_to_object("door")]
         # by default, there are robot and gripper objects
+        elif task_name == "PnPCounterToCab":
+            # warnings.warn("\033[91mPnPCounterToCab is not supported, only using handle as object of interest as a dummy\033[0m")
+            return [self.object_name_to_object("obj")] 
         else:
             raise ValueError(f"Task {task_name} not supported")
 
@@ -322,6 +326,7 @@ class RoboKitchenEnv(BaseEnv):
             Predicate("HingeOpen", [cls.door_type, cls.cabinet_type], cls._HingeOpen_holds),
             Predicate("HingeClosed", [cls.door_type, cls.cabinet_type], cls._HingeClosed_holds),
             Predicate("InContact", [cls.object_type, cls.object_type], cls._InContact_holds),
+            Predicate("AtLocation", [cls.object_type, cls.cabinet_type], cls._AtLocation_holds),
             Predicate("DoorHalfOpen", [cls.door_type, cls.cabinet_type], cls._DoorHalfOpen_holds),
         }
 
@@ -446,7 +451,7 @@ class RoboKitchenEnv(BaseEnv):
         if obj_name in cls.obj_name_to_type:
             return Object(obj_name, cls.obj_name_to_type[obj_name])
         else:
-            return Object(obj_name, cls.object_type)
+            raise ValueError(f"Object {obj_name} not found in obj_name_to_type")
 
     @classmethod
     def state_info_to_state(cls, state_info: Dict[str, Any], contact_set: set[Tuple[Object, Object]] = None) -> State:
@@ -603,49 +608,10 @@ class RoboKitchenEnv(BaseEnv):
         obj1, obj2 = objects
         return (obj1, obj2) in state.items_in_contact or (obj2, obj1) in state.items_in_contact
 
-    def _add_debug_visualization(self):
-        """Add debug visualization markers at important locations."""
-        # Get the viewer from the simulation
-        viewer = self._env.viewer
-        if viewer is None:
-            return
-
-        # Clear existing visualizations
-        viewer.user_scn.ngeom = 0
-        geom_count = 0
-
-        # Add visualization for each object's important sites/geoms
-        for obj_name, obj in self.objects.items():
-            # Get object position and orientation
-            obj_pos = sim.data.body_xpos[self.obj_body_id[obj_name]]
-
-            # Create a sphere at object position
-            mujoco.mjv_initGeom(
-                viewer.user_scn.geoms[geom_count],
-                type=mujoco.mjtGeom.mjGEOM_SPHERE,
-                size=[0.02, 0, 0],  # Small sphere
-                pos=obj_pos,
-                mat=np.eye(3).flatten(),
-                rgba=[1, 0, 0, 0.5]  # Semi-transparent red
-            )
-            geom_count += 1
-
-            # Add more visualizations for specific object types
-            if obj_name in ["microwave", "cabinet", "drawer"]:
-                # Add handle visualization
-                handle_site_id = sim.model.site_name2id(f"{obj_name}_handle")
-                if handle_site_id >= 0:
-                    handle_pos = sim.data.site_xpos[handle_site_id]
-                    mujoco.mjv_initGeom(
-                        viewer.user_scn.geoms[geom_count],
-                        type=mujoco.mjtGeom.mjGEOM_SPHERE,
-                        size=[0.015, 0, 0],
-                        pos=handle_pos,
-                        mat=np.eye(3).flatten(),
-                        rgba=[0, 1, 0, 0.5]  # Semi-transparent green
-                    )
-                    geom_count += 1
-
-        # Update the number of visualization geoms
-        viewer.user_scn.ngeom = geom_count
-        viewer.sync()
+    @classmethod
+    def _AtLocation_holds(cls, state: State, objects: Sequence[Object]) -> bool:
+        """Check if object is at location."""
+        obj, location = objects
+        obj_pos = state.get(obj, "translation")
+        location_pos = state.get(location, "translation")
+        return np.linalg.norm(obj_pos - location_pos) < 0.05

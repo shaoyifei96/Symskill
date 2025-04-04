@@ -2540,6 +2540,7 @@ def abstract(state: State,
     for pred in preds:
         if pred not in vlm_preds:
             for choice in get_object_combinations(list(state), pred.types):
+                print(choice)
                 if pred.holds(state, choice):
                     atoms.add(GroundAtom(pred, choice))
     if len(vlm_preds) > 0:

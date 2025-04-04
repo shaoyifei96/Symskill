@@ -38,7 +38,7 @@ class GlobalSettings:
     clustering_search_constraint_penalty = 10.0
     # robo_kitchen env parameters
     robo_kitchen_randomize_init_state = True # not used
-    robo_kitchen_task = "OpenSingleDoor"
+    robo_kitchen_task = "PnPCounterToCab"
     # robo_kitchen_viz_debug = False # i think the use_gui flag covers this
     robo_kitchen_contact_smoothing_window = 21
     robo_kitchen_load_dataset = True # this has priority, if False, then save flag is considered
