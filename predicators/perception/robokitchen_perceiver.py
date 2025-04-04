@@ -19,13 +19,19 @@ class RoboKitchenPerceiver(BasePerceiver):
         pred_name_to_pred = RoboKitchenEnv.create_predicates()
 
         HingeOpen = pred_name_to_pred["HingeOpen"]
+        AtLocation = pred_name_to_pred["AtLocation"]
 
         door = RoboKitchenEnv.object_name_to_object("door")
         cabinet = RoboKitchenEnv.object_name_to_object("cabinet")
+        obj_obj = RoboKitchenEnv.object_name_to_object("obj")
         goal_desc = env_task.goal_description
         if goal_desc == 'OpenSingleDoor':
             goal = {
                 GroundAtom(HingeOpen, [door, cabinet]),
+            }
+        elif goal_desc == 'PnPCounterToCab':
+            goal = {
+                GroundAtom(AtLocation, [obj_obj, cabinet]),
             }
         else:
             raise NotImplementedError(f"Unrecognized goal: {goal_desc}")

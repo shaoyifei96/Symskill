@@ -1009,24 +1009,34 @@ class _PrunedGrammar(_DataBasedPredicateGrammar):
             # self._state_sequence.
             gripper_obj = RoboKitchenEnv.object_name_to_object("gripper")  # TODO: hardcoded no good
             handle_obj = RoboKitchenEnv.object_name_to_object("handle")  # TODO: hardcoded no good
+            left_finger_obj = RoboKitchenEnv.object_name_to_object("left_finger")  # TODO: hardcoded no good
+            right_finger_obj = RoboKitchenEnv.object_name_to_object("right_finger")  # TODO: hardcoded no good
+            object_obj = RoboKitchenEnv.object_name_to_object("obj")  # TODO: hardcoded no good
             for i, traj in enumerate(self.dataset.trajectories):
-                # The init_atoms and final_atoms are not used.
                 seg_traj = segment_trajectory(traj, predicates=set())
                 if CFG.robo_kitchen_save_traj_by_segment:
                     for seg_idx, seg in enumerate(seg_traj):
-                        eef_traj = np.zeros((len(seg.states), 8))  # TODO: num dim hardcoded no good
-                        handle_traj = np.zeros((len(seg.states), 7))  # TODO: hardcoded no good
+                        eef_traj = np.zeros((len(seg.states), 7))  # 3 for pos + 4 for quat
+                        handle_traj = np.zeros((len(seg.states), 7))  # Assuming handle_obj is still 7D
+                        object_traj = np.zeros((len(seg.states), 7))  # Assuming object_obj is still 7D
+                        finger_dist_traj = np.zeros((len(seg.states), 1))  # Assuming left_finger_obj is still 7D
                         contact_traj = []
                         for t, state in enumerate(seg.states):
-                            eef_traj[t] = state[gripper_obj]
-                            handle_traj[t] = state[handle_obj]
+                            pos, quat = state[gripper_obj]
+                            eef_traj[t] = np.concatenate([pos, quat])
+                            # handle_pos, handle_quat = state[handle_obj]
+                            # handle_traj[t] = np.concatenate([handle_pos, handle_quat])
+                            finger_dist_traj[t] = np.linalg.norm(state[left_finger_obj][0] - state[right_finger_obj][0])
                             contact_traj.append({(obj1.name, obj2.name) for obj1, obj2 in state.items_in_contact})
-                        # Save eef trajectory to file with padded demo and segment numbers
+                            object_pos, object_quat = state[object_obj]
+                            object_traj[t] = np.concatenate([object_pos, object_quat])
                         demo_num = str(i).zfill(2)
                         seg_num = str(seg_idx).zfill(2)
                         np.save(f"demo_{demo_num}_seg_{seg_num}_eef_traj.npy", eef_traj)
-                        np.save(f"demo_{demo_num}_seg_{seg_num}_handle_traj.npy", handle_traj)
+                        # np.save(f"demo_{demo_num}_seg_{seg_num}_handle_traj.npy", handle_traj)
+                        np.save(f"demo_{demo_num}_seg_{seg_num}_finger_dist_traj.npy", finger_dist_traj)
                         np.save(f"demo_{demo_num}_seg_{seg_num}_contact_traj.npy", contact_traj)
+                        np.save(f"demo_{demo_num}_seg_{seg_num}_object_traj.npy", object_traj)
                 state_seq = utils.segment_trajectory_to_start_end_state_sequence(seg_traj)  # pylint:disable=line-too-long
                 self._state_sequences.append(state_seq)
 

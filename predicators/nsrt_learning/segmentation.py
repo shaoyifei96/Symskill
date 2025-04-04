@@ -84,6 +84,7 @@ def _segment_with_contact_changes(
     all_keep_atoms = []
     for state in ll_traj.states:
         all_keep_atoms.append(utils.abstract(state, keep_preds))
+        print(state.items_in_contact)
 
     def _switch_fn(t: int) -> bool:
         return all_keep_atoms[t] != all_keep_atoms[t + 1]
