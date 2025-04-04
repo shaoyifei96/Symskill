@@ -3945,14 +3945,18 @@ def compute_abs_range_given_two_ranges(lb1: float, ub1: float, lb2: float,
 
 
 def roundrobin(iterables: Sequence[Iterator]) -> Iterator:
-    """roundrobin(['ABC...', 'D...', 'EF...']) --> A D E B F C..."""
-    # Recipe credited to George Sakkis, code adapted slightly from
-    # from https://docs.python.org/3/library/itertools.html
-    num_active = len(iterables)
-    nexts = itertools.cycle(iter(it).__next__ for it in iterables)
-    while num_active:
-        for nxt in nexts:
-            yield nxt()
+    """roundrobin('ABC', 'D', 'EF') --> A D E B F C"""
+    # More robust implementation that handles StopIteration cleanly.
+    iterators = [iter(it) for it in iterables]
+    while iterators:
+        active_iterators = []
+        for it in iterators:
+            try:
+                yield next(it)
+                active_iterators.append(it)
+            except StopIteration:
+                pass  # Iterator is exhausted, remove it.
+        iterators = active_iterators
 
 
 def get_task_seed(train_or_test: str, task_idx: int) -> int:
