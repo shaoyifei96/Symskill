@@ -25,7 +25,10 @@
         "type": "python",
         "request": "launch",
         "program": "${workspaceFolder}/predicators_robocasa/predicators/main.py",
-        "args": ["--env", "robo_kitchen", "--use_gui", "--approach", "grammar_search_invention", "--seed", "0", "--bilevel_plan_without_sim", "True","--debug", "--excluded_predicates", "all", "--option_learner", "direct_bc"],
+        "args": ["--env", "robo_kitchen", "--use_gui", "--approach", "clustering_invention", "--seed", "0", "--bilevel_plan_without_sim", "True","--debug", "--excluded_predicates", "all", "--option_learner", "direct_bc"],
+        // change segmenter to atom
+        // "args": ["--env", "robo_kitchen", "--use_gui", "--approach", "grammar_search_invention", "--seed", "0", "--bilevel_plan_without_sim", "True","--debug", "--excluded_predicates", "all", "--option_learner", "direct_bc"],
+        // change segmenter to contact
         "console": "integratedTerminal",
         "pythonPath": "/home/yifei/miniconda3/envs/task_plan_casa3/bin/python"
       },
@@ -34,7 +37,7 @@
         "type": "python",
         "request": "launch",
         "program": "${workspaceFolder}/robocasa/robocasa/demos/demo_tasks.py",
-        "args": ["--task", "OpenSingleDoor"],
+        "args": ["--task", "OpenDrawer"],
         "console": "integratedTerminal",
         "pythonPath": "/home/yifei/miniconda3/envs/task_plan_casa3/bin/python"
       },
