@@ -13,9 +13,16 @@ import numpy as np
 
 class GlobalSettings:
     # clustering_invention approach parameters
-    clustering_feature_constancy_tol = 0.02
-    clustering_epsilon = 0.5
-    clustering_min_samples_per_cluster = 200
+    clustering_debug = True
+    clustering_translation_constancy_tol = 0.01/10 # 10 hz 0.01 m 
+    clustering_quaternion_constancy_tol = 0.01 # 10 hz 0.01 rad
+    clustering_feature_constancy_tol = 0.01 # 10 hz 0.01 m # default not used!
+    
+    clustering_translation_epsilon = 0.3
+    clustering_quaternion_epsilon = 0.7
+    clustering_epsilon = 0.3# default not used!
+    
+    clustering_min_samples_per_cluster = 50
     clustering_search_beam_width = 3
     clustering_search_alpha = 0.9
     clustering_search_max_iterations = 30

@@ -8,7 +8,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from functools import cached_property
 from typing import Any, Callable, Dict, FrozenSet, List, Optional, Sequence, Set, Tuple
-from itertools import combinations_with_replacement
+from itertools import combinations_with_replacement, product
 
 import numpy as np
 from gym.spaces import Box
@@ -56,14 +56,31 @@ class _RelativeFeatureClusterClassifier(_BinaryClassifier):
         # Allow parent type matching.
         assert obj1.is_instance(self.object1_type)
         assert obj2.is_instance(self.object2_type)
+
         # Get features from state.
         obj1_feat = s.get(obj1, self.feature_name)
         obj2_feat = s.get(obj2, self.feature_name)
-        # Compute the relative feature value using the provided difference function.
-        relative_feature = np.array(self.diff_fn(obj1_feat, obj2_feat), dtype=self.cluster_center.dtype)
+
+        # Assumed orientation feature name
+        quat_feat_name = "quaternion"
+
+        # Compute the relative feature value.
+        if self.feature_name == "translation" and quat_feat_name in obj1.type.feature_names:
+            try:
+                obj1_quat = s.get(obj1, quat_feat_name)
+                obj1_rot = Rotation.from_quat(obj1_quat)
+                world_diff = np.subtract(obj2_feat, obj1_feat)
+                relative_feature = obj1_rot.inv().apply(world_diff)
+            except KeyError:
+                # If quaternion is missing, cannot compute local frame translation.
+                # Behavior depends on desired handling: either raise error or return False.
+                logging.warning(f"Missing quaternion for {obj1}, cannot compute relative translation.")
+                return False
+        else:
+            # Use the provided difference function for other features.
+            relative_feature = np.array(self.diff_fn(obj1_feat, obj2_feat), dtype=self.cluster_center.dtype)
+
         # Calculate the Euclidean distance to the cluster center.
-        # Need to handle potential dimension mismatches if diff_fn output varies.
-        # Assuming diff_fn outputs a consistent vector format matching cluster_center.
         distance = np.linalg.norm(relative_feature - self.cluster_center)
         return distance <= self.epsilon
 
@@ -204,18 +221,38 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
 
         candidates: Dict[Predicate, float] = {}
         predicate_counter = 0 # To ensure unique cluster IDs
+
+        # Feature names for special handling
+        quat_feat_name = "quaternion"
+        trans_feat_name = "translation"
+
         # Process relative features
         for (type1, type2, feat_name), data in relative_feature_datasets.items():
             logging.debug(f"Clustering relative feature {feat_name} for ({type1.name}, {type2.name}) with {len(data)} points.")
+            # Skip if we are having gripper type and handle type
+            if (type1.name == "gripper_type" and type2.name == "handle_type") or \
+               (type1.name == "handle_type" and type2.name == "gripper_type"):
+                pass
             if not data: continue # Skip if no data collected
-            clusters = self._cluster_feature_dataset(data, CFG.clustering_epsilon)
+
+            # Select clustering epsilon based on feature type
+            if feat_name == trans_feat_name:
+                epsilon = CFG.clustering_translation_epsilon
+            elif feat_name == quat_feat_name:
+                epsilon = CFG.clustering_quaternion_epsilon
+            else:
+                epsilon = CFG.clustering_epsilon
+
+            logging.debug(f"Using epsilon: {epsilon:.4f} for feature {feat_name}")
+            clusters = self._cluster_feature_dataset(data, epsilon)
             diff_fn = self._get_feature_difference_function(feat_name)
             for cluster_id, cluster_info in enumerate(clusters):
                  logging.debug(f"Cluster {cluster_id} has {len(cluster_info['points'])} points.")
                  # Skip clusters that are too small (optional hyperparameter)
                  if len(cluster_info['points']) < CFG.clustering_min_samples_per_cluster:
                       continue
-                 pred = self._create_predicate_from_relative_cluster(type1, type2, feat_name, cluster_info, CFG.clustering_epsilon, diff_fn, predicate_counter)
+                 # Use the feature-specific epsilon when creating the predicate
+                 pred = self._create_predicate_from_relative_cluster(type1, type2, feat_name, cluster_info, epsilon, diff_fn, predicate_counter)
                  # Cost can be simple (e.g., arity) or more complex
                  candidates[pred] = pred.arity + 1.0
                  predicate_counter += 1
@@ -224,12 +261,23 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         for (type1, feat_name), data in absolute_feature_datasets.items():
             logging.debug(f"Clustering absolute feature {feat_name} for ({type1.name}) with {len(data)} points.")
             if not data: continue
-            clusters = self._cluster_feature_dataset(data, CFG.clustering_epsilon)
+
+            # Select clustering epsilon based on feature type (using defaults if not trans/quat)
+            if feat_name == trans_feat_name:
+                epsilon = CFG.clustering_translation_epsilon
+            elif feat_name == quat_feat_name:
+                epsilon = CFG.clustering_quaternion_epsilon
+            else:
+                epsilon = CFG.clustering_epsilon
+
+            logging.debug(f"Using epsilon: {epsilon:.2f} for feature {feat_name}")
+            clusters = self._cluster_feature_dataset(data, epsilon)
             for cluster_id, cluster_info in enumerate(clusters):
                  logging.debug(f"Cluster {cluster_id} has {len(cluster_info['points'])} points.")
                  if len(cluster_info['points']) < CFG.clustering_min_samples_per_cluster:
                      continue
-                 pred = self._create_predicate_from_absolute_cluster(type1, feat_name, cluster_info, CFG.clustering_epsilon, predicate_counter)
+                 # Use the feature-specific epsilon when creating the predicate
+                 pred = self._create_predicate_from_absolute_cluster(type1, feat_name, cluster_info, epsilon, predicate_counter)
                  candidates[pred] = pred.arity + 1.0
                  predicate_counter += 1
 
@@ -244,62 +292,85 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         # Corrected approach: Iterate through objects in the initial state and get their types.
         types = {obj.type for traj in dataset.trajectories for obj in traj.states[0]}
 
-        # Use combinations_with_replacement directly from itertools
-        type_pairs = list(combinations_with_replacement(sorted(list(types)), 2))
+        # Use product to get ordered pairs, ensuring both (A, B) and (B, A) are considered.
+        # This allows calculating relative features in both A's frame and B's frame.
+        type_pairs = list(product(sorted(list(types)), repeat=2))
+
+        # Assumed orientation feature name
+        quat_feat_name = "quaternion"
+        # Assumed translation feature name
+        trans_feat_name = "translation"
 
         for traj in dataset.trajectories:
             for t in range(len(traj.states) - 1):
                 state_t = traj.states[t]
                 state_t1 = traj.states[t+1]
                 for type1, type2 in type_pairs:
-                     # Get all *shared* feature names between the two types
-                     # Assumes features have the same name if they are comparable.
-                     # Need a more robust way if feature names differ but are comparable.
-                    #  try:
                     shared_features = sorted(list(set(type1.feature_names) & set(type2.feature_names)))
-                    #  except AttributeError: # Handle cases where types might not have feature_names?
-                    #      continue
                     if not shared_features:
-                        warnings.warn(f"No shared features between {type1.name} and {type2.name}. Skipping.")
+                        # warnings.warn(f"No shared features between {type1.name} and {type2.name}. Skipping.")
                         continue
 
-                     # Iterate through objects of these types in the current state
                     objs1 = list(state_t.get_objects(type1))
                     objs2 = list(state_t.get_objects(type2))
 
                     for feat_name in shared_features:
-                        diff_fn = self._get_feature_difference_function(feat_name)
+                        # Check if we need obj1's orientation (only for translation)
+                        needs_quat_for_trans = (feat_name == trans_feat_name and quat_feat_name in type1.feature_names)
+
+                        # Select the appropriate tolerance based on feature type
+                        if feat_name == trans_feat_name:
+                            tolerance = CFG.clustering_translation_constancy_tol
+                        elif feat_name == quat_feat_name:
+                            tolerance = CFG.clustering_quaternion_constancy_tol
+                        else:
+                            tolerance = CFG.clustering_feature_constancy_tol
+
                         for o1 in objs1:
-                            # Avoid comparing object to itself if types are the same
+                            # If types are the same, avoid comparing object to itself.
                             obj2_list = objs2 if type1 != type2 else [o for o in objs2 if o != o1]
                             for o2 in obj2_list:
-                                # no need: Check if both objects exist in the next state too
-                                # 
-                            #    if o1 not in state_t1 or o2 not in state_t1:
-                            #        continue
+                                try:
+                                    # Get features at time t
+                                    feat_t_o1 = state_t.get(o1, feat_name)
+                                    feat_t_o2 = state_t.get(o2, feat_name)
+                                    # Get features at time t+1
+                                    feat_t1_o1 = state_t1.get(o1, feat_name)
+                                    feat_t1_o2 = state_t1.get(o2, feat_name)
 
-                                # Get features at time t
-                                # try:
-                                feat_t_o1 = state_t.get(o1, feat_name)
-                                feat_t_o2 = state_t.get(o2, feat_name)
-                                # except KeyError: continue # Feature not found?
+                                    # Compute relative feature at time t
+                                    if feat_name == trans_feat_name and needs_quat_for_trans:
+                                        quat_t_o1 = state_t.get(o1, quat_feat_name)
+                                        rot_t_o1 = Rotation.from_quat(quat_t_o1)
+                                        diff_t_world = np.subtract(feat_t_o2, feat_t_o1)
+                                        rel_feat_t = rot_t_o1.inv().apply(diff_t_world)
+                                    else:
+                                        diff_fn = self._get_feature_difference_function(feat_name)
+                                        rel_feat_t = np.array(diff_fn(feat_t_o1, feat_t_o2))
 
-                                # Compute relative feature at time t
-                                rel_feat_t = np.array(diff_fn(feat_t_o1, feat_t_o2))
+                                    # Compute relative feature at time t+1
+                                    if feat_name == trans_feat_name and needs_quat_for_trans:
+                                        quat_t1_o1 = state_t1.get(o1, quat_feat_name)
+                                        rot_t1_o1 = Rotation.from_quat(quat_t1_o1)
+                                        diff_t1_world = np.subtract(feat_t1_o2, feat_t1_o1)
+                                        rel_feat_t1 = rot_t1_o1.inv().apply(diff_t1_world)
+                                    else:
+                                        # Recompute diff_fn for t+1 in case it's state-dependent (though unlikely here)
+                                        diff_fn = self._get_feature_difference_function(feat_name)
+                                        rel_feat_t1 = np.array(diff_fn(feat_t1_o1, feat_t1_o2))
 
-                                # Get features at time t+1
-                                # try:
-                                feat_t1_o1 = state_t1.get(o1, feat_name)
-                                feat_t1_o2 = state_t1.get(o2, feat_name)
-                                # except KeyError: continue
+                                    # Ensure numpy arrays for norm calculation
+                                    rel_feat_t = np.array(rel_feat_t)
+                                    rel_feat_t1 = np.array(rel_feat_t1)
 
-                                # Compute relative feature at time t+1
-                                rel_feat_t1 = np.array(diff_fn(feat_t1_o1, feat_t1_o2))
+                                    # Check for constancy using the feature-specific tolerance
+                                    if np.linalg.norm(rel_feat_t - rel_feat_t1) < tolerance:
+                                        feature_data[(type1, type2, feat_name)].append(rel_feat_t)
 
-                                # Check for constancy
-                                # Use norm for vector features, abs for scalar
-                                if np.linalg.norm(rel_feat_t - rel_feat_t1) < CFG.clustering_feature_constancy_tol:
-                                    feature_data[(type1, type2, feat_name)].append(rel_feat_t)
+                                except KeyError as e:
+                                     # If a required feature (like quaternion for translation) is missing, skip this pair
+                                     # logging.debug(f"Skipping object pair due to missing feature: {e}")
+                                     continue
 
         return feature_data
 
@@ -338,17 +409,14 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         if "quaternion" == feature_name:
              # For quaternions/rotations, relative rotation is often more meaningful
              def _quat_diff(q1: np.ndarray, q2: np.ndarray) -> np.ndarray:
-                  # Ensure unit quaternions if necessary (input format dependent)
                   # Calculate relative rotation: q_rel = q1.inverse * q2
-                  # Convert to a fixed-size representation, e.g., axis-angle or Euler
-                  # For simplicity here, we'll just return difference, which isn't ideal.
-                  # A better approach would use Rotation class:
-                  # rot1 = Rotation.from_quat(q1)
-                  # rot2 = Rotation.from_quat(q2)
-                  # rel_rot = rot1.inv() * rot2
-                  # return rel_rot.as_rotvec() # Example: return rotation vector
-                  warnings.warn(f"Using simple subtraction for orientation feature {feature_name}. Consider implementing proper rotational difference.")
-                  return np.subtract(q1, q2)
+                  # Return the rotation vector representation of the relative rotation.
+                  rot1 = Rotation.from_quat(q1)
+                  rot2 = Rotation.from_quat(q2)
+                  rel_rot = rot1.inv() * rot2
+                  rot_vec = rel_rot.as_rotvec()
+                  # Return the 3D rotation vector.
+                  return rot_vec
              return _quat_diff
         # Default to simple subtraction for position, velocity, etc.
         return np.subtract
@@ -378,10 +446,69 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             raise e
             # return []
 
-
         labels = clustering.labels_
         unique_labels = set(labels)
         cluster_results = []
+
+        # Optionally visualize clusters if in debug mode
+        if CFG.clustering_debug :  # Only visualize 1D, 2D, or 3D data
+            try:
+                import matplotlib.pyplot as plt
+                from mpl_toolkits.mplot3d import Axes3D  # For 3D plots
+                
+                fig = plt.figure(figsize=(10, 8))
+                
+                if data_array.shape[1] == 1:  # 1D data
+                    plt.scatter(data_array[:, 0], np.zeros_like(data_array[:, 0]), c=labels, cmap='viridis')
+                    plt.title(f'Clustering Results (Epsilon={epsilon:.4f}, Clusters={len(unique_labels)})')
+                    plt.xlabel('Feature Value')
+                elif data_array.shape[1] == 2:  # 2D data
+                    plt.scatter(data_array[:, 0], data_array[:, 1], c=labels, cmap='viridis')
+                    plt.title(f'Clustering Results (Epsilon={epsilon:.4f}, Clusters={len(unique_labels)})')
+                    plt.xlabel('Feature 1')
+                    plt.ylabel('Feature 2')
+                else:  # 3D data 4D data
+                    ax = fig.add_subplot(111, projection='3d')
+                    # Mark origin (0,0,0) with red
+                    # Plot the actual data points
+                    ax.scatter(data_array[:, 0], data_array[:, 1], data_array[:, 2], c=labels, cmap='viridis')
+                    ax.scatter([0], [0], [0], c='red', s=100, marker='x')
+                    ax.set_title(f'Clustering Results (Epsilon={epsilon:.4f}, Clusters={len(unique_labels)})')
+                    ax.set_xlabel('Feature 1')
+                    ax.set_ylabel('Feature 2')
+                    ax.set_zlabel('Feature 3')
+                # Plot the centroids of each cluster
+                for k in unique_labels:
+                    if k == -1:  # Skip noise points
+                        continue
+                    
+                    # Get points in this cluster and calculate centroid
+                    cluster_points = data_array[labels == k]
+                    if len(cluster_points) == 0:
+                        continue
+                        
+                    centroid = np.mean(cluster_points, axis=0)
+                    
+                    # Plot the centroid with a different marker and larger size
+                    if data_array.shape[1] == 1:  # 1D data
+                        plt.scatter(centroid[0], 0, c='black', s=100, marker='*', 
+                                   label=f'Centroid {k}' if k == list(unique_labels)[0] else "")
+                    elif data_array.shape[1] == 2:  # 2D data
+                        plt.scatter(centroid[0], centroid[1], c='black', s=100, marker='*',
+                                   label=f'Centroid {k}' if k == list(unique_labels)[0] else "")
+                    else:  # 3D data
+                        ax.scatter(centroid[0], centroid[1], centroid[2], c='black', s=100, marker='*',
+                                  label=f'Centroid {k}' if k == list(unique_labels)[0] else "")
+                
+                # Add a legend to identify centroids
+                if len(unique_labels) > 0 and -1 not in unique_labels:
+                    plt.legend(["Centroids"])
+                plt.tight_layout()
+                plt.savefig(f'cluster_visualization_eps{epsilon:.4f}.png')
+                logging.info(f"Cluster visualization saved to cluster_visualization_eps{epsilon:.4f}.png")
+                plt.close()
+            except Exception as viz_error:
+                logging.warning(f"Failed to visualize clusters: {viz_error}")
 
         for k in unique_labels:
             if k == -1: continue # Noise points if using algorithms like DBSCAN (not Agglomerative)
@@ -393,7 +520,8 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             cluster_center = np.mean(cluster_points, axis=0)
             cluster_results.append({
                 'center': cluster_center,
-                'points': cluster_points # Keep points for potential filtering by size
+                'points': cluster_points, # Keep points for potential filtering by size
+                'label': k  # Store the cluster label for reference
             })
 
         return cluster_results
@@ -455,7 +583,6 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
 
             # Generate successors by adding one predicate to each set in the beam
             for _, current_preds in beam:
-                logging.debug(f"Beam search iteration {iteration}, current preds: {current_preds}")
                 for cand_pred in candidate_list:
                     if cand_pred in current_preds or cand_pred in self._initial_predicates:
                         continue
@@ -479,6 +606,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             # Keep top B successors based on score
             successors.sort(key=lambda x: x[0], reverse=True) # Sort descending by score
             new_beam = successors[:beam_width]
+            logging.debug(f"Beam search iteration {iteration}, new beam: {new_beam}")
 
             # Check for convergence (beam hasn't changed or score isn't improving)
             # Simple check: if the best score in the new beam is not better than the previous best
