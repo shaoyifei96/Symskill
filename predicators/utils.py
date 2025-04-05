@@ -4095,3 +4095,11 @@ def add_text_to_draw_img(
     # Add the text to the image
     draw.text(position, text, fill="red", font=font)
     return draw
+
+
+def get_pos_quat_from_mujoco_state(state, object):
+    quat = np.array([state.get(object, "qx"), state.get(object, "qy"), 
+                                  state.get(object, "qz"), state.get(object, "qw")])
+    pos = np.array([state.get(object, "x"), state.get(object, "y"), 
+                                 state.get(object, "z")])
+    return pos, quat

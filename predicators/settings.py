@@ -23,7 +23,8 @@ class GlobalSettings:
     robo_kitchen_policy_model = "node" # "simple_ds" or "node
     make_test_videos = False
     loglevel = 10
-    visualizer = MeshcatVisualizer()
+    # visualizer = MeshcatVisualizer()
+    visualizer = None
     option_to_init_pose: Dict[str, List[np.ndarray]] = {}
     option_to_policy = {}
     use_teleop = False
