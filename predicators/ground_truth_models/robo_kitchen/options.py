@@ -197,7 +197,7 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
                     # Update demo trajectory probabilities
                     memory["ds_policy"].update_demo_traj_probs(
                         np.concatenate([gripper_pos_in_ref, gripper_quat_in_ref]),
-                        "point", penalty=0.8, traj_threshold=0.2, radius=0.02,
+                        "ref_point", penalty=0.8, traj_threshold=0.2, radius=0.02,
                         angle_threshold=np.pi/2, lookahead=10
                     )
                     
