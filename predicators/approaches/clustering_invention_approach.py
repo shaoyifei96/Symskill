@@ -14,7 +14,7 @@ import numpy as np
 from gym.spaces import Box
 # We will use Agglomerative Clustering as described.
 # May need `pip install scikit-learn`
-from sklearn.cluster import AgglomerativeClustering
+from sklearn.cluster import AgglomerativeClustering, DBSCAN
 from scipy.spatial.distance import cdist
 from scipy.spatial.transform import Rotation
 
@@ -230,9 +230,18 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         for (type1, type2, feat_name), data in relative_feature_datasets.items():
             logging.debug(f"Clustering relative feature {feat_name} for ({type1.name}, {type2.name}) with {len(data)} points.")
             # Skip if we are having gripper type and handle type
-            if (type1.name == "gripper_type" and type2.name == "handle_type") or \
-               (type1.name == "handle_type" and type2.name == "gripper_type"):
-                pass
+            if ((type1.name == "left_finger_type" and type2.name == "right_finger_type") or \
+               (type1.name == "right_finger_type" and type2.name == "left_finger_type")) and \
+               feat_name == quat_feat_name:
+                logging.debug(f"Skipping relative feature {feat_name} for ({type1.name}, {type2.name}) due to rand jumping between fingers.")
+                continue
+            # Skip translation features involving fingers with any other object type
+            # But keep the relationship between left and right fingers
+            if (type1.name == "left_finger_type" or type2.name == "right_finger_type" or\
+                type1.name == "right_finger_type" or type2.name == "left_finger_type") and \
+                not (type1.name == "left_finger_type" and type2.name == "right_finger_type" and feat_name == trans_feat_name):
+                logging.debug(f"Skipping relative feature {feat_name} for ({type1.name}, {type2.name}):All finger removed except distance between fingers")
+                continue
             if not data: continue # Skip if no data collected
 
             # Select clustering epsilon based on feature type
@@ -246,10 +255,19 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             logging.debug(f"Using epsilon: {epsilon:.4f} for feature {feat_name}")
             clusters = self._cluster_feature_dataset(data, epsilon)
             diff_fn = self._get_feature_difference_function(feat_name)
-            for cluster_id, cluster_info in enumerate(clusters):
-                 logging.debug(f"Cluster {cluster_id} has {len(cluster_info['points'])} points.")
+            # Sort clusters by number of points in descending order
+            sorted_clusters = sorted(enumerate(clusters), 
+                                    key=lambda x: len(x[1]['points']), 
+                                    reverse=True)
+            
+            # Keep only top k clusters with most datapoints
+            top_k = min(CFG.clustering_max_clusters, len(sorted_clusters))  # Default to top 3 or fewer if less available
+            
+            for i, (cluster_id, cluster_info) in enumerate(sorted_clusters[:top_k]):
+                 logging.debug(f"Cluster {cluster_id} has {len(cluster_info['points'])} points (rank {i+1}/{top_k}).")
                  # Skip clusters that are too small (optional hyperparameter)
                  if len(cluster_info['points']) < CFG.clustering_min_samples_per_cluster:
+                      logging.debug(f"Cluster {cluster_id} has too few points ({len(cluster_info['points'])}). Skipping.")
                       continue
                  # Use the feature-specific epsilon when creating the predicate
                  pred = self._create_predicate_from_relative_cluster(type1, type2, feat_name, cluster_info, epsilon, diff_fn, predicate_counter)
@@ -257,29 +275,35 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                  candidates[pred] = pred.arity + 1.0
                  predicate_counter += 1
 
-        # Process absolute features
-        for (type1, feat_name), data in absolute_feature_datasets.items():
-            logging.debug(f"Clustering absolute feature {feat_name} for ({type1.name}) with {len(data)} points.")
-            if not data: continue
+        # Process absolute features 
+        # skip absolute features for now since all things are relative
+        # for (type1, feat_name), data in absolute_feature_datasets.items():
+        #     logging.debug(f"Clustering absolute feature {feat_name} for ({type1.name}) with {len(data)} points.")
+        #     # Skip absolute orientation features for fingers as they can be noisy
+        #     if (type1.name == "left_finger_type" or type1.name == "right_finger_type") and feat_name == "quaternion":
+        #         logging.debug(f"Skipping absolute feature {feat_name} for {type1.name} due to noisy finger orientation.")
+        #         continue
 
-            # Select clustering epsilon based on feature type (using defaults if not trans/quat)
-            if feat_name == trans_feat_name:
-                epsilon = CFG.clustering_translation_epsilon
-            elif feat_name == quat_feat_name:
-                epsilon = CFG.clustering_quaternion_epsilon
-            else:
-                epsilon = CFG.clustering_epsilon
+        #     if not data: continue
 
-            logging.debug(f"Using epsilon: {epsilon:.2f} for feature {feat_name}")
-            clusters = self._cluster_feature_dataset(data, epsilon)
-            for cluster_id, cluster_info in enumerate(clusters):
-                 logging.debug(f"Cluster {cluster_id} has {len(cluster_info['points'])} points.")
-                 if len(cluster_info['points']) < CFG.clustering_min_samples_per_cluster:
-                     continue
-                 # Use the feature-specific epsilon when creating the predicate
-                 pred = self._create_predicate_from_absolute_cluster(type1, feat_name, cluster_info, epsilon, predicate_counter)
-                 candidates[pred] = pred.arity + 1.0
-                 predicate_counter += 1
+        #     # Select clustering epsilon based on feature type (using defaults if not trans/quat)
+        #     if feat_name == trans_feat_name:
+        #         epsilon = CFG.clustering_translation_epsilon
+        #     elif feat_name == quat_feat_name:
+        #         epsilon = CFG.clustering_quaternion_epsilon
+        #     else:
+        #         epsilon = CFG.clustering_epsilon
+
+        #     logging.debug(f"Using epsilon: {epsilon:.2f} for feature {feat_name}")
+        #     clusters = self._cluster_feature_dataset(data, epsilon)
+        #     for cluster_id, cluster_info in enumerate(clusters):
+        #          logging.debug(f"Cluster {cluster_id} has {len(cluster_info['points'])} points.")
+        #          if len(cluster_info['points']) < CFG.clustering_min_samples_per_cluster:
+        #              continue
+        #          # Use the feature-specific epsilon when creating the predicate
+        #          pred = self._create_predicate_from_absolute_cluster(type1, feat_name, cluster_info, epsilon, predicate_counter)
+        #          candidates[pred] = pred.arity + 1.0
+        #          predicate_counter += 1
 
         # Rename predicates for PDDL compatibility (reuse from grammar search)
         renamed_candidates = self._rename_predicates_to_remove_incompatible_chars(candidates)
@@ -423,7 +447,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
 
 
     def _cluster_feature_dataset(self, feature_data: List[np.ndarray], epsilon: float) -> List[Dict[str, Any]]:
-        """Performs agglomerative clustering based on epsilon distance."""
+        """Performs clustering based on epsilon distance using either agglomerative or DBSCAN."""
         if not feature_data:
             return []
 
@@ -431,20 +455,30 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         if data_array.ndim == 1: # Handle scalar features by adding a dimension
             data_array = data_array.reshape(-1, 1)
 
-        # linkage='average' corresponds well to the paper's description
-        # distance_threshold ensures clusters stop merging when distance exceeds epsilon
-        try:
-            clustering = AgglomerativeClustering(n_clusters=None,
-                                                 affinity='euclidean',
-                                                 linkage='average', # Or 'complete', 'ward'
-                                                 distance_threshold=epsilon).fit(data_array)
-        except ValueError as e:
-            logging.error(f"Agglomerative Clustering failed: {e}")
-            logging.error(f"Data shape: {data_array.shape}, Epsilon: {epsilon}")
-            # Example problematic data point: data_array[0]
-            logging.error(f"Example data point: {data_array[0] if len(data_array) > 0 else 'N/A'}")
-            raise e
-            # return []
+        # Choose clustering algorithm based on configuration
+        if CFG.clustering_algorithm == "dbscan":
+            try:
+                # DBSCAN uses epsilon as the maximum distance between samples
+                # min_samples is the number of samples in a neighborhood for a point to be a core point
+                clustering = DBSCAN(eps=epsilon*CFG.clustering_dbscan_ratio).fit(data_array)
+            except ValueError as e:
+                logging.error(f"DBSCAN Clustering failed: {e}")
+                logging.error(f"Data shape: {data_array.shape}, Epsilon: {epsilon}")
+                logging.error(f"Example data point: {data_array[0] if len(data_array) > 0 else 'N/A'}")
+                raise e
+        else:  # Default to agglomerative clustering
+            try:
+                # linkage='average' corresponds well to the paper's description
+                # distance_threshold ensures clusters stop merging when distance exceeds epsilon
+                clustering = AgglomerativeClustering(n_clusters=None,
+                                                    affinity='euclidean',
+                                                    linkage='average', # Or 'complete', 'ward'
+                                                    distance_threshold=epsilon).fit(data_array)
+            except ValueError as e:
+                logging.error(f"Agglomerative Clustering failed: {e}")
+                logging.error(f"Data shape: {data_array.shape}, Epsilon: {epsilon}")
+                logging.error(f"Example data point: {data_array[0] if len(data_array) > 0 else 'N/A'}")
+                raise e
 
         labels = clustering.labels_
         unique_labels = set(labels)
@@ -579,7 +613,6 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             successors: List[Tuple[float, FrozenSet[Predicate]]] = []
             processed_sets: Set[FrozenSet[Predicate]] = set(p for _, p in beam)
 
-            logging.info(f"Beam search iteration {iteration}, beam size {len(beam)}")
 
             # Generate successors by adding one predicate to each set in the beam
             for _, current_preds in beam:
@@ -643,46 +676,18 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
            checking constraints. Returns -inf if constraints fail."""
 
         # Check plan length constraint first (most expensive)
-        if predicates in self._plan_constraint_cache:
-            constraint_holds = self._plan_constraint_cache[predicates]
-        else:
-            # Need operators for the constraint check
-            if predicates in self._operator_complexity_cache:
-                _, operators = self._operator_complexity_cache[predicates]
-            else:
-                # Create atom dataset needed for operator learning
-                atom_dataset = self._create_atom_dataset(dataset, predicates)
-                _, operators = self._calculate_operator_complexity_term(predicates, dataset, atom_dataset, train_tasks)
-            # Now check constraint
-            atom_dataset_for_constraint = self._create_atom_dataset(dataset, predicates) # Recalculate or retrieve cache
-            constraint_holds = self._check_plan_length_constraint(predicates, operators, dataset, atom_dataset_for_constraint, train_tasks)
-            self._plan_constraint_cache[predicates] = constraint_holds
+        # Need operators for the constraint check
+        atom_dataset = self._create_atom_dataset(dataset, predicates)
+        op_term , operators = self._calculate_operator_complexity_term(predicates, dataset, atom_dataset, train_tasks)
+        # Now check constraint
+        constraint_holds = self._check_plan_length_constraint(predicates, operators, dataset, atom_dataset, train_tasks)
+            
 
         if not constraint_holds:
             # logging.debug(f"Predicate set failed plan length constraint.")
             return -np.inf # Invalid set
-
-        # If constraint holds, calculate the rest of the objective
-        # Create atom dataset (if not already computed for constraint check)
-        if predicates in self._atom_dataset_cache:
-             atom_dataset = self._atom_dataset_cache[predicates]
-        else:
-             atom_dataset = self._create_atom_dataset(dataset, predicates)
-             self._atom_dataset_cache[predicates] = atom_dataset
-
         # Calculate segmentation term
-        if predicates in self._segmentation_cache:
-             seg_term = self._segmentation_cache[predicates]
-        else:
-             seg_term = self._calculate_segmentation_term(predicates, atom_dataset)
-             self._segmentation_cache[predicates] = seg_term
-
-        # Calculate operator complexity term (operators may have been computed for constraint)
-        if predicates in self._operator_complexity_cache:
-             op_term, _ = self._operator_complexity_cache[predicates]
-        else:
-             op_term, _ = self._calculate_operator_complexity_term(predicates, dataset, atom_dataset, train_tasks)
-             # Cache already handled inside the function call
+        seg_term = self._calculate_segmentation_term(predicates, atom_dataset)             # Cache already handled inside the function call
 
         score = seg_term - alpha * op_term
         # logging.debug(f"Pred set size {len(predicates)}, Seg: {seg_term}, OpComp: {op_term}, Score: {score:.3f}")
@@ -695,6 +700,8 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         """Calculates the segmentation term: Σ |ψ(P, τ)|.
         Uses number of segments as |ψ(P, τ)|.
         """
+        if predicates in self._segmentation_cache: 
+            return self._segmentation_cache[predicates]
         total_segments = 0
         for ll_traj, atom_seq in atom_dataset:
             # Segment trajectory based *only* on the current predicate set
@@ -702,7 +709,8 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             # which it should if generated by _create_atom_dataset.
             segments = segment_trajectory(ll_traj, predicates, atom_seq=atom_seq)
             total_segments += len(segments)
-        return total_segments
+        self._segmentation_cache[predicates] = total_segments / len(atom_dataset)
+        return self._segmentation_cache[predicates]
 
 
     def _calculate_operator_complexity_term(self,
@@ -758,9 +766,11 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                                       atom_dataset: List[GroundAtomTrajectory],
                                       train_tasks: List[Task]) -> bool:
         """Checks if demonstrated plan length equals optimal plan length in the learned domain."""
-        warnings.warn("Plan length constraint check is not fully implemented. Returning True.", UserWarning, stacklevel=2)
-        return True
-        # raise NotImplementedError("Plan length constraint check is not fully implemented.")
+        if predicates in self._plan_constraint_cache:
+            return self._plan_constraint_cache[predicates]
+        else:
+            self._plan_constraint_cache[predicates] = True
+        # return True
         # Placeholder: Return True until planner integration is done.
         # This is a complex integration task involving:
         # 1. Converting learned NSRTs to PDDL (or using a planner that accepts NSRTs).
@@ -773,7 +783,6 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         if not operators: # If operator learning failed, constraint cannot hold
             return False
 
-        logging.warning("Plan length constraint check is not fully implemented. Returning True.")
 
         # --- Start of Placeholder Implementation Sketch ---
         # try:
