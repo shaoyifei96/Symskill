@@ -184,6 +184,11 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
     # --- Core Learning Method ---
     def learn_from_offline_dataset(self, dataset: Dataset) -> None:
         logging.info("Generating candidate predicates via clustering...")
+        # Filter dataset to only keep specific trajectory indices
+        keep_indices = [0, 3, 4, 5, 7, 8]
+        dataset._trajectories = [dataset._trajectories[i] for i in keep_indices]
+            
+        logging.info(f"Filtered dataset to trajectories (indices: {keep_indices})")
         # Clear caches before starting learning
         self._atom_dataset_cache = {}
         self._operator_complexity_cache = {}
@@ -273,17 +278,17 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             keep_feature = False
             
             # Cabinet handle quaternion - keep cabinet first
-            if (type1.name == "cabinet_type" and type2.name == "handle_type") and feat_name == quat_feat_name:
+            if (type1.name == "cabinet_type" and type2.name == "door_type") and feat_name == quat_feat_name:
                 keep_feature = True
                 logging.info(f"Keeping cabinet-handle quaternion feature")
             
             # Gripper handle quaternion - keep gripper first
-            elif (type1.name == "gripper_type" and type2.name == "handle_type") and feat_name == quat_feat_name:
+            elif (type1.name == "gripper_type" and type2.name == "door_type") and feat_name == quat_feat_name:
                 keep_feature = True
                 logging.info(f"Keeping gripper-handle quaternion feature")
             
             # Gripper handle translation - keep gripper first
-            elif (type1.name == "gripper_type" and type2.name == "handle_type") and feat_name == trans_feat_name:
+            elif (type1.name == "gripper_type" and type2.name == "door_type") and feat_name == trans_feat_name:
                 keep_feature = True
                 logging.info(f"Keeping gripper-handle translation feature")
             
@@ -315,6 +320,10 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
 
             if data_array.size == 0: continue # Skip if clustering returned empty
 
+            # Calculate minimum cluster size as 10% of total data points
+            min_cluster_size = int(CFG.clustering_min_ratio_of_data * len(data_array))
+            logging.debug(f"Using minimum cluster size: {min_cluster_size} ({CFG.clustering_min_ratio_of_data * 100}% of {len(data_array)} data points)")
+
             # Identify kept clusters based on size
             kept_clusters_info = {}
             discarded_labels = set()
@@ -325,12 +334,12 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 all_cluster_labels.add(k)
                 cluster_points = data_array[labels == k]
                 cluster_size = len(cluster_points)
-                if cluster_size >= CFG.clustering_min_samples_per_cluster:
+                if cluster_size >= min_cluster_size:
                     cluster_center = np.mean(cluster_points, axis=0)
                     kept_clusters_info[k] = {'center': cluster_center, 'size': cluster_size}
                 else:
                     discarded_labels.add(k)
-                    logging.debug(f"Cluster {k} for {type1.name}-{type2.name}-{feat_name} discarded (size {cluster_size} < {CFG.clustering_min_samples_per_cluster}).")
+                    logging.debug(f"Cluster {k} for {type1.name}-{type2.name}-{feat_name} discarded (size {cluster_size} < {min_cluster_size}).")
 
             # Sort kept clusters by size (descending) for top_k selection
             sorted_kept_clusters = sorted(kept_clusters_info.items(), key=lambda item: item[1]['size'], reverse=True)
@@ -620,7 +629,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             num_kept_clusters = len(kept_clusters_info)
 
             fig = plt.figure(figsize=(12, 10))
-            title = f"{cluster_type_str} ({feat_name})\nEffectiveEps={effective_epsilon:.4f}, MinPts={CFG.clustering_min_samples_per_cluster}, Kept={num_kept_clusters}/{num_total_clusters}"
+            title = f"{cluster_type_str} ({feat_name})\nEffectiveEps={effective_epsilon:.4f}, MinRatio={CFG.clustering_min_ratio_of_data}, Kept={num_kept_clusters}/{num_total_clusters}"
             fname = f"{fname_prefix}_{feat_name}_eps{effective_epsilon:.3f}.png"
 
             # Determine colors: green for kept, red for discarded, black for noise
@@ -659,17 +668,30 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             # Plot centroids for *kept* clusters
             centroids_plotted = False
             if ax is not None: # Ensure ax was created
+                # Count points per cluster
+                cluster_counts = {}
+                for label in labels:
+                    if label not in cluster_counts:
+                        cluster_counts[label] = 0
+                    cluster_counts[label] += 1
+                
                 for label, info in kept_clusters_info.items():
                     centroid = info['center']
+                    count = cluster_counts.get(label, 0)
+                    label_text = f"Cluster {label}: {count} pts"
+                    
                     if num_dims == 1:
                         ax.scatter(centroid[0], 0, c='black', s=150, marker='*',
                                    label='Kept Centroids' if not centroids_plotted else "")
+                        ax.text(centroid[0], 0, label_text, fontsize=9)
                     elif num_dims == 2:
                         ax.scatter(centroid[0], centroid[1], c='black', s=150, marker='*',
                                    label='Kept Centroids' if not centroids_plotted else "")
+                        ax.text(centroid[0], centroid[1], label_text, fontsize=9)
                     elif num_dims >= 3:
                         ax.scatter(centroid[0], centroid[1], centroid[2], c='black', s=150, marker='*',
                                    label='Kept Centroids' if not centroids_plotted else "")
+                        ax.text(centroid[0], centroid[1], centroid[2], label_text, fontsize=9)
                     centroids_plotted = True
 
                 ax.set_title(title)

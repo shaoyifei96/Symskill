@@ -25,7 +25,7 @@ class GlobalSettings:
     clustering_epsilon = 0.3# default not used!
     
     clustering_algorithm = "agglomerative" # "dbscan" or "agglomerative"
-    clustering_min_samples_per_cluster = 50
+    clustering_min_ratio_of_data = 0.1
     clustering_max_clusters = 3
     clustering_search_beam_width = 15
     clustering_search_alpha = 0.01
@@ -549,7 +549,7 @@ class GlobalSettings:
     # associated with their PNAD in order to not be pruned during operator
     # learning.
     cluster_and_intersect_min_datastore_fraction = 0.0
-    cluster_and_intersect_soft_intersection_for_preconditions = False
+    cluster_and_intersect_soft_intersection_for_preconditions = True
 
     # torch GPU usage setting
     use_torch_gpu = False
