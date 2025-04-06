@@ -249,7 +249,7 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
                 # Create action array
                 arr = np.zeros(7, dtype=np.float32)
                 arr[:3] = velocity_robot_base
-                arr[3:6] = 0.3 * robot_base_w
+                arr[3:6] = 0.8 * robot_base_w
             
             elif "ds_policy" in memory:
                 # Use DS policy
@@ -259,12 +259,12 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
                 vel = action[:6] # position + angular velocity
 
                 if CFG.visualizer:
-                    rel_handle_visualizer_rot = np.array([[0, 0, 1],
+                    rel_gripper_visualizer_rot = np.array([[0, 0, 1], # NOTE: this is a "correction" term: to rotate gripper's frame to visualize in the way we want
                                                           [1, 0, 0],
                                                           [0, 1, 0]])
-                    CFG.visualizer.update_robot_position(pos_in_handle, xyzw_to_wxyz(R.from_matrix(rel_handle_visualizer_rot @ rot_in_handle).as_quat()))
+                    CFG.visualizer.update_robot_position(pos_in_handle, xyzw_to_wxyz(R.from_matrix(rot_in_handle @ rel_gripper_visualizer_rot).as_quat()))
                     CFG.visualizer.update_ref_traj(ds_policy.ref_traj_idx)
-                    CFG.visualizer.update_ref_point(ds_policy.x[ds_policy.ref_traj_idx][ds_policy.ref_point_idx], xyzw_to_wxyz(R.from_matrix(rel_handle_visualizer_rot @ rot_in_handle).as_quat()))
+                    CFG.visualizer.update_ref_point(ds_policy.x[ds_policy.ref_traj_idx][ds_policy.ref_point_idx], xyzw_to_wxyz(R.from_matrix(rot_in_handle @ rel_gripper_visualizer_rot).as_quat()))
                     
                 x_dot_handle = vel[:3]
                 r_dot_handle = vel[3:]
@@ -281,7 +281,6 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
                 arr = np.zeros(7, dtype=np.float32)
                 arr[:3] = x_dot_robot_base
                 arr[3:6] = 0.8 * r_dot_robot_base
-                # arr[3:6] = 0.8 * robot_base_w # NOTE: this is hardcoded, should be learned
                 # arr[6] = action[6] # gripper
             else:
                 # Fallback if neither model is available

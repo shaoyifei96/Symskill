@@ -33,17 +33,15 @@ class MeshcatVisualizer:
 
         # Add markers to indicate direction
         box_size = 0.02
-        robot_marker_color = np.array([0, 255, 0]) # Green
-        ref_marker_color = np.array([255, 0, 0]) # Red
         # Position marker at the top of the cylinder (positive Z direction relative to cylinder)
         marker_transform = tf.translation_matrix([0, cylinder_height / 2.0, 0])
         
         self.vis["robot"]["marker"].set_object(g.Box([3*box_size, box_size, box_size]),
-                                             g.MeshBasicMaterial(color=color_array_to_hex(robot_marker_color)))
+                                             g.MeshBasicMaterial(color=color_array_to_hex(self.robot_color)))
         self.vis["robot"]["marker"].set_transform(marker_transform)
 
         self.vis["ref_point"]["marker"].set_object(g.Box([3*box_size, box_size, box_size]),
-                                                g.MeshBasicMaterial(color=color_array_to_hex(ref_marker_color)))
+                                                g.MeshBasicMaterial(color=color_array_to_hex(self.ref_traj_color)))
         self.vis["ref_point"]["marker"].set_transform(marker_transform)
 
         if self.demo_trajs is not None and self.demo_traj_probs is not None:
