@@ -17,15 +17,17 @@ from gym.spaces import Box
 from sklearn.cluster import AgglomerativeClustering, DBSCAN
 from scipy.spatial.distance import cdist
 from scipy.spatial.transform import Rotation
+# Import dill for pickling
+import dill as pkl
 
 from predicators import utils
 from predicators.approaches.grammar_search_invention_approach import _BinaryClassifier, _ProgrammaticClassifier, _UnaryClassifier
 from predicators.approaches.nsrt_learning_approach import NSRTLearningApproach
 from predicators.nsrt_learning.segmentation import segment_trajectory
 from predicators.nsrt_learning.strips_learning import learn_strips_operators
-from predicators.planning import PlanningFailure, PlanningTimeout#, task_plan_grounding, run_task_plan
+from predicators.planning import PlanningFailure, PlanningTimeout, run_task_plan_once
 from predicators.settings import CFG
-from predicators.structs import Dataset, GroundAtomTrajectory, NSRT, Object, ParameterizedOption, Predicate, Segment, State, Task, Type
+from predicators.structs import Dataset, GroundAtomTrajectory, NSRT, Object, ParameterizedOption, Predicate, Segment, State, Task, Type, STRIPSOperator
 import warnings
 ################################################################################
 #                          Programmatic classifiers                            #
@@ -199,7 +201,9 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         # Save the learned predicates separately for potential reloading
         save_path = utils.get_approach_save_path_str()
         learned_preds_path = f"{save_path}_learned_predicates.pkl"
-        utils.save_to_pickle(self._learned_predicates, learned_preds_path)
+        # Replace utils.save_to_pickle with direct pkl.dump
+        with open(learned_preds_path, "wb") as f:
+            pkl.dump(self._learned_predicates, f)
 
         # Learn NSRTs with the final set of predicates
         final_predicates = self._get_current_predicates()
@@ -589,7 +593,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         max_iterations = CFG.clustering_search_max_iterations # Optional: limit iterations
 
         # Initialize beam with the empty set
-        beam: List[Tuple[float, FrozenSet[Predicate]]] = [(-np.inf, frozenset())] # Score, Predicate Set
+        beam: List[Tuple[float, FrozenSet[Predicate], Set[STRIPSOperator]]] = [(-np.inf, frozenset(), set())] # Score, Predicate Set, Operators
 
         # Check initial predicates against constraint (if any exist)
         initial_pred_set = frozenset(self._initial_predicates)
@@ -611,11 +615,11 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                  break
 
             successors: List[Tuple[float, FrozenSet[Predicate]]] = []
-            processed_sets: Set[FrozenSet[Predicate]] = set(p for _, p in beam)
+            processed_sets: Set[FrozenSet[Predicate]] = set(p for _, p, _ in beam)
 
 
             # Generate successors by adding one predicate to each set in the beam
-            for _, current_preds in beam:
+            for _, current_preds, _ in beam:
                 for cand_pred in candidate_list:
                     if cand_pred in current_preds or cand_pred in self._initial_predicates:
                         continue
@@ -628,9 +632,9 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                     # Evaluate the objective function for the successor set
                     # Includes check for the plan length constraint internally
                     combined_preds = initial_pred_set | next_pred_set
-                    score = self._evaluate_objective(combined_preds, alpha, dataset, train_tasks)
+                    score, operators = self._evaluate_objective(combined_preds, alpha, dataset, train_tasks)
                     # logging.debug(f"Beam search iteration {iteration}, score: {score:.4f}, num preds: {len(next_pred_set)}")
-                    successors.append((score, next_pred_set)) # Store score with the *added* predicates only
+                    successors.append((score, next_pred_set, operators)) # Store score with the *added* predicates only
 
             if not successors:
                 logging.info("Beam search found no viable successors. Terminating.")
@@ -639,7 +643,6 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             # Keep top B successors based on score
             successors.sort(key=lambda x: x[0], reverse=True) # Sort descending by score
             new_beam = successors[:beam_width]
-            logging.debug(f"Beam search iteration {iteration}, new beam: {new_beam}")
 
             # Check for convergence (beam hasn't changed or score isn't improving)
             # Simple check: if the best score in the new beam is not better than the previous best
@@ -650,8 +653,9 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
 
             beam = new_beam
             if beam:
-                best_score, best_pred_set_added = beam[0] # Best set in current beam (added preds only)
+                best_score, best_pred_set_added, best_operators = beam[0] # Best set in current beam (added preds only)
                 logging.info(f"Iteration {iteration} best score: {best_score:.4f}, num preds: {len(best_pred_set_added)}")
+                logging.info(f"Current best operators: {best_operators}")
 
 
         # Final selection: the best predicate set found that satisfies constraints
@@ -671,7 +675,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                             predicates: FrozenSet[Predicate],
                             alpha: float,
                             dataset: Dataset,
-                            train_tasks: List[Task]) -> float:
+                            train_tasks: List[Task]) -> Tuple[float, Set[NSRT]]:
         """Calculates the objective function score for a given predicate set,
            checking constraints. Returns -inf if constraints fail."""
 
@@ -685,13 +689,13 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
 
         if not constraint_holds:
             # logging.debug(f"Predicate set failed plan length constraint.")
-            return -np.inf # Invalid set
+            return -np.inf, operators # Invalid set
         # Calculate segmentation term
         seg_term = self._calculate_segmentation_term(predicates, atom_dataset)             # Cache already handled inside the function call
 
         score = seg_term - alpha * op_term
         # logging.debug(f"Pred set size {len(predicates)}, Seg: {seg_term}, OpComp: {op_term}, Score: {score:.3f}")
-        return score
+        return score, operators
 
 
     def _calculate_segmentation_term(self,
@@ -761,70 +765,90 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
 
     def _check_plan_length_constraint(self,
                                       predicates: FrozenSet[Predicate],
-                                      operators: Set[NSRT],
+                                      operators: Set[STRIPSOperator],
                                       dataset: Dataset,
                                       atom_dataset: List[GroundAtomTrajectory],
                                       train_tasks: List[Task]) -> bool:
         """Checks if demonstrated plan length equals optimal plan length in the learned domain."""
         if predicates in self._plan_constraint_cache:
             return self._plan_constraint_cache[predicates]
-        else:
-            self._plan_constraint_cache[predicates] = True
-        # return True
-        # Placeholder: Return True until planner integration is done.
-        # This is a complex integration task involving:
-        # 1. Converting learned NSRTs to PDDL (or using a planner that accepts NSRTs).
-        # 2. Defining task goals based on final states and predicates.
-        # 3. Running a planner for each trajectory.
-        # 4. Comparing planner output length to demonstrated segmentation length.
+        # Initialize cache entry to False (fail-safe)
+        self._plan_constraint_cache[predicates] = False
+
         if not CFG.clustering_check_plan_length_constraint:
+             logging.debug("Skipping plan length constraint check (disabled by CFG).")
+             self._plan_constraint_cache[predicates] = True # If skipped, treat as True
              return True # Skip check if disabled by CFG
 
         if not operators: # If operator learning failed, constraint cannot hold
+            logging.debug("Cannot check plan length constraint: Operator learning failed.")
+            # Keep cache as False, return False
             return False
 
+        # The 'operators' set already contains STRIPSOperator objects
+        # from the _calculate_operator_complexity_term method.
+        # No conversion is needed.
+        strips_ops = operators
 
-        # --- Start of Placeholder Implementation Sketch ---
-        # try:
-        #     strips_ops = {nsrt.to_strips_operator() for nsrt in operators}
-        #     domain_pddl = utils.generate_pddl_domain(strips_ops, predicates, self._types)
-        # except Exception as e:
-        #     logging.error(f"Failed to generate PDDL domain: {e}")
-        #     return False # Cannot check constraint if domain fails
+        # Iterate through each demonstration trajectory
+        for i, (ll_traj, atom_seq) in enumerate(atom_dataset):
+            if not ll_traj.states:
+                logging.debug(f"Skipping traj {i}: No states.")
+                continue # Skip trajectories with no states
 
-        # for i, (ll_traj, atom_seq) in enumerate(atom_dataset):
-        #     if not ll_traj.states: continue
-        #     init_state = ll_traj.states[0]
-        #     final_state = ll_traj.states[-1]
+            init_state = ll_traj.states[0]
+            final_state = ll_traj.states[-1]
 
-        #     # Create initial and goal atom sets
-        #     init_atoms = utils.abstract(init_state, predicates)
-        #     goal_atoms = utils.abstract(final_state, predicates)
-        #     if init_atoms == goal_atoms: continue # Skip trivial trajectories
+            # Create initial and goal atom sets using the current predicates
+            init_atoms = utils.abstract(init_state, predicates)
+            goal_atoms = utils.abstract(final_state, predicates)
 
-        #     # Create a PDDL problem file or task structure
-        #     objects = set(init_state)
-        #     problem_pddl = utils.generate_pddl_problem(objects, init_atoms, goal_atoms, f"traj{i}_problem")
+            if init_atoms == goal_atoms:
+                logging.debug(f"Skipping traj {i}: Init atoms == Goal atoms.")
+                continue # Skip trivial trajectories where start equals goal
 
-        #     # Run planner (needs planner integration, e.g., Pyperplan or Fast Downward)
-        #     # planner_output = run_planner(domain_pddl, problem_pddl)
-        #     # planner_plan_len = len(planner_output)
-        #     planner_plan_len = np.inf # Placeholder
+            # Get demonstrated plan length (number of segments)
+            # Use the provided atom_seq for potentially faster segmentation
+            demo_segments = segment_trajectory(ll_traj, predicates, atom_seq=atom_seq)
+            demo_plan_len = len(demo_segments)
 
-        #     # Get demonstrated plan length (number of segments)
-        #     demo_segments = segment_trajectory(ll_traj, predicates, atom_seq=atom_seq)
-        #     demo_plan_len = len(demo_segments)
+            # Create a planning task
+            objects = set(init_state) # Assume objects don't change drastically
+            task = Task(init_state, goal_atoms)
 
-        #     if planner_plan_len < demo_plan_len:
-        #         logging.debug(f"Constraint violation on traj {i}: Planner len {planner_plan_len} < Demo len {demo_plan_len}")
-        #         return False # Constraint violated
+            # Run the planner using the learned NSRTs
+            # Use keyword arguments for clarity and pass the heuristic
+            plan, _, metrics = run_task_plan_once(
+                task=task,
+                nsrts=strips_ops,    # Pass NSRTs (assuming strips_ops holds them now)
+                preds=set(predicates), # Pass predicates
+                types=self._types,   # Pass types
+                timeout=10.0,   # Pass timeout
+                seed=0,      # Pass seed
+                task_planning_heuristic=CFG.sesame_task_planning_heuristic, # Pass heuristic
+                # planner=CFG.sesame_task_planner # Specify planner
+            )
 
-        # except Exception as e:
-        #      logging.error(f"Error during plan length constraint check: {e}")
-        #      return False # Fail safe
-        # --- End of Placeholder Implementation Sketch ---
+            # Check planner result
+            if plan is None:
+                # Planner failed (timeout or unsolvable).
+                # This does NOT violate the constraint, as no shorter plan was found.
+                # logging.debug(f"Planner failed for traj {i}. Constraint not violated.")
+                continue
+            else:
+                planner_plan_len = len(plan)
+                # logging.debug(f"Traj {i}: Demo len={demo_plan_len}, Planner len={planner_plan_len}")
+                if planner_plan_len < demo_plan_len:
+                    logging.debug(f"Constraint VIOLATION on traj {i}: Planner len {planner_plan_len} < Demo len {demo_plan_len}")
+                    # Cache False and return False immediately
+                    return False # Constraint violated
 
+        # If loop completes, constraint holds for all trajectories
+        logging.debug("Plan length constraint holds for all trajectories.")
+        self._plan_constraint_cache[predicates] = True
         return True
+
+
 
     # --- Helper Functions ---
     def _create_atom_dataset(self, dataset: Dataset, predicates: Set[Predicate] | FrozenSet[Predicate]) -> List[GroundAtomTrajectory]:
