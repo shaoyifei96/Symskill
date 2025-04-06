@@ -192,6 +192,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
 
         candidates = self._generate_candidate_predicates(dataset)
         logging.info(f"Generated {len(candidates)} candidate predicates.")
+        logging.info(f"Candidate predicates: {candidates}")
         if not candidates:
              logging.warning("No candidate predicates generated. Learning NSRTs with initial predicates only.")
              self._learned_predicates = set()
@@ -829,7 +830,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         seg_term = self._calculate_segmentation_term(predicates, atom_dataset)             # Cache already handled inside the function call
 
         # Add the negated absolute value of constraint_value to the score
-        score = seg_term - alpha * op_term - abs(constraint_value)
+        score = seg_term - alpha * op_term - CFG.clustering_search_constraint_penalty * abs(constraint_value)
         logging.debug(f"Pred set size {len(predicates)}, Seg: {seg_term}, OpComp: {op_term}, Constraint: {constraint_value}, Score: {score:.3f}")
         # logging.debug(f"Pred set size {len(predicates)}, Seg: {seg_term}, OpComp: {op_term}, Score: {score:.3f}")
         return score, operators

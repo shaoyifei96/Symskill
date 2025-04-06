@@ -27,10 +27,11 @@ class GlobalSettings:
     clustering_algorithm = "agglomerative" # "dbscan" or "agglomerative"
     clustering_min_samples_per_cluster = 50
     clustering_max_clusters = 3
-    clustering_search_beam_width = 2
+    clustering_search_beam_width = 15
     clustering_search_alpha = 0.01
     clustering_search_max_iterations = 30
     clustering_check_plan_length_constraint = True
+    clustering_search_constraint_penalty = 0.8
     # robo_kitchen env parameters
     robo_kitchen_randomize_init_state = True # not used
     robo_kitchen_task = "OpenSingleDoor"
