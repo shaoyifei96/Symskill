@@ -823,15 +823,15 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         constraint_value = self._check_plan_length_constraint(predicates, operators, dataset, atom_dataset, train_tasks)
         # logging.debug(f"Constraint holds: {constraint_holds}")
 
-        if constraint_value == 0:
-            # logging.debug(f"Predicate set failed plan length constraint.")
-            return -np.inf, operators # Invalid set
+        # if constraint_value == 0:
+        #     # logging.debug(f"Predicate set failed plan length constraint.")
+        #     return -np.inf, operators # Invalid set
         # Calculate segmentation term
         seg_term = self._calculate_segmentation_term(predicates, atom_dataset)             # Cache already handled inside the function call
 
         # Add the negated absolute value of constraint_value to the score
         score = seg_term - alpha * op_term - CFG.clustering_search_constraint_penalty * abs(constraint_value)
-        logging.debug(f"Pred set size {len(predicates)}, Seg: {seg_term}, OpComp: {op_term}, Constraint: {constraint_value}, Score: {score:.3f}")
+        logging.debug(f"Pred set {predicates}, Seg: {seg_term}, OpComp: {op_term}, Constraint: {constraint_value}, Score: {score:.3f}")
         # logging.debug(f"Pred set size {len(predicates)}, Seg: {seg_term}, OpComp: {op_term}, Score: {score:.3f}")
         return score, operators
 
@@ -874,6 +874,18 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             # Ensure atom_dataset only contains atoms for 'predicates'
             pruned_atom_data = utils.prune_ground_atom_dataset(atom_dataset, predicates)
             segmented_trajs = [segment_trajectory(ll_traj, predicates, atom_seq=atom_seq) for (ll_traj, atom_seq) in pruned_atom_data]
+            # Print predicates and segment information for each demo
+            logging.info(f"Predicates: {', '.join(p.name for p in predicates)}")
+            # for i, (_traj, atom_seq) in enumerate(pruned_atom_data):
+                # segments = segment_trajectory(ll_traj, predicates, atom_seq=atom_seq)
+            # Calculate both segment counts and action counts for each demo
+            # segment_lengths = [len(segment) for segment in segmented_trajs]
+            segment_action_counts = [[len(segment.actions) for segment in demo_segments] 
+                                    for demo_segments in segmented_trajs]
+            logging.info(f"Segment action counts: \n {segment_action_counts}")
+            # for p in predicates:
+            #     if p.name [-3:] == 'ID4':
+            #         pass
 
             # TODO: Figure out the right arguments for learn_strips_operators
             # It likely needs the segmented trajectories.
@@ -887,6 +899,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                  verbose=False 
              )
             operators = {pnad.op for pnad in learned_pnads}
+            print(f"Learned operators: {operators}")
             complexity = len(operators)
             result = (complexity, operators)
 
