@@ -17,6 +17,8 @@ from gym.spaces import Box
 from sklearn.cluster import AgglomerativeClustering, DBSCAN
 from scipy.spatial.distance import cdist
 from scipy.spatial.transform import Rotation
+from scipy.spatial.distance import pdist
+
 # Import dill for pickling
 import dill as pkl
 
@@ -210,7 +212,19 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         # We need the atom dataset for the final selected predicates
         atom_dataset_final = self._create_atom_dataset(dataset, final_predicates)
         annotations = None # Or derive from atom_dataset if needed by _learn_nsrts
-        self._learn_nsrts(dataset.trajectories, online_learning_cycle=None, annotations=annotations, atom_dataset=atom_dataset_final)
+
+        # Segment the trajectories using the final predicates and atom dataset
+        segmented_trajs_final = [
+            segment_trajectory(ll_traj, final_predicates, atom_seq=atom_seq)
+            for ll_traj, atom_seq in atom_dataset_final
+        ]
+
+        # Call learn_nsrts with segmented trajectories
+        self._learn_nsrts(
+            dataset.trajectories,
+            annotations=annotations,
+            online_learning_cycle=None
+        )
 
         # Save the final approach components (including NSRTs with learned predicates)
         save_path = utils.get_approach_save_path_str()
@@ -221,7 +235,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
     def _generate_candidate_predicates(self, dataset: Dataset) -> Dict[Predicate, float]:
         """Generates candidate predicates by clustering relative and absolute features."""
         relative_feature_datasets = self._generate_relative_feature_datasets(dataset)
-        absolute_feature_datasets = self._generate_absolute_feature_datasets(dataset)
+        # absolute_feature_datasets = self._generate_absolute_feature_datasets(dataset)
 
         candidates: Dict[Predicate, float] = {}
         predicate_counter = 0 # To ensure unique cluster IDs
@@ -234,18 +248,55 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         for (type1, type2, feat_name), data in relative_feature_datasets.items():
             logging.debug(f"Clustering relative feature {feat_name} for ({type1.name}, {type2.name}) with {len(data)} points.")
             # Skip if we are having gripper type and handle type
-            if ((type1.name == "left_finger_type" and type2.name == "right_finger_type") or \
-               (type1.name == "right_finger_type" and type2.name == "left_finger_type")) and \
-               feat_name == quat_feat_name:
-                logging.debug(f"Skipping relative feature {feat_name} for ({type1.name}, {type2.name}) due to rand jumping between fingers.")
+            # if ((type1.name == "left_finger_type" and type2.name == "right_finger_type") or \
+            #    (type1.name == "right_finger_type" and type2.name == "left_finger_type")) and \
+            #    feat_name == quat_feat_name:
+            #     logging.debug(f"Skipping relative feature {feat_name} for ({type1.name}, {type2.name}) due to rand jumping between fingers.")
+            #     continue
+            # # Skip translation features involving fingers with any other object type
+            # # But keep the relationship between left and right fingers
+            # if (type1.name == "left_finger_type" or type2.name == "right_finger_type" or\
+            #     type1.name == "right_finger_type" or type2.name == "left_finger_type") and \
+            #     not (type1.name == "left_finger_type" and type2.name == "right_finger_type" and feat_name == trans_feat_name):
+            #     logging.debug(f"Skipping relative feature {feat_name} for ({type1.name}, {type2.name}):All finger removed except distance between fingers")
+            #     continue
+
+            # Debug mode: Skip everything except specific feature combinations
+            # Only keep:
+            # 1. Cabinet handle quaternion (with cabinet first)
+            # 2. Gripper handle quaternion (with gripper first)
+            # 3. Gripper handle translation (with gripper first)
+            # 4. Finger finger translation (with left_finger first)
+            
+            # Check if this is a feature combination we want to keep
+            keep_feature = False
+            
+            # Cabinet handle quaternion - keep cabinet first
+            if (type1.name == "cabinet_type" and type2.name == "handle_type") and feat_name == quat_feat_name:
+                keep_feature = True
+                logging.info(f"Keeping cabinet-handle quaternion feature")
+            
+            # Gripper handle quaternion - keep gripper first
+            elif (type1.name == "gripper_type" and type2.name == "handle_type") and feat_name == quat_feat_name:
+                keep_feature = True
+                logging.info(f"Keeping gripper-handle quaternion feature")
+            
+            # Gripper handle translation - keep gripper first
+            elif (type1.name == "gripper_type" and type2.name == "handle_type") and feat_name == trans_feat_name:
+                keep_feature = True
+                logging.info(f"Keeping gripper-handle translation feature")
+            
+            # Finger finger translation - keep left_finger first
+            elif (type1.name == "left_finger_type" and type2.name == "right_finger_type") and feat_name == trans_feat_name:
+                keep_feature = True
+                logging.info(f"Keeping finger-finger translation feature")
+            
+            # Skip all other feature combinations
+            if not keep_feature:
+                logging.debug(f"Skipping feature {feat_name} for ({type1.name}, {type2.name}) in debug mode")
                 continue
-            # Skip translation features involving fingers with any other object type
-            # But keep the relationship between left and right fingers
-            if (type1.name == "left_finger_type" or type2.name == "right_finger_type" or\
-                type1.name == "right_finger_type" or type2.name == "left_finger_type") and \
-                not (type1.name == "left_finger_type" and type2.name == "right_finger_type" and feat_name == trans_feat_name):
-                logging.debug(f"Skipping relative feature {feat_name} for ({type1.name}, {type2.name}):All finger removed except distance between fingers")
-                continue
+
+            
             if not data: continue # Skip if no data collected
 
             # Select clustering epsilon based on feature type
@@ -257,24 +308,44 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 epsilon = CFG.clustering_epsilon
 
             logging.debug(f"Using epsilon: {epsilon:.4f} for feature {feat_name}")
-            clusters = self._cluster_feature_dataset(data, epsilon)
+            # Perform clustering
+            data_array, labels, unique_labels, effective_epsilon = self._cluster_feature_dataset(data, epsilon)
             diff_fn = self._get_feature_difference_function(feat_name)
-            # Sort clusters by number of points in descending order
-            sorted_clusters = sorted(enumerate(clusters), 
-                                    key=lambda x: len(x[1]['points']), 
-                                    reverse=True)
-            
-            # Keep only top k clusters with most datapoints
-            top_k = min(CFG.clustering_max_clusters, len(sorted_clusters))  # Default to top 3 or fewer if less available
-            
-            for i, (cluster_id, cluster_info) in enumerate(sorted_clusters[:top_k]):
-                 logging.debug(f"Cluster {cluster_id} has {len(cluster_info['points'])} points (rank {i+1}/{top_k}).")
-                 # Skip clusters that are too small (optional hyperparameter)
-                 if len(cluster_info['points']) < CFG.clustering_min_samples_per_cluster:
-                      logging.debug(f"Cluster {cluster_id} has too few points ({len(cluster_info['points'])}). Skipping.")
-                      continue
+
+            if data_array.size == 0: continue # Skip if clustering returned empty
+
+            # Identify kept clusters based on size
+            kept_clusters_info = {}
+            discarded_labels = set()
+            all_cluster_labels = set()
+
+            for k in unique_labels:
+                if k == -1: continue # Skip noise points for now
+                all_cluster_labels.add(k)
+                cluster_points = data_array[labels == k]
+                cluster_size = len(cluster_points)
+                if cluster_size >= CFG.clustering_min_samples_per_cluster:
+                    cluster_center = np.mean(cluster_points, axis=0)
+                    kept_clusters_info[k] = {'center': cluster_center, 'size': cluster_size}
+                else:
+                    discarded_labels.add(k)
+                    logging.debug(f"Cluster {k} for {type1.name}-{type2.name}-{feat_name} discarded (size {cluster_size} < {CFG.clustering_min_samples_per_cluster}).")
+
+            # Sort kept clusters by size (descending) for top_k selection
+            sorted_kept_clusters = sorted(kept_clusters_info.items(), key=lambda item: item[1]['size'], reverse=True)
+
+            # Optionally visualize clusters if in debug mode
+            if CFG.clustering_debug and data_array.size > 0: # Check if there is data to plot
+                self._plot_cluster_results(data_array, labels, unique_labels, kept_clusters_info, effective_epsilon, type1.name, type2.name if type2 else None, feat_name)
+
+            # Create predicates for the top_k *kept* clusters
+            top_k = min(CFG.clustering_max_clusters, len(sorted_kept_clusters))
+            logging.debug(f"Selecting top {top_k} kept clusters for {type1.name}-{type2.name}-{feat_name}.")
+
+            for i, (cluster_label, cluster_info) in enumerate(sorted_kept_clusters[:top_k]):
+                 logging.debug(f"Creating predicate for kept cluster {cluster_label} (size {cluster_info['size']}, rank {i+1}/{top_k}).")
                  # Use the feature-specific epsilon when creating the predicate
-                 pred = self._create_predicate_from_relative_cluster(type1, type2, feat_name, cluster_info, epsilon, diff_fn, predicate_counter)
+                 pred = self._create_predicate_from_relative_cluster(type1, type2, feat_name, cluster_info['center'], effective_epsilon, diff_fn, predicate_counter)
                  # Cost can be simple (e.g., arity) or more complex
                  candidates[pred] = pred.arity + 1.0
                  predicate_counter += 1
@@ -322,7 +393,11 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
 
         # Use product to get ordered pairs, ensuring both (A, B) and (B, A) are considered.
         # This allows calculating relative features in both A's frame and B's frame.
+
+
+        ##!!! Keep depending on 
         type_pairs = list(product(sorted(list(types)), repeat=2))
+        # type_pairs = list(combinations_with_replacement(sorted(list(types)), 2))
 
         # Assumed orientation feature name
         quat_feat_name = "quaternion"
@@ -450,138 +525,201 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         return np.subtract
 
 
-    def _cluster_feature_dataset(self, feature_data: List[np.ndarray], epsilon: float) -> List[Dict[str, Any]]:
-        """Performs clustering based on epsilon distance using either agglomerative or DBSCAN."""
+    def _cluster_feature_dataset(self, feature_data: List[np.ndarray], initial_epsilon: float) -> Tuple[np.ndarray, np.ndarray, Set[int], float]:
+        """Performs clustering based on epsilon distance using either agglomerative or DBSCAN.
+
+        Returns the data array, cluster labels for each point, the set of unique labels,
+        and the effective epsilon used for clustering.
+        """
         if not feature_data:
-            return []
+            # Return empty structures and the initial epsilon if no data
+            return np.array([]), np.array([]), set(), initial_epsilon
 
         data_array = np.array(feature_data)
         if data_array.ndim == 1: # Handle scalar features by adding a dimension
             data_array = data_array.reshape(-1, 1)
 
+        # Handle case with 0 or 1 data point early to avoid errors in pdist/clustering
+        if data_array.shape[0] < 2:
+             labels = np.array([0]) if data_array.shape[0] == 1 else np.array([])
+             unique_labels = {0} if data_array.shape[0] == 1 else set()
+             # Return initial epsilon if clustering wasn't really performed
+             return data_array, labels, unique_labels, initial_epsilon
+
+
         # Choose clustering algorithm based on configuration
+        effective_epsilon = initial_epsilon # Initialize with the provided epsilon
         if CFG.clustering_algorithm == "dbscan":
             try:
-                # DBSCAN uses epsilon as the maximum distance between samples
-                # min_samples is the number of samples in a neighborhood for a point to be a core point
-                clustering = DBSCAN(eps=epsilon*CFG.clustering_dbscan_ratio).fit(data_array)
+                # Use a ratio of the initial epsilon for DBSCAN
+                effective_epsilon = initial_epsilon * CFG.clustering_dbscan_ratio
+                logging.debug(f"Using DBSCAN Epsilon: {effective_epsilon:.4f}")
+                clustering = DBSCAN(eps=effective_epsilon).fit(data_array)
             except ValueError as e:
                 logging.error(f"DBSCAN Clustering failed: {e}")
-                logging.error(f"Data shape: {data_array.shape}, Epsilon: {epsilon}")
+                logging.error(f"Data shape: {data_array.shape}, Epsilon: {effective_epsilon}")
                 logging.error(f"Example data point: {data_array[0] if len(data_array) > 0 else 'N/A'}")
                 raise e
         else:  # Default to agglomerative clustering
             try:
+                # Dynamically set epsilon based on data range
+                pairwise_distances = pdist(data_array)
+                # Get the 95th percentile of distances
+                dynamic_epsilon = np.percentile(pairwise_distances, 95) * CFG.clustering_agglomerative_ratio
+                effective_epsilon = dynamic_epsilon # Use the dynamically calculated one
+                logging.debug(f"Using Agglomerative Clustering Epsilon: {effective_epsilon:.4f}")
+
+
                 # linkage='average' corresponds well to the paper's description
                 # distance_threshold ensures clusters stop merging when distance exceeds epsilon
                 clustering = AgglomerativeClustering(n_clusters=None,
                                                     affinity='euclidean',
                                                     linkage='average', # Or 'complete', 'ward'
-                                                    distance_threshold=epsilon).fit(data_array)
+                                                    distance_threshold=effective_epsilon).fit(data_array)
             except ValueError as e:
                 logging.error(f"Agglomerative Clustering failed: {e}")
-                logging.error(f"Data shape: {data_array.shape}, Epsilon: {epsilon}")
+                logging.error(f"Data shape: {data_array.shape}, Epsilon: {effective_epsilon}")
                 logging.error(f"Example data point: {data_array[0] if len(data_array) > 0 else 'N/A'}")
                 raise e
 
         labels = clustering.labels_
         unique_labels = set(labels)
-        cluster_results = []
 
-        # Optionally visualize clusters if in debug mode
-        if CFG.clustering_debug :  # Only visualize 1D, 2D, or 3D data
-            try:
-                import matplotlib.pyplot as plt
-                from mpl_toolkits.mplot3d import Axes3D  # For 3D plots
-                
-                fig = plt.figure(figsize=(10, 8))
-                
-                if data_array.shape[1] == 1:  # 1D data
-                    plt.scatter(data_array[:, 0], np.zeros_like(data_array[:, 0]), c=labels, cmap='viridis')
-                    plt.title(f'Clustering Results (Epsilon={epsilon:.4f}, Clusters={len(unique_labels)})')
-                    plt.xlabel('Feature Value')
-                elif data_array.shape[1] == 2:  # 2D data
-                    plt.scatter(data_array[:, 0], data_array[:, 1], c=labels, cmap='viridis')
-                    plt.title(f'Clustering Results (Epsilon={epsilon:.4f}, Clusters={len(unique_labels)})')
-                    plt.xlabel('Feature 1')
-                    plt.ylabel('Feature 2')
-                else:  # 3D data 4D data
-                    ax = fig.add_subplot(111, projection='3d')
-                    # Mark origin (0,0,0) with red
-                    # Plot the actual data points
-                    ax.scatter(data_array[:, 0], data_array[:, 1], data_array[:, 2], c=labels, cmap='viridis')
-                    ax.scatter([0], [0], [0], c='red', s=100, marker='x')
-                    ax.set_title(f'Clustering Results (Epsilon={epsilon:.4f}, Clusters={len(unique_labels)})')
-                    ax.set_xlabel('Feature 1')
-                    ax.set_ylabel('Feature 2')
-                    ax.set_zlabel('Feature 3')
-                # Plot the centroids of each cluster
-                for k in unique_labels:
-                    if k == -1:  # Skip noise points
-                        continue
-                    
-                    # Get points in this cluster and calculate centroid
-                    cluster_points = data_array[labels == k]
-                    if len(cluster_points) == 0:
-                        continue
-                        
-                    centroid = np.mean(cluster_points, axis=0)
-                    
-                    # Plot the centroid with a different marker and larger size
-                    if data_array.shape[1] == 1:  # 1D data
-                        plt.scatter(centroid[0], 0, c='black', s=100, marker='*', 
-                                   label=f'Centroid {k}' if k == list(unique_labels)[0] else "")
-                    elif data_array.shape[1] == 2:  # 2D data
-                        plt.scatter(centroid[0], centroid[1], c='black', s=100, marker='*',
-                                   label=f'Centroid {k}' if k == list(unique_labels)[0] else "")
-                    else:  # 3D data
-                        ax.scatter(centroid[0], centroid[1], centroid[2], c='black', s=100, marker='*',
-                                  label=f'Centroid {k}' if k == list(unique_labels)[0] else "")
-                
-                # Add a legend to identify centroids
-                if len(unique_labels) > 0 and -1 not in unique_labels:
-                    plt.legend(["Centroids"])
+        # Return raw results including the effective epsilon used
+        return data_array, labels, unique_labels, effective_epsilon
+
+
+    def _plot_cluster_results(self,
+                              data_array: np.ndarray,
+                              labels: np.ndarray,
+                              unique_labels: Set[int],
+                              kept_clusters_info: Dict[int, Dict],
+                              effective_epsilon: float,
+                              type1_name: str,
+                              type2_name: Optional[str], # None for absolute features
+                              feat_name: str) -> None:
+        """Helper function to visualize clustering results during debugging."""
+        if not CFG.clustering_debug or data_array.size == 0:
+            return # Skip if debug flag is off or no data
+
+        try:
+            import matplotlib.pyplot as plt
+            from mpl_toolkits.mplot3d import Axes3D  # For 3D plots
+
+            # Determine if relative or absolute for titles/filenames
+            if type2_name:
+                cluster_type_str = f"Relative Cluster: {type1_name}-{type2_name}"
+                fname_prefix = f"rel_cluster_{type1_name}_{type2_name}"
+            else:
+                cluster_type_str = f"Absolute Cluster: {type1_name}"
+                fname_prefix = f"abs_cluster_{type1_name}"
+
+            # Calculate stats for title
+            num_total_clusters = len(unique_labels - {-1}) # Exclude noise label if present
+            num_kept_clusters = len(kept_clusters_info)
+
+            fig = plt.figure(figsize=(12, 10))
+            title = f"{cluster_type_str} ({feat_name})\nEffectiveEps={effective_epsilon:.4f}, MinPts={CFG.clustering_min_samples_per_cluster}, Kept={num_kept_clusters}/{num_total_clusters}"
+            fname = f"{fname_prefix}_{feat_name}_eps{effective_epsilon:.3f}.png"
+
+            # Determine colors: green for kept, red for discarded, black for noise
+            colors = []
+            for label in labels:
+                if label == -1:
+                    colors.append('black') # Noise
+                elif label in kept_clusters_info:
+                    colors.append('green') # Kept
+                else:
+                    colors.append('red')   # Discarded
+
+            num_dims = data_array.shape[1]
+            ax = None # Initialize ax
+
+            if num_dims == 1:
+                ax = fig.add_subplot(111)
+                ax.scatter(data_array[:, 0], np.zeros_like(data_array[:, 0]), c=colors, alpha=0.7)
+                ax.set_xlabel(f'{feat_name} dim 1')
+            elif num_dims == 2:
+                ax = fig.add_subplot(111)
+                ax.scatter(data_array[:, 0], data_array[:, 1], c=colors, alpha=0.7)
+                ax.set_xlabel(f'{feat_name} dim 1')
+                ax.set_ylabel(f'{feat_name} dim 2')
+            elif num_dims >= 3:
+                ax = fig.add_subplot(111, projection='3d')
+                # Plot first 3 dimensions if more exist
+                ax.scatter(data_array[:, 0], data_array[:, 1], data_array[:, 2], c=colors, alpha=0.7)
+                ax.set_xlabel(f'{feat_name} dim 1')
+                ax.set_ylabel(f'{feat_name} dim 2')
+                ax.set_zlabel(f'{feat_name} dim 3')
+                # Mark origin for translation features (relative or absolute)
+                if feat_name == "translation":
+                    ax.scatter([0], [0], [0], c='blue', s=100, marker='x', label='Origin')
+
+            # Plot centroids for *kept* clusters
+            centroids_plotted = False
+            if ax is not None: # Ensure ax was created
+                for label, info in kept_clusters_info.items():
+                    centroid = info['center']
+                    if num_dims == 1:
+                        ax.scatter(centroid[0], 0, c='black', s=150, marker='*',
+                                   label='Kept Centroids' if not centroids_plotted else "")
+                    elif num_dims == 2:
+                        ax.scatter(centroid[0], centroid[1], c='black', s=150, marker='*',
+                                   label='Kept Centroids' if not centroids_plotted else "")
+                    elif num_dims >= 3:
+                        ax.scatter(centroid[0], centroid[1], centroid[2], c='black', s=150, marker='*',
+                                   label='Kept Centroids' if not centroids_plotted else "")
+                    centroids_plotted = True
+
+                ax.set_title(title)
+                # Create custom legend handles
+                handles = [
+                    plt.Line2D([0], [0], marker='o', color='w', label='Kept Pts', markersize=10, markerfacecolor='green'),
+                    plt.Line2D([0], [0], marker='o', color='w', label='Discarded Pts', markersize=10, markerfacecolor='red'),
+                ]
+                if -1 in unique_labels:
+                     handles.append(plt.Line2D([0], [0], marker='o', color='w', label='Noise Pts', markersize=10, markerfacecolor='black'))
+                if centroids_plotted:
+                    handles.append(plt.Line2D([0], [0], marker='*', color='w', label='Kept Centroids', markersize=10, markerfacecolor='black', linestyle='None'))
+                if feat_name == "translation" and num_dims >=3:
+                    handles.append(plt.Line2D([0], [0], marker='x', color='w', label='Origin', markersize=10, markerfacecolor='blue', linestyle='None'))
+
+                ax.legend(handles=handles)
                 plt.tight_layout()
-                plt.savefig(f'cluster_visualization_eps{epsilon:.4f}.png')
-                logging.info(f"Cluster visualization saved to cluster_visualization_eps{epsilon:.4f}.png")
+                plt.savefig(fname)
+                logging.info(f"Cluster visualization saved to {fname}")
                 plt.close()
-            except Exception as viz_error:
-                logging.warning(f"Failed to visualize clusters: {viz_error}")
+            else:
+                logging.warning(f"Could not plot for {fname}, unsupported dimension: {num_dims}")
 
-        for k in unique_labels:
-            if k == -1: continue # Noise points if using algorithms like DBSCAN (not Agglomerative)
-
-            cluster_points = data_array[labels == k]
-            if len(cluster_points) == 0: continue
-
-            # Represent cluster by its centroid (mean)
-            cluster_center = np.mean(cluster_points, axis=0)
-            cluster_results.append({
-                'center': cluster_center,
-                'points': cluster_points, # Keep points for potential filtering by size
-                'label': k  # Store the cluster label for reference
-            })
-
-        return cluster_results
+        except ImportError:
+            logging.warning("matplotlib not found. Skipping cluster visualization.")
+        except Exception as viz_error:
+            type_str = f"{type1_name}-{type2_name}" if type2_name else type1_name
+            logging.warning(f"Failed to visualize clusters for {type_str}-{feat_name}: {viz_error}")
 
 
-    def _create_predicate_from_relative_cluster(self, type1: Type, type2: Type, feature_name: str, cluster_info: Dict, epsilon: float, diff_fn: Callable, cluster_id: int) -> Predicate:
+    def _create_predicate_from_relative_cluster(self, type1: Type, type2: Type, feature_name: str, cluster_center: np.ndarray, epsilon: float, diff_fn: Callable, cluster_id: int) -> Predicate:
         """Creates a binary predicate from a relative feature cluster."""
-        classifier = _RelativeFeatureClusterClassifier(type1, type2, feature_name, cluster_info['center'], epsilon, diff_fn, cluster_id)
+        # Note: cluster_info replaced by cluster_center
+        classifier = _RelativeFeatureClusterClassifier(type1, type2, feature_name, cluster_center, epsilon, diff_fn, cluster_id)
         name = str(classifier)
         types = [type1, type2]
         pred = Predicate(name, types, classifier)
         return pred
 
-    def _create_predicate_from_absolute_cluster(self, type1: Type, feature_name: str, cluster_info: Dict, epsilon: float, cluster_id: int) -> Predicate:
+    def _create_predicate_from_absolute_cluster(self, type1: Type, feature_name: str, cluster_center: np.ndarray, epsilon: float, cluster_id: int) -> Predicate:
         """Creates a unary predicate from an absolute feature cluster."""
-        classifier = _AbsoluteFeatureClusterClassifier(type1, feature_name, cluster_info['center'], epsilon, cluster_id)
+        # Note: cluster_info replaced by cluster_center
+        classifier = _AbsoluteFeatureClusterClassifier(type1, feature_name, cluster_center, epsilon, cluster_id)
         name = str(classifier)
         types = [type1]
         pred = Predicate(name, types, classifier)
         return pred
 
     # --- Predicate Selection Functions (Beam Search) ---
+
+
     def _select_predicates_by_beam_search(self,
                                           candidates: Dict[Predicate, float],
                                           dataset: Dataset,
@@ -597,9 +735,9 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
 
         # Check initial predicates against constraint (if any exist)
         initial_pred_set = frozenset(self._initial_predicates)
-        initial_valid = self._check_plan_length_constraint(initial_pred_set, set(), dataset, [], train_tasks) # Operators not learned yet
-        if not initial_valid:
-            logging.warning("Initial predicates may violate plan length constraint (if planner were integrated).")
+        # initial_valid = self._check_plan_length_constraint(initial_pred_set, set(), dataset, [], train_tasks) # Operators not learned yet
+        # if not initial_valid:
+        #     logging.warning("Initial predicates may violate plan length constraint (if planner were integrated).")
             # Or potentially handle this case more strictly if constraint must hold from start
 
         best_score = -np.inf
@@ -646,26 +784,23 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
 
             # Check for convergence (beam hasn't changed or score isn't improving)
             # Simple check: if the best score in the new beam is not better than the previous best
+            if new_beam:
+                best_score, best_pred_set_added, best_operators = new_beam[0] # Best set in current beam (added preds only)
+                logging.info(f"\033[1;36mIteration {iteration} best score: {best_score:.4f}\033[0m")
+                logging.info(f"\033[1;32mCurrent best operators: {best_operators}\033[0m")
+                logging.info(f"\033[1;33mCurrent best preds: {best_pred_set_added}\033[0m")
             current_best_score_in_beam = new_beam[0][0] if new_beam else -np.inf
             if current_best_score_in_beam <= best_score and iteration > 1 : # Allow first iteration to set baseline
-                logging.info("Beam search converged (no score improvement).")
+                logging.info("\033[1;35mBeam search converged (no score improvement).\033[0m")
                 break
 
             beam = new_beam
-            if beam:
-                best_score, best_pred_set_added, best_operators = beam[0] # Best set in current beam (added preds only)
-                logging.info(f"Iteration {iteration} best score: {best_score:.4f}, num preds: {len(best_pred_set_added)}")
-                logging.info(f"Current best operators: {best_operators}")
 
 
         # Final selection: the best predicate set found that satisfies constraints
         # Need to re-evaluate the best set found to get its final props if needed elsewhere
         final_selected_learned_preds = best_pred_set_added if best_score > -np.inf else frozenset()
 
-        logging.info(f"Beam search finished. Final best score: {best_score:.4f}")
-        logging.info(f"Selected learned predicates ({len(final_selected_learned_preds)}):")
-        for pred in sorted(list(final_selected_learned_preds)):
-            logging.info(f"\t{pred.name}")
 
         # Return only the *learned* predicates (excluding initial ones)
         return set(final_selected_learned_preds)
@@ -684,16 +819,18 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         atom_dataset = self._create_atom_dataset(dataset, predicates)
         op_term , operators = self._calculate_operator_complexity_term(predicates, dataset, atom_dataset, train_tasks)
         # Now check constraint
-        constraint_holds = self._check_plan_length_constraint(predicates, operators, dataset, atom_dataset, train_tasks)
-            
+        constraint_value = self._check_plan_length_constraint(predicates, operators, dataset, atom_dataset, train_tasks)
+        # logging.debug(f"Constraint holds: {constraint_holds}")
 
-        if not constraint_holds:
+        if constraint_value == 0:
             # logging.debug(f"Predicate set failed plan length constraint.")
             return -np.inf, operators # Invalid set
         # Calculate segmentation term
         seg_term = self._calculate_segmentation_term(predicates, atom_dataset)             # Cache already handled inside the function call
 
-        score = seg_term - alpha * op_term
+        # Add the negated absolute value of constraint_value to the score
+        score = seg_term - alpha * op_term - abs(constraint_value)
+        logging.debug(f"Pred set size {len(predicates)}, Seg: {seg_term}, OpComp: {op_term}, Constraint: {constraint_value}, Score: {score:.3f}")
         # logging.debug(f"Pred set size {len(predicates)}, Seg: {seg_term}, OpComp: {op_term}, Score: {score:.3f}")
         return score, operators
 
@@ -768,33 +905,39 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                                       operators: Set[STRIPSOperator],
                                       dataset: Dataset,
                                       atom_dataset: List[GroundAtomTrajectory],
-                                      train_tasks: List[Task]) -> bool:
-        """Checks if demonstrated plan length equals optimal plan length in the learned domain."""
+                                      train_tasks: List[Task]) -> int:
+        """Checks plan length difference between demonstrated and optimal plans.
+        
+        Returns:
+            int: Difference in steps (plan_length - demo_length).
+                 Positive if plan is longer than demo, negative if plan is shorter.
+                 Returns 0 if all trajectories have matching plan lengths or if checks are disabled.
+        """
         if predicates in self._plan_constraint_cache:
             return self._plan_constraint_cache[predicates]
-        # Initialize cache entry to False (fail-safe)
-        self._plan_constraint_cache[predicates] = False
+        
+        # Initialize cache entry to 0 (no difference)
+        self._plan_constraint_cache[predicates] = 0
 
         if not CFG.clustering_check_plan_length_constraint:
-             logging.debug("Skipping plan length constraint check (disabled by CFG).")
-             self._plan_constraint_cache[predicates] = True # If skipped, treat as True
-             return True # Skip check if disabled by CFG
+            #  logging.debug("Skipping plan length constraint check (disabled by CFG).")
+            return 0  # Skip check if disabled by CFG
 
-        if not operators: # If operator learning failed, constraint cannot hold
+        if not operators:  # If operator learning failed, return large negative value
             logging.debug("Cannot check plan length constraint: Operator learning failed.")
-            # Keep cache as False, return False
-            return False
+            self._plan_constraint_cache[predicates] = -1000  # Significant negative value
+            return -1000
 
         # The 'operators' set already contains STRIPSOperator objects
-        # from the _calculate_operator_complexity_term method.
-        # No conversion is needed.
         strips_ops = operators
+        
+        min_diff = float('inf')  # Track the minimum difference across all trajectories
 
         # Iterate through each demonstration trajectory
         for i, (ll_traj, atom_seq) in enumerate(atom_dataset):
             if not ll_traj.states:
                 logging.debug(f"Skipping traj {i}: No states.")
-                continue # Skip trajectories with no states
+                continue  # Skip trajectories with no states
 
             init_state = ll_traj.states[0]
             final_state = ll_traj.states[-1]
@@ -805,48 +948,47 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
 
             if init_atoms == goal_atoms:
                 logging.debug(f"Skipping traj {i}: Init atoms == Goal atoms.")
-                continue # Skip trivial trajectories where start equals goal
+                continue  # Skip trivial trajectories where start equals goal
 
             # Get demonstrated plan length (number of segments)
-            # Use the provided atom_seq for potentially faster segmentation
             demo_segments = segment_trajectory(ll_traj, predicates, atom_seq=atom_seq)
-            demo_plan_len = len(demo_segments)
+            demo_plan_len = len(demo_segments) + 1  # segment does not include last section
 
             # Create a planning task
-            objects = set(init_state) # Assume objects don't change drastically
             task = Task(init_state, goal_atoms)
 
             # Run the planner using the learned NSRTs
-            # Use keyword arguments for clarity and pass the heuristic
             plan, _, metrics = run_task_plan_once(
                 task=task,
-                nsrts=strips_ops,    # Pass NSRTs (assuming strips_ops holds them now)
-                preds=set(predicates), # Pass predicates
+                nsrts=strips_ops,    # Pass NSRTs
+                preds=set(predicates),  # Pass predicates
                 types=self._types,   # Pass types
                 timeout=10.0,   # Pass timeout
                 seed=0,      # Pass seed
-                task_planning_heuristic=CFG.sesame_task_planning_heuristic, # Pass heuristic
-                # planner=CFG.sesame_task_planner # Specify planner
+                task_planning_heuristic=CFG.sesame_task_planning_heuristic,  # Pass heuristic
             )
 
             # Check planner result
             if plan is None:
-                # Planner failed (timeout or unsolvable).
-                # This does NOT violate the constraint, as no shorter plan was found.
-                # logging.debug(f"Planner failed for traj {i}. Constraint not violated.")
+                # Planner failed (timeout or unsolvable)
                 continue
             else:
                 planner_plan_len = len(plan)
-                # logging.debug(f"Traj {i}: Demo len={demo_plan_len}, Planner len={planner_plan_len}")
-                if planner_plan_len < demo_plan_len:
-                    logging.debug(f"Constraint VIOLATION on traj {i}: Planner len {planner_plan_len} < Demo len {demo_plan_len}")
-                    # Cache False and return False immediately
-                    return False # Constraint violated
+                # Calculate difference: positive if plan is longer, negative if shorter
+                diff = planner_plan_len - demo_plan_len
+                # logging.debug(f"Traj {i}: Demo len={demo_plan_len}, Planner len={planner_plan_len}, Diff={diff}")
+                
+                # Keep track of the minimum difference (most negative)
+                # This represents the worst case where the planner found a much shorter path
+                if diff < min_diff:
+                    min_diff = diff
 
-        # If loop completes, constraint holds for all trajectories
-        logging.debug("Plan length constraint holds for all trajectories.")
-        self._plan_constraint_cache[predicates] = True
-        return True
+        # If we didn't process any valid trajectories, return 0
+        if min_diff == float('inf'):
+            min_diff = 0
+            
+        self._plan_constraint_cache[predicates] = min_diff
+        return min_diff
 
 
 
