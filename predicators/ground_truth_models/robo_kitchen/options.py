@@ -27,7 +27,7 @@ from predicators.ground_truth_models import GroundTruthOptionFactory
 from predicators.pybullet_helpers.geometry import Pose3D
 from predicators.structs import Action, Array, GroundAtom, Object, ParameterizedOption, ParameterizedTerminal, Predicate, State, Type
 
-from predicators.utils import get_pos_quat_from_mujoco_state
+from predicators.utils import get_pos_quat_from_mujoco_state, xyzw_to_wxyz, wxyz_to_xyzw
 
 import torch
 from predicators.DS_models.gen_demo_model import DynamicalSystem
@@ -259,9 +259,12 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
                 vel = action[:6] # position + angular velocity
 
                 if CFG.visualizer:
-                    CFG.visualizer.update_robot_position(pos_in_handle)
+                    rel_handle_visualizer_rot = np.array([[0, 0, 1],
+                                                          [1, 0, 0],
+                                                          [0, 1, 0]])
+                    CFG.visualizer.update_robot_position(pos_in_handle, xyzw_to_wxyz(R.from_matrix(rel_handle_visualizer_rot @ rot_in_handle).as_quat()))
                     CFG.visualizer.update_ref_traj(ds_policy.ref_traj_idx)
-                    CFG.visualizer.update_ref_point(ds_policy.x[ds_policy.ref_traj_idx][ds_policy.ref_point_idx])
+                    CFG.visualizer.update_ref_point(ds_policy.x[ds_policy.ref_traj_idx][ds_policy.ref_point_idx], xyzw_to_wxyz(R.from_matrix(rel_handle_visualizer_rot @ rot_in_handle).as_quat()))
                     
                 x_dot_handle = vel[:3]
                 r_dot_handle = vel[3:]

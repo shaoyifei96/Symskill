@@ -4103,3 +4103,9 @@ def get_pos_quat_from_mujoco_state(state, object):
     pos = np.array([state.get(object, "x"), state.get(object, "y"), 
                                  state.get(object, "z")])
     return pos, quat
+
+def xyzw_to_wxyz(quat):
+    return np.array([quat[3], quat[0], quat[1], quat[2]])
+
+def wxyz_to_xyzw(quat):
+    return np.array([quat[1], quat[2], quat[3], quat[0]])

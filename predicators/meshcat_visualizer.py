@@ -4,6 +4,7 @@ import meshcat.transformations as tf
 import numpy as np
 import time
 from typing import Optional
+from scipy.spatial.transform import Rotation as R
 
 class MeshcatVisualizer:
     def __init__(self, demo_trajs: Optional[list[np.ndarray]] = None, demo_traj_probs: Optional[np.ndarray] = None):
@@ -22,10 +23,29 @@ class MeshcatVisualizer:
         self.robot_color = np.array([255, 0, 0])  # Red RGB for robot
         self.ref_traj_color = np.array([0, 0, 255])  # Blue RGB for ref traj
 
-        self.vis["robot"].set_object(g.Sphere(0.01), 
-                                    g.MeshBasicMaterial(color=color_array_to_hex(self.robot_color)))  # Red color
-        self.vis["ref_point"].set_object(g.Sphere(0.01), 
-                                    g.MeshBasicMaterial(color=color_array_to_hex(self.ref_traj_color)))  # Blue color
+        # Use Cylinder geometry to show orientation
+        cylinder_height = 0.1
+        cylinder_radius = 0.01
+        self.vis["robot"].set_object(g.Cylinder(cylinder_height, cylinder_radius), 
+                                    g.MeshBasicMaterial(color=color_array_to_hex(self.robot_color)))
+        self.vis["ref_point"].set_object(g.Cylinder(cylinder_height, cylinder_radius), 
+                                     g.MeshBasicMaterial(color=color_array_to_hex(self.ref_traj_color)))
+
+        # Add markers to indicate direction
+        box_size = 0.02
+        robot_marker_color = np.array([0, 255, 0]) # Green
+        ref_marker_color = np.array([255, 0, 0]) # Red
+        # Position marker at the top of the cylinder (positive Z direction relative to cylinder)
+        marker_transform = tf.translation_matrix([0, cylinder_height / 2.0, 0])
+        
+        self.vis["robot"]["marker"].set_object(g.Box([3*box_size, box_size, box_size]),
+                                             g.MeshBasicMaterial(color=color_array_to_hex(robot_marker_color)))
+        self.vis["robot"]["marker"].set_transform(marker_transform)
+
+        self.vis["ref_point"]["marker"].set_object(g.Box([3*box_size, box_size, box_size]),
+                                                g.MeshBasicMaterial(color=color_array_to_hex(ref_marker_color)))
+        self.vis["ref_point"]["marker"].set_transform(marker_transform)
+
         if self.demo_trajs is not None and self.demo_traj_probs is not None:
             for i in range(len(self.demo_trajs)):
                 # Interpolate between purple (low prob) and orange (high prob)
@@ -57,8 +77,14 @@ class MeshcatVisualizer:
                     g.MeshBasicMaterial(color=color_array_to_hex(rgb), linewidth=10) # Color based on probability
                 ))
 
-    def update_robot_position(self, position: np.ndarray):
-        self.vis["robot"].set_transform(tf.translation_matrix(position))
+    def update_robot_position(self, position: np.ndarray, quaternion: Optional[np.ndarray] = None):
+        translation = tf.translation_matrix(position)
+        if quaternion is not None:
+            rotation = tf.quaternion_matrix(quaternion)
+            transform = tf.concatenate_matrices(translation, rotation)
+        else:
+            transform = translation
+        self.vis["robot"].set_transform(transform)
 
     def update_demo_traj_probs(self, demo_traj_probs: list[float]):
         for i in range(len(self.demo_trajs)):
@@ -80,8 +106,14 @@ class MeshcatVisualizer:
                     g.MeshBasicMaterial(color=color_array_to_hex(self.ref_traj_color), linewidth=10)
                 ))
         
-    def update_ref_point(self, ref_point_position: np.ndarray):
-        self.vis["ref_point"].set_transform(tf.translation_matrix(ref_point_position))
+    def update_ref_point(self, ref_point_position: np.ndarray, quaternion: Optional[np.ndarray] = None):
+        translation = tf.translation_matrix(ref_point_position)
+        if quaternion is not None:
+            rotation = tf.quaternion_matrix(quaternion)
+            transform = tf.concatenate_matrices(translation, rotation)
+        else:
+            transform = translation
+        self.vis["ref_point"].set_transform(transform)
 
     def shutdown(self):
         self.vis.close()
@@ -101,13 +133,30 @@ if __name__ == "__main__":
     steps = 100  # Total duration
 
     robot_x_pos = np.linspace(0, 1, steps)
+    angle_step = 2 * np.pi / steps # Rotate 360 degrees over the duration
 
     # Live update loop
     for i in range(steps):
-        visualizer.update_robot_position(np.array([robot_x_pos[i], 0, 0]))
+        position = np.array([robot_x_pos[i], 0, 0])
+        # Rotate around Z-axis
+        angle = i * angle_step
+        # tf.quaternion_from_euler expects axes convention like 'sxyz', 'rzxz' etc.
+        # For simple Z-axis rotation, we can use 'szyx' (static frame, rot z, then y, then x)
+        # or directly use math: w = cos(angle/2), x=0, y=0, z=sin(angle/2)
+        # using the direct formula for [w, x, y, z] format
+        quat_wxyz = np.array([np.cos(angle / 2.0), 0.0, 0.0, np.sin(angle / 2.0)])
+        
+        visualizer.update_robot_position(position, quat_wxyz)
+        
         # visualizer.update_demo_traj_probs(np.random.rand(len(trajectories)))
         if i == 0:
-            visualizer.update_ref_traj(np.random.randint(len(trajectories)))
+            ref_traj_idx = np.random.randint(len(trajectories))
+            visualizer.update_ref_traj(ref_traj_idx)
+            # Set a fixed position and orientation for the ref_point for testing
+            ref_point_pos = trajectories[ref_traj_idx][0]
+            ref_point_orient_xyzw = R.from_euler('xyz', [0, 45, 0], degrees=True).as_quat()
+            ref_point_orient_wxyz = np.array([ref_point_orient_xyzw[3], ref_point_orient_xyzw[0], ref_point_orient_xyzw[1], ref_point_orient_xyzw[2]])
+            visualizer.update_ref_point(ref_point_pos, ref_point_orient_wxyz)
 
         # Sleep to simulate real-time updates
         time.sleep(dt)
