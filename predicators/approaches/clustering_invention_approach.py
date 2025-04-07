@@ -18,6 +18,11 @@ from sklearn.cluster import AgglomerativeClustering, DBSCAN
 from scipy.spatial.distance import cdist
 from scipy.spatial.transform import Rotation
 from scipy.spatial.distance import pdist
+# Need linalg for inverse and norm
+from numpy.linalg import inv, norm, det, LinAlgError
+
+import matplotlib
+matplotlib.use('TkAgg') # Set backend *before* importing pyplot
 
 # Import dill for pickling
 import dill as pkl
@@ -31,6 +36,11 @@ from predicators.planning import PlanningFailure, PlanningTimeout, run_task_plan
 from predicators.settings import CFG
 from predicators.structs import Dataset, GroundAtomTrajectory, NSRT, Object, ParameterizedOption, Predicate, Segment, State, Task, Type, STRIPSOperator
 import warnings
+from scipy.stats import chi2
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
+from matplotlib.patches import Ellipse # For 2D ellipses
+import numpy.linalg # For eigh
 ################################################################################
 #                          Programmatic classifiers                            #
 ################################################################################
@@ -38,20 +48,21 @@ import warnings
 
 @dataclass(frozen=True, eq=False, repr=False)
 class _RelativeFeatureClusterClassifier(_BinaryClassifier):
-    """Classifies based on the minimum distance of a relative feature vector
-    between two objects to a target cluster center.
+    """Classifies based on the Mahalanobis distance of a relative feature vector
+    between two objects to a target cluster center and covariance.
 
     The features are defined by feature_name for objects of type1 and type2.
     The diff_fn calculates the difference between the features of the two objects.
     The cluster_center is the representative point for this cluster.
-    Classification is True if the distance between the diff_fn result and the
-    cluster_center is less than or equal to epsilon.
+    Classification is True if the Mahalanobis distance squared is less than or
+    equal to mahalanobis_threshold.
     """
     object1_type: Type
     object2_type: Type
     feature_name: str
     cluster_center: np.ndarray
-    epsilon: float
+    inv_covariance_matrix: np.ndarray # Store inverse covariance
+    mahalanobis_threshold: float    # Store threshold for Mahalanobis distance squared
     diff_fn: Callable[[Any, Any], Any] # Function to compute feature difference
     cluster_id: int # For unique naming
 
@@ -84,13 +95,27 @@ class _RelativeFeatureClusterClassifier(_BinaryClassifier):
             # Use the provided difference function for other features.
             relative_feature = np.array(self.diff_fn(obj1_feat, obj2_feat), dtype=self.cluster_center.dtype)
 
-        # Calculate the Euclidean distance to the cluster center.
-        distance = np.linalg.norm(relative_feature - self.cluster_center)
-        return distance <= self.epsilon
+        # Calculate Mahalanobis distance squared
+        diff = relative_feature - self.cluster_center
+        try:
+            # Ensure diff is a column vector for matrix multiplication if it's 1D
+            if diff.ndim == 1:
+                diff = diff[:, np.newaxis]
+            # Mahalanobis distance squared: (x - mu)^T * Sigma^-1 * (x - mu)
+            mahalanobis_dist_sq = diff.T @ self.inv_covariance_matrix @ diff
+            # If result is a 1x1 matrix, extract the scalar value
+            if isinstance(mahalanobis_dist_sq, np.ndarray) and mahalanobis_dist_sq.size == 1:
+                mahalanobis_dist_sq = mahalanobis_dist_sq.item()
+        except ValueError as e:
+            logging.error(f"Error calculating Mahalanobis distance for {self}: {e}")
+            logging.error(f"Shapes: diff.T: {diff.T.shape}, inv_covariance_matrix: {self.inv_covariance_matrix.shape}, diff: {diff.shape}")
+            return False # Or handle error differently
+
+        return mahalanobis_dist_sq <= self.mahalanobis_threshold
 
     def __str__(self) -> str:
         # Generate a unique name based on types, feature, and cluster ID.
-        return (f"RelCluster-{self.object1_type.name}-{self.object2_type.name}-"
+        return (f"RelEllipsoidCluster-{self.object1_type.name}-{self.object2_type.name}-"
                 f"{self.feature_name}-ID{self.cluster_id}")
 
     def pretty_str(self) -> Tuple[str, str]:
@@ -98,26 +123,27 @@ class _RelativeFeatureClusterClassifier(_BinaryClassifier):
         name1 = CFG.grammar_search_classifier_pretty_str_names[0]
         name2 = CFG.grammar_search_classifier_pretty_str_names[1]
         vars_str = f"{name1}:{self.object1_type.name}, {name2}:{self.object2_type.name}"
-        # Representing the cluster check symbolically is tricky, use descriptive text.
-        body_str = (f"Dist(Diff({name1}.{self.feature_name}, {name2}.{self.feature_name}), "
-                    f"Cluster-{self.feature_name}-ID{self.cluster_id}) <= {self.epsilon:.3f}")
+        # Representing the Mahalanobis check symbolically
+        body_str = (f"MahaDistSq(Diff({name1}.{self.feature_name}, {name2}.{self.feature_name}), "
+                    f"Cluster-{self.feature_name}-ID{self.cluster_id}) <= {self.mahalanobis_threshold:.3f}")
         return vars_str, body_str
 
 
 @dataclass(frozen=True, eq=False, repr=False)
 class _AbsoluteFeatureClusterClassifier(_UnaryClassifier):
-    """Classifies based on the minimum distance of an absolute feature vector
-    of an object to a target cluster center.
+    """Classifies based on the Mahalanobis distance of an absolute feature vector
+    of an object to a target cluster center and covariance.
 
     The feature is defined by feature_name for an object of type1.
     The cluster_center is the representative point for this cluster.
-    Classification is True if the distance between the object's feature and the
-    cluster_center is less than or equal to epsilon.
+    Classification is True if the Mahalanobis distance squared is less than or
+    equal to mahalanobis_threshold.
     """
     object_type: Type
     feature_name: str
     cluster_center: np.ndarray
-    epsilon: float
+    inv_covariance_matrix: np.ndarray # Store inverse covariance
+    mahalanobis_threshold: float    # Store threshold for Mahalanobis distance squared
     cluster_id: int # For unique naming
 
     def _classify_object(self, s: State, obj: Object) -> bool:
@@ -125,21 +151,35 @@ class _AbsoluteFeatureClusterClassifier(_UnaryClassifier):
         assert obj.is_instance(self.object_type)
         # Get feature from state.
         obj_feat = np.array(s.get(obj, self.feature_name), dtype=self.cluster_center.dtype)
-        # Calculate the Euclidean distance to the cluster center.
-        distance = np.linalg.norm(obj_feat - self.cluster_center)
-        return distance <= self.epsilon
+
+        # Calculate Mahalanobis distance squared
+        diff = obj_feat - self.cluster_center
+        try:
+             # Ensure diff is a column vector for matrix multiplication if it's 1D
+            if diff.ndim == 1:
+                diff = diff[:, np.newaxis]
+            mahalanobis_dist_sq = diff.T @ self.inv_covariance_matrix @ diff
+            # If result is a 1x1 matrix, extract the scalar value
+            if isinstance(mahalanobis_dist_sq, np.ndarray) and mahalanobis_dist_sq.size == 1:
+                mahalanobis_dist_sq = mahalanobis_dist_sq.item()
+        except ValueError as e:
+            logging.error(f"Error calculating Mahalanobis distance for {self}: {e}")
+            logging.error(f"Shapes: diff.T: {diff.T.shape}, inv_covariance_matrix: {self.inv_covariance_matrix.shape}, diff: {diff.shape}")
+            return False # Or handle error differently
+
+        return mahalanobis_dist_sq <= self.mahalanobis_threshold
 
     def __str__(self) -> str:
         # Generate a unique name based on type, feature, and cluster ID.
-        return (f"AbsCluster-{self.object_type.name}-"
+        return (f"AbsEllipsoidCluster-{self.object_type.name}-"
                 f"{self.feature_name}-ID{self.cluster_id}")
 
     def pretty_str(self) -> Tuple[str, str]:
         # Provide a human-readable description.
         name = CFG.grammar_search_classifier_pretty_str_names[0]
         vars_str = f"{name}:{self.object_type.name}"
-        body_str = (f"Dist({name}.{self.feature_name}, "
-                    f"Cluster-{self.feature_name}-ID{self.cluster_id}) <= {self.epsilon:.3f}")
+        body_str = (f"MahaDistSq({name}.{self.feature_name}, "
+                    f"Cluster-{self.feature_name}-ID{self.cluster_id}) <= {self.mahalanobis_threshold:.3f}")
         return vars_str, body_str
 
 
@@ -320,45 +360,115 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
 
             if data_array.size == 0: continue # Skip if clustering returned empty
 
-            # Calculate minimum cluster size as 10% of total data points
             min_cluster_size = int(CFG.clustering_min_ratio_of_data * len(data_array))
             logging.debug(f"Using minimum cluster size: {min_cluster_size} ({CFG.clustering_min_ratio_of_data * 100}% of {len(data_array)} data points)")
 
             # Identify kept clusters based on size
             kept_clusters_info = {}
             discarded_labels = set()
-            all_cluster_labels = set()
 
             for k in unique_labels:
                 if k == -1: continue # Skip noise points for now
-                all_cluster_labels.add(k)
                 cluster_points = data_array[labels == k]
                 cluster_size = len(cluster_points)
                 if cluster_size >= min_cluster_size:
                     cluster_center = np.mean(cluster_points, axis=0)
-                    kept_clusters_info[k] = {'center': cluster_center, 'size': cluster_size}
+                    # Store basic info first
+                    kept_clusters_info[k] = {'center': cluster_center, 'size': cluster_size, 'points': cluster_points} # Store points for cov calculation
                 else:
                     discarded_labels.add(k)
                     logging.debug(f"Cluster {k} for {type1.name}-{type2.name}-{feat_name} discarded (size {cluster_size} < {min_cluster_size}).")
 
-            # Sort kept clusters by size (descending) for top_k selection
-            sorted_kept_clusters = sorted(kept_clusters_info.items(), key=lambda item: item[1]['size'], reverse=True)
+            # Now calculate covariance etc. ONLY for kept clusters and add to info dict
+            kept_cluster_labels_list = list(kept_clusters_info.keys())
+            for cluster_label in kept_cluster_labels_list: # Iterate over keys
+                cluster_info = kept_clusters_info[cluster_label]
+                cluster_points = cluster_info['points'] # Retrieve stored points
 
-            # Optionally visualize clusters if in debug mode
+                # Calculate covariance matrix
+                if cluster_points.shape[0] >= 2 and cluster_points.shape[1] > 0: # Need at least 2 points and features
+                    # Use rowvar=False because each row is an observation
+                    covariance_matrix = np.cov(cluster_points, rowvar=False)
+                    # Handle scalar features explicitly (np.cov returns scalar)
+                    if covariance_matrix.ndim == 0:
+                        covariance_matrix = np.array([[covariance_matrix]])
+                    # Add regularization to prevent singular matrix
+                    reg_coeff = 1e-6
+                    covariance_matrix += np.eye(covariance_matrix.shape[0]) * reg_coeff
+
+                    # Calculate inverse covariance matrix
+                    try:
+                        inv_covariance_matrix = inv(covariance_matrix)
+                        # Check if determinant is near zero (optional sanity check)
+                        # _, logdet_cov = np.linalg.slogdet(covariance_matrix)
+                        # if logdet_cov < -1e6: # Very small determinant might indicate issues
+                        #      logging.warning(f"Cluster {cluster_label} cov matrix determinant is very small ({logdet_cov}). Inverse might be unstable.")
+
+                    except LinAlgError:
+                        logging.warning(f"Cluster {cluster_label} for {type1.name}-{type2.name}-{feat_name} has a singular covariance matrix. Skipping predicate creation.")
+                        continue
+                elif cluster_points.shape[0] == 1 and cluster_points.shape[1] > 0:
+                    # Handle single-point cluster: use identity matrix scaled by a small epsilon
+                    logging.debug(f"Cluster {cluster_label} has only 1 point. Using scaled identity for covariance.")
+                    dims = cluster_points.shape[1]
+                    pseudo_variance = 1e-4 # Small variance
+                    inv_covariance_matrix = np.eye(dims) / pseudo_variance
+                else:
+                    logging.warning(f"Cluster {cluster_label} for {type1.name}-{type2.name}-{feat_name} has insufficient points/dims ({cluster_points.shape}) for covariance. Skipping.")
+                    continue
+
+                # Store calculated info back into the main dict for plotting
+                cluster_info['inv_covariance_matrix'] = inv_covariance_matrix
+                cluster_info['covariance_matrix'] = covariance_matrix
+                # Initialize dims and threshold with default values
+                dims = 1
+                base_mahalanobis_threshold = chi2.ppf(CFG.clustering_mahalanobis_confidence, df=dims)
+
+                if data_array.ndim > 1 and data_array.shape[1] > 0: # Case: >= 2D features
+                    dims = data_array.shape[1]
+                    # Use chi-squared distribution ppf (percent point function) for threshold
+                    # Example: 95th percentile -> alpha=0.05
+                    confidence_level = CFG.clustering_mahalanobis_confidence
+                    base_mahalanobis_threshold = chi2.ppf(confidence_level, df=dims)
+                    logging.debug(f"Calculated Mahalanobis threshold: {base_mahalanobis_threshold:.4f} for {dims} dims ({confidence_level*100:.1f}% confidence)")
+                elif data_array.ndim == 1 and data_array.shape[0] > 0: # Case: 1D features
+                    # Handle scalar features or cases where dims can't be determined
+                    dims = 1
+                    confidence_level = CFG.clustering_mahalanobis_confidence
+                    base_mahalanobis_threshold = chi2.ppf(confidence_level, df=dims) # Default for 1D
+                    logging.debug(f"Using 1D Mahalanobis threshold: {base_mahalanobis_threshold:.4f} ({confidence_level*100:.1f}% confidence)")
+                else: # Case: data_array is empty or malformed
+                    logging.warning(f"Could not determine feature dimension for {feat_name}:{type1.name}-{type2.name} (shape: {data_array.shape}). Using default 1D threshold: {base_mahalanobis_threshold:.4f}")
+
+                cluster_info['mahalanobis_threshold'] = base_mahalanobis_threshold # Use pre-calculated threshold
+                # Remove points to save memory if needed, or keep for other analysis
+                # del cluster_info['points']
+
+            # Now, optionally visualize clusters if in debug mode, passing the *updated* info
             if CFG.clustering_debug and data_array.size > 0: # Check if there is data to plot
-                self._plot_cluster_results(data_array, labels, unique_labels, kept_clusters_info, effective_epsilon, type1.name, type2.name if type2 else None, feat_name)
+                # The kept_clusters_info dict now contains cov matrix and threshold for plot
+                self._plot_cluster_results(data_array, labels, unique_labels, kept_clusters_info,
+                                           type1.name, type2.name if type2 else None, feat_name)
 
-            # Create predicates for the top_k *kept* clusters
-            top_k = min(CFG.clustering_max_clusters, len(sorted_kept_clusters))
-            logging.debug(f"Selecting top {top_k} kept clusters for {type1.name}-{type2.name}-{feat_name}.")
+            # Sort kept clusters by size (descending) for top_k selection AFTER plotting
+            # Filter out any clusters where covariance calculation failed (if needed, though `continue` above handles it)
+            valid_kept_clusters = {k: v for k, v in kept_clusters_info.items() if 'inv_covariance_matrix' in v}
+            sorted_valid_kept_clusters = sorted(valid_kept_clusters.items(), key=lambda item: item[1]['size'], reverse=True)
 
-            for i, (cluster_label, cluster_info) in enumerate(sorted_kept_clusters[:top_k]):
-                 logging.debug(f"Creating predicate for kept cluster {cluster_label} (size {cluster_info['size']}, rank {i+1}/{top_k}).")
-                 # Use the feature-specific epsilon when creating the predicate
-                 pred = self._create_predicate_from_relative_cluster(type1, type2, feat_name, cluster_info['center'], effective_epsilon, diff_fn, predicate_counter)
-                 # Cost can be simple (e.g., arity) or more complex
-                 candidates[pred] = pred.arity + 1.0
-                 predicate_counter += 1
+            # Create predicates for the top_k *valid* kept clusters
+            top_k = min(CFG.clustering_max_clusters, len(sorted_valid_kept_clusters))
+            logging.debug(f"Selecting top {top_k} valid kept clusters for {feat_name}:{type1.name}-{type2.name}.")
+
+            for i, (cluster_label, cluster_info) in enumerate(sorted_valid_kept_clusters[:top_k]):
+                # logging.debug(f"Creating predicate for kept cluster {cluster_label} (size {cluster_info['size']}, rank {i+1}/{top_k}).")
+                # Pass inverse covariance and threshold instead of epsilon
+                pred = self._create_predicate_from_relative_cluster(
+                    type1, type2, feat_name, cluster_info['center'],
+                    cluster_info['inv_covariance_matrix'],
+                    cluster_info['mahalanobis_threshold'],
+                    diff_fn, cluster_label) # Use cluster_label for ID
+                candidates[pred] = pred.arity + 1.0
+                predicate_counter += 1
 
         # Process absolute features 
         # skip absolute features for now since all things are relative
@@ -397,6 +507,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
     def _generate_relative_feature_datasets(self, dataset: Dataset) -> Dict[Tuple[Type, Type, str], List[np.ndarray]]:
         """Extracts relative features constant between consecutive states."""
         feature_data = defaultdict(list)
+        feature_changes = defaultdict(list)
 
         # Corrected approach: Iterate through objects in the initial state and get their types.
         types = {obj.type for traj in dataset.trajectories for obj in traj.states[0]}
@@ -477,13 +588,21 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                                     rel_feat_t1 = np.array(rel_feat_t1)
 
                                     # Check for constancy using the feature-specific tolerance
-                                    if np.linalg.norm(rel_feat_t - rel_feat_t1) < tolerance:
-                                        feature_data[(type1, type2, feat_name)].append(rel_feat_t)
-
+                                    # if np.linalg.norm(rel_feat_t - rel_feat_t1) < tolerance:
+                                    feature_data[(type1, type2, feat_name)].append(rel_feat_t)
+                                    feature_changes[(type1, type2, feat_name)].append(np.linalg.norm(rel_feat_t - rel_feat_t1))
                                 except KeyError as e:
                                      # If a required feature (like quaternion for translation) is missing, skip this pair
                                      # logging.debug(f"Skipping object pair due to missing feature: {e}")
                                      continue
+        for feature_key, changes in feature_changes.items():
+            # Only keep features that are relatively constant (below 30th percentile of changes)
+            # First collect all changes, then filter based on percentile
+            # This is done outside the loop to avoid modifying the dictionary during iteration
+            percentile_30 = np.percentile(changes, 30)
+            bool_mask = changes < percentile_30            
+            feature_data[feature_key] = [feat for feat, is_constant in zip(feature_data[feature_key], bool_mask) if is_constant]
+            
 
         return feature_data
 
@@ -604,137 +723,199 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                               labels: np.ndarray,
                               unique_labels: Set[int],
                               kept_clusters_info: Dict[int, Dict],
-                              effective_epsilon: float,
                               type1_name: str,
                               type2_name: Optional[str], # None for absolute features
                               feat_name: str) -> None:
-        """Helper function to visualize clustering results during debugging."""
+        """Helper function to visualize clustering results with ellipsoidal boundaries."""
         if not CFG.clustering_debug or data_array.size == 0:
             return # Skip if debug flag is off or no data
 
-        try:
-            import matplotlib.pyplot as plt
-            from mpl_toolkits.mplot3d import Axes3D  # For 3D plots
+        # We need matplotlib, etc. Already checked in the calling function.
+        # from matplotlib.patches import Ellipse is needed for 2D.
 
-            # Determine if relative or absolute for titles/filenames
-            if type2_name:
-                cluster_type_str = f"Relative Cluster: {type1_name}-{type2_name}"
-                fname_prefix = f"rel_cluster_{type1_name}_{type2_name}"
+        # Determine if relative or absolute for titles/filenames
+        if type2_name:
+            cluster_type_str = f"Relative Cluster: {type1_name}-{type2_name}"
+            fname_prefix = f"rel_cluster_{type1_name}_{type2_name}"
+        else:
+            cluster_type_str = f"Absolute Cluster: {type1_name}"
+            fname_prefix = f"abs_cluster_{type1_name}"
+
+        # Calculate stats for title
+        num_total_clusters = len(unique_labels - {-1}) # Exclude noise label if present
+        num_kept_clusters = len(kept_clusters_info)
+
+        fig = plt.figure(figsize=(12, 10))
+        # Title now reflects Mahalanobis usage, removed effective_epsilon
+        title = (f"{cluster_type_str} ({feat_name})\n"
+                 f"MinRatio={CFG.clustering_min_ratio_of_data}, Kept={num_kept_clusters}/{num_total_clusters}")
+        # Filename doesn't need epsilon anymore
+        fname = f"{fname_prefix}_{feat_name}_clusters.png"
+
+        # Determine colors: green for kept, red for discarded, black for noise
+        colors = []
+        for label in labels:
+            if label == -1:
+                colors.append('black') # Noise
+            elif label in kept_clusters_info:
+                colors.append('green') # Kept
             else:
-                cluster_type_str = f"Absolute Cluster: {type1_name}"
-                fname_prefix = f"abs_cluster_{type1_name}"
+                colors.append('red')   # Discarded
 
-            # Calculate stats for title
-            num_total_clusters = len(unique_labels - {-1}) # Exclude noise label if present
-            num_kept_clusters = len(kept_clusters_info)
+        num_dims = data_array.shape[1]
+        ax = None # Initialize ax
 
-            fig = plt.figure(figsize=(12, 10))
-            title = f"{cluster_type_str} ({feat_name})\nEffectiveEps={effective_epsilon:.4f}, MinRatio={CFG.clustering_min_ratio_of_data}, Kept={num_kept_clusters}/{num_total_clusters}"
-            fname = f"{fname_prefix}_{feat_name}_eps{effective_epsilon:.3f}.png"
+        if num_dims == 1:
+            ax = fig.add_subplot(111)
+            ax.scatter(data_array[:, 0], np.zeros_like(data_array[:, 0]), c=colors, alpha=0.7)
+            ax.set_xlabel(f'{feat_name} dim 1')
+        elif num_dims == 2:
+            ax = fig.add_subplot(111)
+            ax.scatter(data_array[:, 0], data_array[:, 1], c=colors, alpha=0.7)
+            ax.set_xlabel(f'{feat_name} dim 1')
+            ax.set_ylabel(f'{feat_name} dim 2')
+        elif num_dims >= 3:
+            ax = fig.add_subplot(111, projection='3d')
+            ax.scatter(data_array[:, 0], data_array[:, 1], data_array[:, 2], c=colors, alpha=0.7)
+            ax.set_xlabel(f'{feat_name} dim 1')
+            ax.set_ylabel(f'{feat_name} dim 2')
+            ax.set_zlabel(f'{feat_name} dim 3')
+            if feat_name == "translation":
+                ax.scatter([0], [0], [0], c='blue', s=100, marker='x', label='Origin')
 
-            # Determine colors: green for kept, red for discarded, black for noise
-            colors = []
+        # Plot centroids and ellipsoidal boundaries for *kept* clusters
+        centroids_plotted = False
+        boundaries_plotted = False
+        if ax is not None: # Ensure ax was created
+            cluster_counts = defaultdict(int)
             for label in labels:
-                if label == -1:
-                    colors.append('black') # Noise
-                elif label in kept_clusters_info:
-                    colors.append('green') # Kept
+                cluster_counts[label] += 1
+
+            for label, info in kept_clusters_info.items():
+                centroid = info['center']
+                count = cluster_counts.get(label, 0)
+                label_text = f"Cluster {label}: {count} pts"
+
+                # Plot centroid marker
+                marker_kwargs = {'c': 'purple', 's': 150, 'marker': '*'} # Removed label here
+                if not centroids_plotted:
+                     marker_kwargs['label'] = 'Kept Centroids' # Add label only for the first one
+
+                if num_dims == 1:
+                    ax.scatter(centroid[0], 0, **marker_kwargs)
+                    ax.text(centroid[0], 0.01, label_text, fontsize=9) # Slightly offset text
+                elif num_dims == 2:
+                    ax.scatter(centroid[0], centroid[1], **marker_kwargs)
+                    ax.text(centroid[0], centroid[1], label_text, fontsize=9)
+                elif num_dims >= 3:
+                    ax.scatter(centroid[0], centroid[1], centroid[2], **marker_kwargs)
+                    ax.text(centroid[0], centroid[1], centroid[2], label_text, fontsize=9)
+                centroids_plotted = True
+
+                # Plot Ellipsoidal Boundary
+                if 'covariance_matrix' in info and 'mahalanobis_threshold' in info:
+                    cov_matrix = info['covariance_matrix']
+                    maha_thresh = info['mahalanobis_threshold']
+                    legend_label = 'Ellipsoid Boundary' if not boundaries_plotted else ""
+                    logging.debug(f"Plotting ellipsoid for Cluster {label}: Centroid={centroid}, MahaThresh={maha_thresh:.4f}")
+                    # logging.debug(f"Covariance Matrix:\n{cov_matrix}") # Optional: uncomment for detailed matrix view
+
+                    try:
+                        if num_dims == 1:
+                            # Handle potential 0 variance by adding small epsilon
+                            variance = max(cov_matrix[0, 0], 1e-9)
+                            std_dev = np.sqrt(variance)
+                            radius = std_dev * np.sqrt(maha_thresh) # sqrt(thresh * variance)
+                            logging.debug(f"  1D Ellipsoid: Radius={radius:.4f}")
+                            ax.plot([centroid[0] - radius, centroid[0] + radius], [0, 0], 'k--', alpha=0.6, label=legend_label)
+                        elif num_dims == 2:
+                            eigenvalues, eigenvectors = np.linalg.eigh(cov_matrix)
+                            # Clamp small/negative eigenvalues due to numerical issues
+                            eigenvalues = np.maximum(eigenvalues, 1e-9)
+                            # Order eigenvalues and eigenvectors
+                            order = eigenvalues.argsort()[::-1]
+                            eigenvalues, eigenvectors = eigenvalues[order], eigenvectors[:, order]
+                            # Ellipse axes lengths: sqrt(thresh * eigenvalue)
+                            width, height = 2 * np.sqrt(maha_thresh * eigenvalues)
+                            angle = np.degrees(np.arctan2(*eigenvectors[:, 0][::-1]))
+                            logging.debug(f"  2D Ellipsoid: Width={width:.4f}, Height={height:.4f}, Angle={angle:.2f}")
+                            ellipse = Ellipse(xy=centroid, width=width, height=height, angle=angle,
+                                              edgecolor='k', fc='None', ls='--', alpha=0.6, label=legend_label)
+                            ax.add_patch(ellipse)
+                        elif num_dims >= 3:
+                            # Use first 3 dimensions for plotting 3D ellipsoid
+                            cov_3d = cov_matrix[:3, :3]
+                            centroid_3d = centroid[:3]
+                            eigenvalues, eigenvectors = np.linalg.eigh(cov_3d)
+                            # Clamp small/negative eigenvalues
+                            eigenvalues = np.maximum(eigenvalues, 1e-9)
+                            # Axes lengths
+                            radii = np.sqrt(maha_thresh * eigenvalues)
+                            logging.debug(f"  3D Ellipsoid: Radii={radii}")
+                            # Generate points on a unit sphere
+                            u = np.linspace(0.0, 2.0 * np.pi, 100)
+                            v = np.linspace(0.0, np.pi, 50)
+                            x = np.outer(np.cos(u), np.sin(v))
+                            y = np.outer(np.sin(u), np.sin(v))
+                            z = np.outer(np.ones_like(u), np.cos(v))
+                            # Scale, rotate, and translate points
+                            points = np.stack((x.flatten(), y.flatten(), z.flatten()))
+                            scaled_rotated_points = eigenvectors @ np.diag(radii) @ points
+                            translated_points = scaled_rotated_points + centroid_3d[:, np.newaxis]
+                            # Reshape for plotting
+                            x_ell, y_ell, z_ell = translated_points.reshape(3, *x.shape)
+                            ax.plot_wireframe(x_ell, y_ell, z_ell, color='k', alpha=0.2, rstride=4, cstride=4, label=legend_label)
+
+                        boundaries_plotted = True
+
+                    except ValueError as e:
+                         logging.warning(f"Could not plot ellipsoid for cluster {label}: Value error ({e}). Check eigenvalues/vectors.")
                 else:
-                    colors.append('red')   # Discarded
-
-            num_dims = data_array.shape[1]
-            ax = None # Initialize ax
-
-            if num_dims == 1:
-                ax = fig.add_subplot(111)
-                ax.scatter(data_array[:, 0], np.zeros_like(data_array[:, 0]), c=colors, alpha=0.7)
-                ax.set_xlabel(f'{feat_name} dim 1')
-            elif num_dims == 2:
-                ax = fig.add_subplot(111)
-                ax.scatter(data_array[:, 0], data_array[:, 1], c=colors, alpha=0.7)
-                ax.set_xlabel(f'{feat_name} dim 1')
-                ax.set_ylabel(f'{feat_name} dim 2')
-            elif num_dims >= 3:
-                ax = fig.add_subplot(111, projection='3d')
-                # Plot first 3 dimensions if more exist
-                ax.scatter(data_array[:, 0], data_array[:, 1], data_array[:, 2], c=colors, alpha=0.7)
-                ax.set_xlabel(f'{feat_name} dim 1')
-                ax.set_ylabel(f'{feat_name} dim 2')
-                ax.set_zlabel(f'{feat_name} dim 3')
-                # Mark origin for translation features (relative or absolute)
-                if feat_name == "translation":
-                    ax.scatter([0], [0], [0], c='blue', s=100, marker='x', label='Origin')
-
-            # Plot centroids for *kept* clusters
-            centroids_plotted = False
-            if ax is not None: # Ensure ax was created
-                # Count points per cluster
-                cluster_counts = {}
-                for label in labels:
-                    if label not in cluster_counts:
-                        cluster_counts[label] = 0
-                    cluster_counts[label] += 1
-                
-                for label, info in kept_clusters_info.items():
-                    centroid = info['center']
-                    count = cluster_counts.get(label, 0)
-                    label_text = f"Cluster {label}: {count} pts"
-                    
-                    if num_dims == 1:
-                        ax.scatter(centroid[0], 0, c='black', s=150, marker='*',
-                                   label='Kept Centroids' if not centroids_plotted else "")
-                        ax.text(centroid[0], 0, label_text, fontsize=9)
-                    elif num_dims == 2:
-                        ax.scatter(centroid[0], centroid[1], c='black', s=150, marker='*',
-                                   label='Kept Centroids' if not centroids_plotted else "")
-                        ax.text(centroid[0], centroid[1], label_text, fontsize=9)
-                    elif num_dims >= 3:
-                        ax.scatter(centroid[0], centroid[1], centroid[2], c='black', s=150, marker='*',
-                                   label='Kept Centroids' if not centroids_plotted else "")
-                        ax.text(centroid[0], centroid[1], centroid[2], label_text, fontsize=9)
-                    centroids_plotted = True
-
-                ax.set_title(title)
-                # Create custom legend handles
-                handles = [
-                    plt.Line2D([0], [0], marker='o', color='w', label='Kept Pts', markersize=10, markerfacecolor='green'),
-                    plt.Line2D([0], [0], marker='o', color='w', label='Discarded Pts', markersize=10, markerfacecolor='red'),
-                ]
-                if -1 in unique_labels:
-                     handles.append(plt.Line2D([0], [0], marker='o', color='w', label='Noise Pts', markersize=10, markerfacecolor='black'))
-                if centroids_plotted:
-                    handles.append(plt.Line2D([0], [0], marker='*', color='w', label='Kept Centroids', markersize=10, markerfacecolor='black', linestyle='None'))
-                if feat_name == "translation" and num_dims >=3:
-                    handles.append(plt.Line2D([0], [0], marker='x', color='w', label='Origin', markersize=10, markerfacecolor='blue', linestyle='None'))
-
-                ax.legend(handles=handles)
-                plt.tight_layout()
-                plt.savefig(fname)
-                logging.info(f"Cluster visualization saved to {fname}")
-                plt.close()
-            else:
-                logging.warning(f"Could not plot for {fname}, unsupported dimension: {num_dims}")
-
-        except ImportError:
-            logging.warning("matplotlib not found. Skipping cluster visualization.")
-        except Exception as viz_error:
-            type_str = f"{type1_name}-{type2_name}" if type2_name else type1_name
-            logging.warning(f"Failed to visualize clusters for {type_str}-{feat_name}: {viz_error}")
+                     logging.debug(f"Skipping ellipsoid plot for cluster {label}: Missing covariance or threshold info.")
+                     logging.debug(f"  Available info keys: {list(info.keys())}")
 
 
-    def _create_predicate_from_relative_cluster(self, type1: Type, type2: Type, feature_name: str, cluster_center: np.ndarray, epsilon: float, diff_fn: Callable, cluster_id: int) -> Predicate:
+            ax.set_title(title)
+            # Create custom legend handles
+            handles = [
+                plt.Line2D([0], [0], marker='o', color='w', label='Kept Pts', markersize=10, markerfacecolor='green'),
+                plt.Line2D([0], [0], marker='o', color='w', label='Discarded Pts', markersize=10, markerfacecolor='red'),
+            ]
+            if -1 in unique_labels:
+                 handles.append(plt.Line2D([0], [0], marker='o', color='w', label='Noise Pts', markersize=10, markerfacecolor='black'))
+            if centroids_plotted:
+                handles.append(plt.Line2D([0], [0], marker='*', color='w', label='Kept Centroids', markersize=10, markerfacecolor='purple', linestyle='None'))
+            if boundaries_plotted:
+                handles.append(plt.Line2D([0], [0], linestyle='--', color='k', label='Ellipsoid Boundary (Maha. Thresh.)'))
+            if feat_name == "translation" and num_dims >= 3:
+                handles.append(plt.Line2D([0], [0], marker='x', color='w', label='Origin', markersize=10, markerfacecolor='blue', linestyle='None'))
+
+            # Add aspect ratio setting for 2D plots to make ellipses look right
+            if num_dims == 2:
+                ax.set_aspect('equal', adjustable='box')
+
+            ax.legend(handles=handles)
+            plt.tight_layout()
+            # plt.show() # Usually avoid calling plt.show() in library code
+            plt.show() # Use plt.show() to display interactively
+            # Note: Execution will pause here until the plot window is closed.
+            plt.close(fig) # Close after showing
+        else:
+            logging.warning(f"Could not plot for {fname}, unsupported dimension: {num_dims}")
+
+
+    def _create_predicate_from_relative_cluster(self, type1: Type, type2: Type, feature_name: str, cluster_center: np.ndarray, inv_covariance_matrix: np.ndarray, mahalanobis_threshold: float, diff_fn: Callable, cluster_id: int) -> Predicate:
         """Creates a binary predicate from a relative feature cluster."""
-        # Note: cluster_info replaced by cluster_center
-        classifier = _RelativeFeatureClusterClassifier(type1, type2, feature_name, cluster_center, epsilon, diff_fn, cluster_id)
+        classifier = _RelativeFeatureClusterClassifier(type1, type2, feature_name, cluster_center, inv_covariance_matrix, mahalanobis_threshold, diff_fn, cluster_id)
         name = str(classifier)
         types = [type1, type2]
         pred = Predicate(name, types, classifier)
         return pred
 
-    def _create_predicate_from_absolute_cluster(self, type1: Type, feature_name: str, cluster_center: np.ndarray, epsilon: float, cluster_id: int) -> Predicate:
+    def _create_predicate_from_absolute_cluster(self, type1: Type, feature_name: str, cluster_center: np.ndarray, inv_covariance_matrix: np.ndarray, mahalanobis_threshold: float, cluster_id: int) -> Predicate:
         """Creates a unary predicate from an absolute feature cluster."""
         # Note: cluster_info replaced by cluster_center
-        classifier = _AbsoluteFeatureClusterClassifier(type1, feature_name, cluster_center, epsilon, cluster_id)
+        classifier = _AbsoluteFeatureClusterClassifier(type1, feature_name, cluster_center, inv_covariance_matrix, mahalanobis_threshold, cluster_id)
         name = str(classifier)
         types = [type1]
         pred = Predicate(name, types, classifier)
@@ -888,7 +1069,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             return self._operator_complexity_cache[predicates]
 
         # Learn operators using the provided predicates and atom data
-        try:
+        if True:
             # segment_trajectory needs to be called within learn_strips_operators
             # or we need to pre-segment. Let's assume learn_strips_operators handles it.
             # It needs the low-level trajectories too.
@@ -925,11 +1106,11 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             complexity = len(operators)
             result = (complexity, operators)
 
-        except (PlanningFailure, PlanningTimeout, TimeoutError, ValueError) as e:
-            # Handle potential errors during operator learning (e.g., inconsistent data)
-            logging.warning(f"Operator learning failed for predicate set: {e}")
-            # Return high complexity or some indicator of failure
-            result = (np.inf, set()) # Indicate failure with infinite complexity
+        # except (PlanningFailure, PlanningTimeout, TimeoutError, ValueError) as e:
+        #     # Handle potential errors during operator learning (e.g., inconsistent data)
+        #     logging.warning(f"Operator learning failed for predicate set: {e}")
+        #     # Return high complexity or some indicator of failure
+        #     result = (np.inf, set()) # Indicate failure with infinite complexity
 
         # Cache the result
         self._operator_complexity_cache[predicates] = result

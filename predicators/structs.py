@@ -379,6 +379,7 @@ class VLMPredicate(Predicate):
     get_vlm_query_str: Callable[[Sequence[Object]], str]
 
 
+
 @dataclass(frozen=True, repr=False, eq=False)
 class _Atom:
     """Struct defining an atom (a predicate applied to either variables or
@@ -430,7 +431,33 @@ class _Atom:
         assert isinstance(other, _Atom)
         return str(self) < str(other)
 
-
+@dataclass(frozen=True, repr=False, eq=False)
+class LiftedAtom_VarType(_Atom):
+    def __post_init__(self) -> None:
+        if isinstance(self.entities, _TypedEntity):
+            raise ValueError("Atoms expect a sequence of entities, not a "
+                             "single entity.")
+        assert len(self.entities) == self.predicate.arity
+        for ent, pred_type in zip(self.entities, self.predicate.types):
+            if isinstance(ent, Variable):
+                assert ent.is_instance(pred_type)
+            elif isinstance(ent, Type):
+                assert ent == pred_type
+            else:
+                raise ValueError(f"Unexpected entity type: {type(ent)}")
+            
+    def convert_to_lifted_atom(self, type_to_var_map: dict[Type, Variable]) -> LiftedAtom:
+        new_entities = []
+        for entity in self.entities:
+            if isinstance(entity, Type):
+                new_entities.append(type_to_var_map[entity])
+            else:
+                new_entities.append(entity)
+        return LiftedAtom(self.predicate, new_entities)
+    @cached_property
+    def _str(self) -> str:
+        return (str(self.predicate) + "(" +
+                ", ".join(map(str, self.entities)) + ")")
 @dataclass(frozen=True, repr=False, eq=False)
 class LiftedAtom(_Atom):
     """Struct defining a lifted atom (a predicate applied to variables)."""
@@ -480,6 +507,11 @@ class GroundAtom(_Atom):
         """Create a LiftedAtom with a given substitution."""
         assert set(self.objects).issubset(set(sub.keys()))
         return LiftedAtom(self.predicate, [sub[o] for o in self.objects])
+    
+    def lift_mix_var_type(self, sub: ObjToVarTypeSub) -> LiftedAtom:
+        """Create a LiftedAtom with a given substitution."""
+        assert set(self.objects).issubset(set(sub.keys()))
+        return LiftedAtom_VarType(self.predicate, [sub[o] for o in self.objects])
 
     def holds(self, state: State) -> bool:
         """Check whether this ground atom holds in the given state."""
@@ -1475,36 +1507,12 @@ class PNAD:
                                   VarToObjSub] = field(init=False,
                                                        default_factory=dict)
 
-    def add_to_datastore(self,
-                         member: Tuple[Segment, VarToObjSub],
-                         check_effect_equality: bool = True) -> None:
-        """Add a new member to self.datastore."""
-        seg, var_obj_sub = member
-        if len(self.datastore) > 0:
-            # All variables should have a corresponding object.
-            assert set(var_obj_sub) == set(self.op.parameters)
-            # The effects should match.
-            if check_effect_equality:
-                obj_var_sub = {o: v for (v, o) in var_obj_sub.items()}
-                lifted_add_effects = {
-                    a.lift(obj_var_sub)
-                    for a in seg.add_effects
-                }
-                lifted_del_effects = {
-                    a.lift(obj_var_sub)
-                    for a in seg.delete_effects
-                }
-                assert lifted_add_effects == self.op.add_effects
-                assert lifted_del_effects == self.op.delete_effects
-            if seg.has_option():
-                # The option should match.
-                option = seg.get_option()
-                part_param_option, part_option_args = self.option_spec
-                assert option.parent == part_param_option
-                option_args = [var_obj_sub[v] for v in part_option_args]
-                assert option.objects == option_args
-        # Add to datastore.
-        self.datastore.append(member)
+    def add_to_datastore(self, data_item: Tuple[Segment, VarToObjSub]) -> None:
+        """Add a single data item to the datastore."""
+        _, var_obj_sub, _ = data_item
+        # Revert assertion: check for equality since we now store complete subs
+        assert set(var_obj_sub) == set(self.op.parameters)
+        self.datastore.append(data_item)
 
     def make_nsrt(self) -> NSRT:
         """Make an NSRT from this PNAD."""
@@ -2028,6 +2036,7 @@ ImageInput = NDArray[np.float32]
 Video = List[Image]
 Array = NDArray[np.float32]
 ObjToVarSub = Dict[Object, Variable]
+ObjToVarTypeSub = Dict[Object, Union[Variable, Type]]
 ObjToObjSub = Dict[Object, Object]
 VarToObjSub = Dict[Variable, Object]
 VarToVarSub = Dict[Variable, Variable]

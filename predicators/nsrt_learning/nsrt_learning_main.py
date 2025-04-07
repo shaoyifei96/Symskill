@@ -151,7 +151,7 @@ def _learn_pnad_options(pnads: List[PNAD],
     known_option_pnads, unknown_option_pnads = [], []
     for pnad in pnads:
         assert pnad.datastore
-        example_segment, _ = pnad.datastore[0]
+        example_segment, _, _ = pnad.datastore[0]
         example_action = example_segment.actions[0]
         pnad_options_known = example_action.has_option()
         # Sanity check the assumption described above.
