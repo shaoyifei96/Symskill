@@ -316,6 +316,14 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             
             # Check if this is a feature combination we want to keep
             keep_feature = False
+
+            if (type1.name == "handle_type" and type2.name == "gripper_type") and feat_name == quat_feat_name:
+                keep_feature = True
+                logging.info(f"Keeping handle-gripper quaternion feature")
+            
+            if (type1.name == "handle_type" and type2.name == "gripper_type") and feat_name == trans_feat_name:
+                keep_feature = True
+                logging.info(f"Keeping handle-gripper translation feature")
             
             # Cabinet handle quaternion - keep cabinet first
             if (type1.name == "cabinet_type" and type2.name == "door_type") and feat_name == quat_feat_name:
@@ -541,14 +549,6 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                     for feat_name in shared_features:
                         # Check if we need obj1's orientation (only for translation)
                         needs_quat_for_trans = (feat_name == trans_feat_name and quat_feat_name in type1.feature_names)
-
-                        # Select the appropriate tolerance based on feature type
-                        if feat_name == trans_feat_name:
-                            tolerance = CFG.clustering_translation_constancy_tol
-                        elif feat_name == quat_feat_name:
-                            tolerance = CFG.clustering_quaternion_constancy_tol
-                        else:
-                            tolerance = CFG.clustering_feature_constancy_tol
 
                         for o1 in objs1:
                             # If types are the same, avoid comparing object to itself.
@@ -896,9 +896,8 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
 
             ax.legend(handles=handles)
             plt.tight_layout()
-            # plt.show() # Usually avoid calling plt.show() in library code
-            plt.show() # Use plt.show() to display interactively
-            # Note: Execution will pause here until the plot window is closed.
+            plt.savefig(fname)
+            logging.info(f"Cluster visualization saved to {fname}")
             plt.close(fig) # Close after showing
         else:
             logging.warning(f"Could not plot for {fname}, unsupported dimension: {num_dims}")

@@ -14,26 +14,26 @@ import numpy as np
 class GlobalSettings:
     # clustering_invention approach parameters
     clustering_debug = True
-    clustering_translation_constancy_tol = 0.01/10 # 10 hz 0.01 m 
-    clustering_quaternion_constancy_tol = 0.01 # 10 hz 0.01 rad
-    clustering_feature_constancy_tol = 0.01 # 10 hz 0.01 m # default not used!
+    # clustering_translation_constancy_tol = 0.01/10 # 10 hz 0.01 m 
+    # clustering_quaternion_constancy_tol = 0.01 # 10 hz 0.01 rad
+    # clustering_feature_constancy_tol = 0.01 # 10 hz 0.01 m # default not used!
     
 
     clustering_mahalanobis_confidence = 0.95
     clustering_translation_epsilon = 0.3 # set dbscane to be different
     clustering_quaternion_epsilon = 0.7 
     clustering_dbscan_ratio = 0.1 # dbscan is 10 times smaller than this
-    clustering_agglomerative_ratio = 0.2 # what ratio of data range
+    clustering_agglomerative_ratio = 0.3 # what ratio of data range
     clustering_epsilon = 0.3# default not used!
     
     clustering_algorithm = "agglomerative" # "dbscan" or "agglomerative"
     clustering_min_ratio_of_data = 0.1
     clustering_max_clusters = 3
     clustering_search_beam_width = 15
-    clustering_search_alpha = 0.01
+    clustering_search_alpha = 0.4
     clustering_search_max_iterations = 30
     clustering_check_plan_length_constraint = True
-    clustering_search_constraint_penalty = 0.1
+    clustering_search_constraint_penalty = 10.0
     # robo_kitchen env parameters
     robo_kitchen_randomize_init_state = True # not used
     robo_kitchen_task = "OpenSingleDoor"
