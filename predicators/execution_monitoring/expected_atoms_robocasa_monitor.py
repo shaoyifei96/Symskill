@@ -26,6 +26,7 @@ class ExpectedAtomsRobocasaExecutionMonitor(BaseExecutionMonitor):
         self._option_start_timestep: int = 0
         self._max_option_exe_timesteps: int = 200  # Maximum timesteps before considering option failed
         self._current_nsrt_step = 0
+        self._NSRT_plan_executed = False
 
     @classmethod
     def get_name(cls) -> str:
@@ -33,9 +34,9 @@ class ExpectedAtomsRobocasaExecutionMonitor(BaseExecutionMonitor):
     
     def _record_failure(self, option_name: str, state: State, reason_of_failure: str) -> None:
         """Record failure."""
-        gripper = RoboKitchenEnv.object_name_to_object("gripper")
-        gripper_state = state.vec([gripper])
-        failure_info = OptionFailureInfo(option_name,reason_of_failure, gripper_state)
+        # gripper = RoboKitchenEnv.object_name_to_object("gripper")
+        # gripper_state = state.vec([gripper])
+        failure_info = OptionFailureInfo(option_name, reason_of_failure, state)
         self._failure_memory.append(failure_info)
 
     def step(self, state: State) -> bool:
@@ -45,8 +46,13 @@ class ExpectedAtomsRobocasaExecutionMonitor(BaseExecutionMonitor):
         if not self._validate_approach():
             return False
 
+        if self._NSRT_plan_executed:
+            self._NSRT_plan_executed = False
+            failure_reason = self._format_failure_reason("Exhausted", set())
+            self._record_failure(self._running_option_name, state, failure_reason)
+            return True
         # Update option tracking
-        new_option_bool = self._update_option_tracking()
+        new_option_bool, last_option_name = self._update_option_tracking()
 
         # Get next expected atoms and increment timestep
         if self._current_nsrt_step + 1 < len(self._approach_info):
@@ -74,11 +80,10 @@ class ExpectedAtomsRobocasaExecutionMonitor(BaseExecutionMonitor):
         if new_option_bool:
             unsat_atoms = self._check_predicates(state, next_expected_atoms)
             # it seems in nsrt_plan_to_greedy_policy, there is check for unsat atoms already
-            # TODO: test if this function really checks for unsat atoms
-            unsat_atoms = {}
+            # TODO: test if this function really checks for unsat atoms    # unsat_atoms = {}
             if unsat_atoms:
                 failure_reason = self._format_failure_reason("New", unsat_atoms)
-                self._record_failure(self._running_option_name, state, failure_reason)
+                self._record_failure(last_option_name, state, failure_reason)
                 return True
             # if no unsat atoms, increment nsrt step, means we're moving to next NSRT
             self._current_nsrt_step += 1
@@ -119,14 +124,16 @@ class ExpectedAtomsRobocasaExecutionMonitor(BaseExecutionMonitor):
     def _update_option_tracking(self) -> bool:
         """Update tracking of current and previous options. Returns True if option changed."""
         new_option_bool = False
+        last_option_name = None
         if self._running_option_name is not None:
             if self._running_option_name != self._last_option_name:
                 if self._last_option_name is not None:
                     new_option_bool = True
+                    last_option_name = self._last_option_name
                 self._last_option_name = self._running_option_name
                 self._option_start_timestep = self._curr_plan_timestep
                 logging.info(f"Starting new option: {self._running_option_name}")
-        return new_option_bool
+        return new_option_bool, last_option_name
 
     def _check_option_timeout(self) -> bool:
         """Check if current option has exceeded max timesteps."""

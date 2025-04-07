@@ -24,6 +24,10 @@ import os
 import mujoco
 import time
 import logging
+from scipy.spatial.transform import Rotation as R
+
+from robosuite.devices import Keyboard
+
 
 # Disable JAX debug messages
 logging.getLogger("jax._src.cache_key").setLevel(logging.ERROR)
@@ -38,6 +42,7 @@ class RoboKitchenEnv(BaseEnv):
     """Kitchen environment using robosuite."""
 
     hinge_open_thresh = 0.9  # rad
+    door_half_open_thresh = 0.4  # rad
     close_distance_thresh = 0.02  # m
     gripper_fingers_distance_thresh = 0.08  # m
     offset_inwards_from_handle = 0.10  # m
@@ -106,6 +111,8 @@ class RoboKitchenEnv(BaseEnv):
         if self.task_selected not in ALL_KITCHEN_ENVIRONMENTS:
             raise ValueError(f"Task {self.task_selected} not supported")
         print(colored(f"Selected task: {self.task_selected}", "green"))
+
+        self.device = None # control device
 
     def get_objects_of_interest(self, task_name: str) -> List[Object]:
         """Get the object of interest for the task."""
@@ -217,6 +224,7 @@ class RoboKitchenEnv(BaseEnv):
         # Create or recreate environment if needed
         warnings.warn("Resetting environment to initial state from seed not implemented for robosuite kitchen")
         if self._env is None:
+            complex_config = True # NOTE: this should be removed. only for mac
             if complex_config:
                 robot_type = "PandaOmron"
                 controller_config = load_composite_controller_config(robot=robot_type)
@@ -225,7 +233,7 @@ class RoboKitchenEnv(BaseEnv):
                     "env_name": task_name,
                     "robots": robot_type,
                     "controller_configs": controller_config,
-                    "layout_ids": 0,
+                    "layout_ids": 2,
                     "style_ids": 0,
                     "translucent_robot": True,
                 }
@@ -255,6 +263,14 @@ class RoboKitchenEnv(BaseEnv):
 
         # Reset environment with seed
         obs = self._env.reset()
+
+        if CFG.use_teleop:
+            self.device = Keyboard(
+                env=self._env,
+                pos_sensitivity=4.0,
+                rot_sensitivity=4.0,
+            )
+            self.device.start_control()
 
         # Update objects of interest based on task
         self.objects_of_interest = self.get_objects_of_interest(task_name)
@@ -306,6 +322,7 @@ class RoboKitchenEnv(BaseEnv):
             Predicate("HingeOpen", [cls.door_type, cls.cabinet_type], cls._HingeOpen_holds),
             Predicate("HingeClosed", [cls.door_type, cls.cabinet_type], cls._HingeClosed_holds),
             Predicate("InContact", [cls.object_type, cls.object_type], cls._InContact_holds),
+            Predicate("DoorHalfOpen", [cls.door_type, cls.cabinet_type], cls._DoorHalfOpen_holds),
         }
 
         return {p.name: p for p in preds}
@@ -321,6 +338,11 @@ class RoboKitchenEnv(BaseEnv):
         Convert 7D predicators action [dx, dy, dz, droll, dpitch, dyaw, gripper]
         to 12D robocasa action [right_pose(6), right_gripper(1), base(3), torso(1), extra(1)]
         """
+        if CFG.use_teleop:
+            input_ac_dict = self.device.input2action(mirror_actions=True)
+            # print(f"input_ac_dict: {input_ac_dict}")
+            # action_keyboard = self._env.robots[0].create_action_vector(input_ac_dict)
+
         # Debug print
         # print("\n" + "="*50)
         # print("STEP DEBUG INFO:")
@@ -339,9 +361,12 @@ class RoboKitchenEnv(BaseEnv):
         # - Next 1D: torso (no movement)
         # - Last 1D: extra dimension (not used)
         env_action = np.zeros(12, dtype=np.float32)
+
         env_action[0:3] = pos_delta  # position control
         env_action[3:6] = rot_delta  # rotation control
         env_action[6] = gripper_cmd  # gripper control
+        if CFG.use_teleop:
+            env_action[7:10] = input_ac_dict["base"]
         # env_action[7:10] are zeros (no base movement)
         # env_action[10] is zero (no torso movement)
         # env_action[11] is zero (extra dimension)
@@ -450,14 +475,25 @@ class RoboKitchenEnv(BaseEnv):
     @classmethod
     def _ReadyGrabHandle_holds(cls, state: State, objects: Sequence[Object]) -> bool:
         """Check if gripper is ready to grip handle."""
+        def frame_transform(pos_in_init: np.ndarray, quat_in_init: np.ndarray, target_pos: np.ndarray, target_rot: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:                
+            rot_in_init = R.from_quat(quat_in_init).as_matrix()
+            
+            rel_pos_init = pos_in_init - target_pos
+            
+            pos_in_target = target_rot.T @ rel_pos_init
+            rot_in_target = target_rot.T @ rot_in_init
+            
+            return pos_in_target, rot_in_target
         gripper, handle = objects
         # Check if position of gripper is close to handle
         gripper_pos = state.get(gripper, "translation")
+        gripper_quat = state.get(gripper, "quaternion")
         handle_pos = state.get(handle, "translation")
-        if np.linalg.norm(gripper_pos - handle_pos) > (cls.close_distance_thresh + cls.offset_inwards_from_handle):
-            return False
-        # Check if orientation of gripper is close to handle
-        return True
+        handle_quat = state.get(handle, "quaternion")
+        gripper_pos_in_handle, _ = frame_transform(gripper_pos, gripper_quat, handle_pos, R.from_quat(handle_quat).as_matrix())
+        if np.linalg.norm(gripper_pos_in_handle[0]) <= 0.1 and gripper_pos_in_handle[1] > 0:
+            return True
+        return False
 
     @classmethod
     def _GripperOpen_holds(cls, state: State, objects: Sequence[Object]) -> bool:
@@ -536,9 +572,80 @@ class RoboKitchenEnv(BaseEnv):
         rotation_value = np.linalg.norm(rot_vec)  # Total rotation angle in radians
 
         return rotation_value <= cls.hinge_open_thresh
+    
+    @classmethod
+    def _DoorHalfOpen_holds(cls, state: State, objects: Sequence[Object]) -> bool:
+        """Check if door is open by comparing rotation between door and cabinet."""
+        door, cabinet = objects
+
+        # Get quaternions from the objects passed in
+        door_quat = state.get(door, "quaternion")
+        cabinet_quat = state.get(cabinet, "quaternion")
+
+        # Convert quaternions to rotation matrices
+        from scipy.spatial.transform import Rotation
+
+        door_rot = Rotation.from_quat(door_quat)
+        cabinet_rot = Rotation.from_quat(cabinet_quat)
+
+        # Calculate relative rotation
+        rel_rot = cabinet_rot.inv() * door_rot
+
+        # Extract rotation value (approximation for hinge rotation)
+        rot_vec = rel_rot.as_rotvec()
+        rotation_value = np.linalg.norm(rot_vec)  # Total rotation angle in radians
+
+        return rotation_value > cls.door_half_open_thresh
 
     @classmethod
     def _InContact_holds(cls, state: State, objects: Sequence[Object]) -> bool:
         """Check if two objects are in contact using robosuite's contact checking."""
         obj1, obj2 = objects
         return (obj1, obj2) in state.items_in_contact or (obj2, obj1) in state.items_in_contact
+
+    def _add_debug_visualization(self):
+        """Add debug visualization markers at important locations."""
+        # Get the viewer from the simulation
+        viewer = self._env.viewer
+        if viewer is None:
+            return
+
+        # Clear existing visualizations
+        viewer.user_scn.ngeom = 0
+        geom_count = 0
+
+        # Add visualization for each object's important sites/geoms
+        for obj_name, obj in self.objects.items():
+            # Get object position and orientation
+            obj_pos = sim.data.body_xpos[self.obj_body_id[obj_name]]
+
+            # Create a sphere at object position
+            mujoco.mjv_initGeom(
+                viewer.user_scn.geoms[geom_count],
+                type=mujoco.mjtGeom.mjGEOM_SPHERE,
+                size=[0.02, 0, 0],  # Small sphere
+                pos=obj_pos,
+                mat=np.eye(3).flatten(),
+                rgba=[1, 0, 0, 0.5]  # Semi-transparent red
+            )
+            geom_count += 1
+
+            # Add more visualizations for specific object types
+            if obj_name in ["microwave", "cabinet", "drawer"]:
+                # Add handle visualization
+                handle_site_id = sim.model.site_name2id(f"{obj_name}_handle")
+                if handle_site_id >= 0:
+                    handle_pos = sim.data.site_xpos[handle_site_id]
+                    mujoco.mjv_initGeom(
+                        viewer.user_scn.geoms[geom_count],
+                        type=mujoco.mjtGeom.mjGEOM_SPHERE,
+                        size=[0.015, 0, 0],
+                        pos=handle_pos,
+                        mat=np.eye(3).flatten(),
+                        rgba=[0, 1, 0, 0.5]  # Semi-transparent green
+                    )
+                    geom_count += 1
+
+        # Update the number of visualization geoms
+        viewer.user_scn.ngeom = geom_count
+        viewer.sync()

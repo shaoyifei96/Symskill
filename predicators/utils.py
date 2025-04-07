@@ -1380,7 +1380,7 @@ def nsrt_plan_to_greedy_policy(
     goal: Set[GroundAtom],
     fail_info: List[OptionFailureInfo],
     rng: np.random.Generator,
-    necessary_atoms_seq: Optional[Sequence[Set[GroundAtom]]] = None
+    necessary_atoms_seq: Optional[Sequence[Set[GroundAtom]]] = None,
 ) -> Callable[[State], Action]:
     """Greedily execute an NSRT plan, assuming downward refinability and that
     any sample will work.

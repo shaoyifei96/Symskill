@@ -41,6 +41,7 @@ import time
 from collections import defaultdict
 from pathlib import Path
 from typing import List, Optional, Sequence, Tuple
+import copy
 
 # Disable JAX debug messages
 logging.getLogger('jax._src.cache_key').setLevel(logging.ERROR)
@@ -465,6 +466,8 @@ def _run_testing(env: BaseEnv, cogman: CogMan) -> Metrics:
             assert monitor is not None
             video = monitor.get_video()
             utils.save_video(video_file, video)
+        CFG.option_to_init_pose = {} # NOTE: reset option_to_init_pose for next test
+        CFG.option_to_policy = {} # NOTE: reset option_to_policy for next test
     metrics["num_solved"] = num_solved
     metrics["num_total"] = len(test_tasks)
     metrics["avg_suc_time"] = (total_suc_time /
@@ -509,9 +512,14 @@ def _save_test_results(results: Metrics,
     logging.info(f"Average time for successes: {avg_suc_time:.5f} seconds")
     outfile = (f"{CFG.results_dir}/{utils.get_config_path_str()}__"
                f"{online_learning_cycle}.pkl")
-    # Save CFG alongside results.
+    # Save CFG alongside results, but exclude the visualizer attribute
+    cfg_copy = copy.copy(CFG)
+    if hasattr(cfg_copy, 'visualizer'):
+        delattr(cfg_copy, 'visualizer')
+    if hasattr(cfg_copy, 'option_to_policy'):
+        delattr(cfg_copy, 'option_to_policy')
     outdata = {
-        "config": CFG,
+        "config": cfg_copy,
         "results": results.copy(),
         # "git_commit_hash": utils.get_git_commit_hash()
     }

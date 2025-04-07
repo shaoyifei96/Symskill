@@ -1246,7 +1246,7 @@ def run_task_plan_once(
             print ("\033[95mNo more plans found\033[0m")
 
         # If previous plan exists, prioritize most similar plan
-        if previous_plan is not None and len(plans) > 1: # only if there are multiple plans
+        if len(previous_plan) > 0 and len(plans) > 1: # only if there are multiple plans
             # Untested!
             # Calculate similarity scores based on matching operators
             similarities = []
@@ -1255,14 +1255,14 @@ def run_task_plan_once(
                 if len(plan) > len(previous_plan):
                     plan = plan[-len(previous_plan):]
                 else:
-                    prev_plan = previous_plan[-len(plan):]
-                score = sum(1 for a, b in zip(plan, prev_plan)
+                    previous_plan = previous_plan[-len(plan):]
+                score = sum(1 for a, b in zip(plan, previous_plan)
                           if a.name == b.name)
                 #TODO: use edit distance instead of simple matching
                 # check if plan is subplan of previous plan's tail, if so, score is high
                 
                 similarities.append(score)
-                print (f"Plan {plan} has {score} score")
+                print(f"Plan [{', '.join(nsrt.name for nsrt in plan)}] has {score} score")
             
             # Select plan with highest similarity
             

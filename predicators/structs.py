@@ -21,7 +21,7 @@ import predicators.utils as utils  # pylint: disable=consider-using-from-import
 from predicators.settings import CFG
 
 
-@dataclass(frozen=True, order=True, repr=True)
+@dataclass(frozen=True, order=True)
 class OptionFailureInfo:
     """Struct to store information about option failures."""
     option_name: str
@@ -31,7 +31,8 @@ class OptionFailureInfo:
     # there is extra info in option that can be populated
     # TODO: add objects to the option failure info
     cause: str
-    location: np.ndarray
+    state: State = field(repr=False)
+
 
 @dataclass(frozen=True, order=True)
 class Type:
@@ -701,7 +702,6 @@ class _Option:
     params: Array
     # The memory dictionary for this option.
     memory: Dict = field(repr=False)
-
     def policy(self, state: State) -> Action:
         """Call the policy and set the action's option."""
         action = self._policy(state)
