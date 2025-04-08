@@ -1197,8 +1197,8 @@ def run_task_plan_once(
     init_atoms = utils.abstract(task.init, preds)
     goal = task.goal
     objects = set(task.init)
-    print ("\033[95mInit atoms:\033[0m")
-    print (init_atoms)
+    # print ("\033[95mInit atoms:\033[0m")
+    # print (init_atoms)
 
     start_time = time.perf_counter()
 
@@ -1243,7 +1243,8 @@ def run_task_plan_once(
                 
         except _MaxSkeletonsFailure:
             # No plans found
-            print ("\033[95mNo more plans found\033[0m")
+            pass
+            # print ("\033[95mNo more plans found\033[0m")
 
         # If previous plan exists, prioritize most similar plan
         if len(previous_plan) > 0 and len(plans) > 1: # only if there are multiple plans

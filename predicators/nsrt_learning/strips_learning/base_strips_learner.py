@@ -10,7 +10,7 @@ from predicators.planning import task_plan_with_option_plan_constraint
 from predicators.settings import CFG
 from predicators.structs import PNAD, DummyOption, GroundAtom, LiftedAtom, \
     LowLevelTrajectory, Object, OptionSpec, ParameterizedOption, Predicate, \
-    Segment, State, STRIPSOperator, Task, Variable, _GroundSTRIPSOperator
+    Segment, State, STRIPSOperator, Task, Variable, _GroundSTRIPSOperator, LiftedAtom_VarType
 
 
 class BaseSTRIPSLearner(abc.ABC):
@@ -321,7 +321,7 @@ class BaseSTRIPSLearner(abc.ABC):
 
     @staticmethod
     def _induce_preconditions_via_soft_intersection(
-            pnad: PNAD) -> Set[LiftedAtom]:
+            pnad: PNAD) -> Tuple[Set[LiftedAtom], Set[LiftedAtom_VarType]]:
         """Given a PNAD with a nonempty datastore, compute the preconditions
         for the PNAD's operator from a soft intersection of all lifted
         preimages.
@@ -335,19 +335,39 @@ class BaseSTRIPSLearner(abc.ABC):
             len(pnad.datastore) *
             CFG.precondition_soft_intersection_threshold_percent)
         lifted_atom_counts: dict[LiftedAtom, int] = defaultdict(int)
+        lifted_atom_counts_no_var: dict[LiftedAtom_VarType, int] = defaultdict(int)
 
-        for segment, var_to_obj in pnad.datastore:
+
+        for segment, var_to_obj, type_to_other_obj in pnad.datastore:
             objects = set(var_to_obj.values())
+            other_objects = set(type_to_other_obj.values())
+
             obj_to_var = {o: v for v, o in var_to_obj.items()}
-            atoms = {
+            obj_to_type_other = {o: v for v, o in type_to_other_obj.items()}
+            # Combine the two dictionaries into a single mapping
+            combined_obj_to_var = {}
+            combined_obj_to_var.update(obj_to_var)
+            combined_obj_to_var.update(obj_to_type_other)
+            atoms_from_parameters = {
                 atom
                 for atom in segment.init_atoms
-                if all(o in objects for o in atom.objects)
+                if all(o in objects | other_objects for o in atom.objects)
             }
-            lifted_atoms = {atom.lift(obj_to_var) for atom in atoms}
+
+            lifted_atoms = set()
+            lifted_atoms_no_var = set()
+            for atom in atoms_from_parameters:
+                try:
+                    lifted_atoms.add(atom.lift(obj_to_var))
+                except AssertionError:
+                    lifted_atoms_no_var.add(atom.lift_mix_var_type(combined_obj_to_var))
+
+                        #    {atom.lift(obj_to_type_other) for atom in atoms_from_parameters}
 
             for la in lifted_atoms:
                 lifted_atom_counts[la] += 1
+            for la in lifted_atoms_no_var:
+                lifted_atom_counts_no_var[la] += 1
 
         # Keep the lifted atoms that appear as preconditions in more than
         # threshold_count of the segments.
@@ -356,7 +376,13 @@ class BaseSTRIPSLearner(abc.ABC):
             for la, count in lifted_atom_counts.items()
             if count > threshold_count
         }
-        return preconditions
+        preconditions_no_var = {
+            la
+            for la, count in lifted_atom_counts_no_var.items()
+            if count > threshold_count
+        }
+
+        return preconditions, preconditions_no_var
 
     @staticmethod
     def _compute_pnad_delete_effects(pnad: PNAD) -> None:

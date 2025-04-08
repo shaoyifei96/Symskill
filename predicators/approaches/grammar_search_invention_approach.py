@@ -36,7 +36,8 @@ from predicators.envs.robo_kitchen import RoboKitchenEnv
 def _create_grammar(dataset: Dataset, given_predicates: Set[Predicate]) -> _PredicateGrammar:
 
     if CFG.grammar_search_use_trans_quat_features:
-        trans_grammar: _PredicateGrammar = _TranslationComponentComparisonGrammar(dataset)
+        # trans_grammar: _PredicateGrammar = _TranslationComponentComparisonGrammar(dataset)
+        trans_grammar: _PredicateGrammar = _EuclideanDistanceTranslationGrammar(dataset)
         rot_grammar: _PredicateGrammar = _RotationComparisonGrammar(dataset)
         grammar = _ChainPredicateGrammar([trans_grammar, rot_grammar], alternate=True)
 
@@ -201,7 +202,7 @@ class _RotationAlignmentClassifier(_BinaryClassifier):
     object1_type: Type
     object2_index: int
     object2_type: Type
-    attribute_name: str  # “quaternion”
+    attribute_name: str  # "quaternion"
     constant: float  # in radians
     constant_idx: int
     compare: Callable[[float, float], bool]
@@ -436,6 +437,50 @@ class _UnaryFreeForallClassifier(_UnaryClassifier):
         return vars_str, f"(∀ {head} . {body_str})"
 
 
+@dataclass(frozen=True, eq=False, repr=False)
+class _EuclideanDistanceTranslationClassifier(_BinaryClassifier):
+    """Compare the Euclidean distance between translation vectors of two objects
+    with a constant threshold."""
+
+    object1_index: int
+    object1_type: Type
+    object2_index: int
+    object2_type: Type
+    attribute_name: str  # Should be "translation"
+    squared_constant: float # Compare squared distance to avoid sqrt
+    constant_idx: int
+    compare: Callable[[float, float], bool]
+    compare_str: str
+
+    def _classify_object(self, s: State, obj1: Object, obj2: Object) -> bool:
+        # Allow checking against parent types if applicable
+        assert obj1.is_instance(self.object1_type)
+        assert obj2.is_instance(self.object2_type)
+        trans1 = s.get(obj1, self.attribute_name)
+        trans2 = s.get(obj2, self.attribute_name)
+        # Calculate squared Euclidean distance
+        diff = np.subtract(trans1, trans2)
+        dist_sq = np.sum(np.square(diff))
+        return self.compare(dist_sq, self.squared_constant)
+
+    def __str__(self) -> str:
+        # Display the actual distance threshold
+        dist_thresh = np.sqrt(self.squared_constant)
+        return (
+            f"(euclidean_dist(({self.object1_index}:{self.object1_type.name}).{self.attribute_name}, "
+            f"({self.object2_index}:{self.object2_type.name}).{self.attribute_name})"
+            f"{self.compare_str}[idx {self.constant_idx}]{dist_thresh:.3})"
+        )
+
+    def pretty_str(self) -> Tuple[str, str]:
+        name1 = CFG.grammar_search_classifier_pretty_str_names[self.object1_index]
+        name2 = CFG.grammar_search_classifier_pretty_str_names[self.object2_index]
+        dist_thresh = np.sqrt(self.squared_constant)
+        vars_str = f"{name1}:{self.object1_type.name}, {name2}:{self.object2_type.name}"
+        body_str = (f"euclidean_dist({name1}.{self.attribute_name}, {name2}.{self.attribute_name})"
+                    f" {self.compare_str} {dist_thresh:.3}")
+        return vars_str, body_str
+
 ################################################################################
 #                             Predicate grammars                               #
 ################################################################################
@@ -658,10 +703,12 @@ class _RotationComparisonGrammar(_DataBasedPredicateGrammar):
 
     dataset: Dataset
     attribute_name: str = field(default="quaternion")
-    angle_constants: np.ndarray = field(default_factory=lambda: np.linspace(np.pi, 0.01, 10))
+    # Use fixed angle thresholds in radians
+    fixed_angle_thresholds: List[float] = field(default_factory=lambda: [np.radians(10),np.radians(40), np.radians(90)])
 
     def enumerate(self) -> Iterator[Tuple[Predicate, float]]:
-        for constant_idx, constant in enumerate(self.angle_constants):
+        # Iterate through fixed thresholds
+        for constant_idx, constant in enumerate(self.fixed_angle_thresholds):
             for type1, type2 in itertools.combinations_with_replacement(sorted(self.types), 2):
                 if type1 == type2:
                     continue
@@ -671,6 +718,7 @@ class _RotationComparisonGrammar(_DataBasedPredicateGrammar):
                 types = [type1, type2]
                 pred = Predicate(name, types, classifier)
                 assert pred.arity == 2
+                # Assign fixed cost
                 yield (pred, 1)
 
 
@@ -843,6 +891,68 @@ class _EuclideanDistancePredicateGrammar(_SingleFeatureInequalitiesPredicateGram
                     assert pred.arity == 2
                     yield (pred, 2 + cost)  # cost = arity + cost from constant
 
+@dataclass(frozen=True, eq=False, repr=False)
+class _EuclideanDistanceTranslationGrammar(_DataBasedPredicateGrammar):
+    """Generates predicates of the form
+    EuclideanDistance(obj1.translation, obj2.translation) <= constant."""
+
+    dataset: Dataset
+    attribute_name: str = field(default="translation")
+    # Assuming translation has 3 components (x, y, z)
+    num_components: int = field(default=3)
+
+    # Use fixed distance thresholds (squared for efficiency)
+    fixed_squared_distance_thresholds: List[float] = field(default_factory=lambda: [0.02**2, 0.11**2])
+
+    # Define _get_feature_ranges specifically for this class
+    def _get_feature_ranges(self) -> Dict[Type, Dict[int, Tuple[float, float]]]:
+        # Use index as key instead of component name
+        feature_ranges: Dict[Type, Dict[int, Tuple[float, float]]] = {}
+        for traj in self.dataset.trajectories:
+            for state in traj.states:
+                for obj in state:
+                    if obj.type not in feature_ranges:
+                        feature_ranges[obj.type] = {}
+                        v = state.get(obj, self.attribute_name)
+                        # Iterate based on num_components
+                        for i in range(self.num_components):
+                            feature_ranges[obj.type][i] = (v[i], v[i])
+                    else:
+                        v = state.get(obj, self.attribute_name)
+                        # Iterate based on num_components
+                        for i in range(self.num_components):
+                            # Use index i as key
+                            mn, mx = feature_ranges[obj.type][i]
+                            feature_ranges[obj.type][i] = (min(mn, v[i]), max(mx, v[i]))
+        return feature_ranges
+
+    def enumerate(self) -> Iterator[Tuple[Predicate, float]]:
+        # feature_ranges = self._get_feature_ranges()
+        # # Check if any ranges were actually found
+        # if not any(t in feature_ranges and feature_ranges[t] for t in self.types):
+        #      logging.warning("No feature ranges found for translation. Skipping EuclideanDistanceTranslationGrammar.")
+        #      return
+
+        # Iterate through fixed squared distance thresholds
+        for constant_idx, k_sq in enumerate(self.fixed_squared_distance_thresholds):
+            # Consider pairs of *different* types
+            for type1, type2 in itertools.combinations(sorted(self.types), 2):
+
+                # We don't need the feature ranges or scaling logic anymore
+                # because we are using fixed absolute thresholds.
+
+                # We only generate "<=" predicates; negation can handle ">"
+                comp, comp_str = le, "<="
+
+                classifier = _EuclideanDistanceTranslationClassifier(
+                    0, type1, 1, type2, self.attribute_name, k_sq, constant_idx, comp, comp_str)
+
+                name = str(classifier)
+                types = [type1, type2]
+                pred = Predicate(name, types, classifier)
+                assert pred.arity == 2
+                # Assign fixed cost
+                yield (pred, 1.0)
 
 @dataclass(frozen=True, eq=False, repr=False)
 class _GivenPredicateGrammar(_PredicateGrammar):

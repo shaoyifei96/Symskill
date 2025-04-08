@@ -10,7 +10,7 @@ from predicators import utils
 from predicators.nsrt_learning.strips_learning import BaseSTRIPSLearner
 from predicators.settings import CFG
 from predicators.structs import PNAD, Datastore, DummyOption, LiftedAtom, \
-    ParameterizedOption, Predicate, STRIPSOperator, VarToObjSub
+    ParameterizedOption, Predicate, STRIPSOperator, VarToObjSub, Type
 
 
 class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
@@ -28,6 +28,27 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
             else:
                 segment_param_option = DummyOption.parent
                 segment_option_objs = tuple()
+
+
+                    # 1. Identify objects directly involved in effects (moved up to be reused)
+            effect_objects = {o for atom in segment.add_effects | segment.delete_effects for o in atom.objects} | set(segment_option_objs)
+            
+            # 2. Find initial atoms involving any effect object (moved up to be reused)
+            relevant_initial_atoms = {atom for atom in segment.init_atoms 
+                                    if any(o in effect_objects for o in atom.objects)}
+            
+            # 3. Get all objects from these relevant initial atoms (moved up to be reused)
+            if False:#CFG.include_all_or_relevant_objects:
+                other_objs = {o for atom in relevant_initial_atoms for o in atom.objects} - effect_objects
+            else:
+                other_objs = set(segment.states[0]) - effect_objects
+            
+            other_objs = sorted(other_objs)
+            params_from_relevant_atoms = [o.type for o in other_objs]
+            type_to_obj_other = dict(zip(params_from_relevant_atoms, other_objs))
+            # Create these mappings for this segment regardless of whether it's added to existing PNAD or creates new one
+            
+            
             for pnad in pnads:
                 # Try to unify this transition with existing effects.
                 # Note that both add and delete effects must unify,
@@ -49,20 +70,20 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
                             for o, v in ent_to_ent_sub.items()})
                 if suc:
                     # Add to this PNAD.
-                    assert set(sub.keys()) == set(pnad.op.parameters)
-                    pnad.add_to_datastore((segment, sub))
+                    
+                    assert set(sub.keys()).issubset(set(pnad.op.parameters))
+                    pnad.add_to_datastore((segment, sub, type_to_obj_other))
                     break
             else:
                 # Otherwise, create a new PNAD.
-                objects = {o for atom in segment.add_effects |
-                           segment.delete_effects for o in atom.objects} | \
-                          set(segment_option_objs)
-                objects_lst = sorted(objects)
+
+                objects_lst = sorted(effect_objects)
                 params = utils.create_new_variables(
                     [o.type for o in objects_lst])
                 preconds: Set[LiftedAtom] = set()  # will be learned later
                 obj_to_var = dict(zip(objects_lst, params))
                 var_to_obj = dict(zip(params, objects_lst))
+
                 add_effects = {
                     atom.lift(obj_to_var)
                     for atom in segment.add_effects
@@ -75,7 +96,7 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
                 op = STRIPSOperator(f"Op{len(pnads)}", params, preconds,
                                     add_effects, delete_effects,
                                     ignore_effects)
-                datastore = [(segment, var_to_obj)]
+                datastore = [(segment, var_to_obj, type_to_obj_other)]
                 option_vars = [obj_to_var[o] for o in segment_option_objs]
                 option_spec = (segment_param_option, option_vars)
                 pnads.append(PNAD(op, datastore, option_spec))
@@ -117,15 +138,38 @@ class ClusterAndIntersectSTRIPSLearner(ClusteringSTRIPSLearner):
         new_pnads = []
         for pnad in pnads:
             if CFG.cluster_and_intersect_soft_intersection_for_preconditions:
-                preconditions = \
+                preconditions, preconditions_no_var = \
                     self._induce_preconditions_via_soft_intersection(pnad)
             else:
                 preconditions = self._induce_preconditions_via_intersection(
                     pnad)
             # Since we are taking an intersection, we're guaranteed that the
             # datastore can't change, so we can safely use pnad.datastore here.
+            current_params = pnad.op.parameters
+            # Extract variables from preconditions
+            extra_param_types = set()
+            for atom in preconditions_no_var:
+                extra_param_types.update(ent for ent in atom.entities if isinstance(ent, Type))
+            # Handle preconditions with Type parameters if soft intersection was used
+            # Sort extra_param_types for deterministic behavior
+            sorted_extra_param_types = sorted(extra_param_types, key=str)
+            
+            # Create new variables for each Type parameter
+            new_vars_to_add = utils.create_new_variables(sorted_extra_param_types, current_params)
+            new_vars_to_add_dict = dict(zip(sorted_extra_param_types, new_vars_to_add))
+            # Convert LiftedAtom_VarType to proper LiftedAtom by replacing Type with Variable
+            additional_preconditions = set()
+            for atom in preconditions_no_var:
+                additional_preconditions.add(atom.convert_to_lifted_atom(new_vars_to_add_dict))
+            
+            # Combine all preconditions
+            preconditions = preconditions.union(additional_preconditions)
+
+            
+            new_params = list(current_params) + new_vars_to_add
             new_pnads.append(
-                PNAD(pnad.op.copy_with(preconditions=preconditions),
+                PNAD(pnad.op.copy_with(parameters=new_params,
+                                     preconditions=preconditions),
                      pnad.datastore, pnad.option_spec))
         return new_pnads
 
@@ -181,9 +225,17 @@ class ClusterAndSearchSTRIPSLearner(ClusteringSTRIPSLearner):
                 pnad, positive_data, negative_data)
             for j, preconditions in enumerate(all_preconditions_to_datastores):
                 datastore = all_preconditions_to_datastores[preconditions]
+                current_params = pnad.op.parameters
+                precondition_vars = {v for atom in preconditions for v in atom.variables}
+                existing_param_set = set(current_params)
+                new_vars_to_add = sorted(
+                    [v for v in precondition_vars if v not in existing_param_set],
+                    key=lambda v: v.name)
+                new_params = list(current_params) + new_vars_to_add
                 new_pnads.append(
                     PNAD(
                         pnad.op.copy_with(name=f"{pnad.op.name}-{j}",
+                                          parameters=new_params,
                                           preconditions=preconditions),
                         datastore, pnad.option_spec))
         return new_pnads
