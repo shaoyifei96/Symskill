@@ -460,12 +460,12 @@ class RoboKitchenEnv(BaseEnv):
                 translation = np.array([val[0], val[1], val[2]])
                 quaternion = np.array([val[3], val[4], val[5], val[6]])
                 state_dict[obj] = {"translation": translation, "quaternion": quaternion}
-            # elif key.endswith("_quat"):
-            #     obj_name = key[:-5]  # Remove _pos
-            #     translation = np.array(state_info[key[:-5] + "_pos"])
-            #     quaternion = np.array(val)
-            #     obj = cls.object_name_to_object(obj_name)
-            #     state_dict[obj] = {"translation": translation, "quaternion": quaternion}
+            elif key.endswith("_quat"):
+                obj_name = key[:-5]  # Remove _pos
+                translation = np.array(state_info[key[:-5] + "_pos"])
+                quaternion = np.array(val)
+                obj = cls.object_name_to_object(obj_name)
+                state_dict[obj] = {"translation": translation, "quaternion": quaternion}
 
         state = utils.create_state_from_dict(state_dict)
         state.simulator_state = {}
