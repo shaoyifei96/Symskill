@@ -44,7 +44,7 @@ class RoboKitchenEnv(BaseEnv):
     hinge_open_thresh = 0.9  # rad
     door_half_open_thresh = 0.4  # rad
     close_distance_thresh = 0.02  # m
-    gripper_fingers_distance_thresh = 0.08  # m
+    gripper_fingers_distance_thresh = 0.1  # m
     offset_inwards_from_handle = 0.10  # m
 
     # Types

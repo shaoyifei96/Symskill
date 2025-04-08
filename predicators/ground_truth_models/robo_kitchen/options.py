@@ -4,17 +4,9 @@ from typing import ClassVar, Dict, Sequence, Set, Optional, Type, Tuple, Any
 
 import numpy as np
 import os
-import sys
-import threading
-import random
 import torch
 from gym.spaces import Box
 import mujoco
-import dash
-from dash import dcc, html
-from dash.dependencies import Input, Output
-import plotly.graph_objects as go
-from flask import request
 
 import matplotlib.pyplot as plt
 
@@ -68,6 +60,10 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
         gripper = types["gripper_type"]
         handle = types["handle_type"]
         base = types["base_type"]
+        door = types["door_type"]
+        cabinet = types["cabinet_type"]
+        left_finger = types["left_finger_type"]
+        right_finger = types["right_finger_type"]
 
         options: Set[ParameterizedOption] = set()
 
@@ -533,7 +529,7 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
 
         def _ReachBehindandPull_option_terminal(state: State, memory: Dict, objects: Sequence[Object], params: Array) -> bool:
             gripper, _, base = objects
-            gripper_pos = np.array([state.get(gripper, "x"), state.get(gripper, "y"), state.get(gripper, "z")])
+            gripper_pos = state.get(gripper, "translation")
             
             # Store previous gripper position if not already in memory
             if "prev_gripper_pos" not in memory:
@@ -623,22 +619,24 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
         def _GripperClose_option_terminal(state: State, memory: Dict, objects: Sequence[Object], params: Array) -> bool:
             # Get current gripper quaternion
             left_finger, right_finger = objects
-            curr_quat = state.get(left_finger, "quaternion")
+            left_finger_pos = state.get(left_finger, "translation")
+            right_finger_pos = state.get(right_finger, "translation")
+            curr_distance = np.linalg.norm(left_finger_pos - right_finger_pos)
 
-            # Store previous quaternion in memory if not already there
-            if "prev_quat" not in memory:
-                memory["prev_quat"] = curr_quat
+            # Store previous distance in memory if not already there
+            if "prev_distance" not in memory:
+                memory["prev_distance"] = curr_distance
                 return False
 
-            # Check if quaternion hasn't changed and gripper is closed
-            quat_unchanged = np.allclose(curr_quat, memory["prev_quat"], atol=1e-3)
+            # Check if distance hasn't changed and gripper is closed
+            distance_unchanged = np.allclose(curr_distance, memory["prev_distance"], atol=1e-3)
             # Use the finger objects passed in
             is_closed = RoboKitchenEnv._GripperClosed_holds(state, [left_finger, right_finger])
 
             # Update memory
-            memory["prev_quat"] = curr_quat
+            memory["prev_distance"] = curr_distance
 
-            return quat_unchanged and is_closed
+            return distance_unchanged and is_closed
 
         GripperClose_option = ParameterizedOption(
             "GripperClose_option",
