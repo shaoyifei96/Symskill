@@ -22,8 +22,6 @@ from scipy.spatial.distance import pdist
 from numpy.linalg import inv, norm, det, LinAlgError
 
 import matplotlib
-matplotlib.use('TkAgg') # Set backend *before* importing pyplot
-
 # Import dill for pickling
 import dill as pkl
 
