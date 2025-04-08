@@ -66,7 +66,7 @@ class RoboKitchenGroundTruthNSRTFactory(GroundTruthNSRTFactory):
         delete_effects = {LiftedAtom(DoorHalfOpen, [door, cabinet])}
         ignore_effects = set()
         option = ReachBehindandPull_option
-        option_vars = [gripper, handle, base, door, cabinet, left_finger, right_finger]
+        option_vars = [gripper, handle, base]
 
         def reach_behind_and_pull_sampler(state: State, memory: dict, objects: Sequence[Object], params: Array) -> Array:
             return np.array([0], dtype=np.float32)
