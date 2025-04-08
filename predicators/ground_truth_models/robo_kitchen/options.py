@@ -170,12 +170,14 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
             for idx in range(len(memory["fail_memory"])-1, -1, -1):
                 if memory["fail_memory"][idx].option_name == option_name:
                     gripper = RoboKitchenEnv.object_name_to_object("gripper")
-                    gripper_pos, gripper_quat = get_pos_quat_from_mujoco_state(memory["fail_memory"][idx].state, gripper)
+                    gripper_pos = memory["fail_memory"][idx].state.get(gripper, "translation")
+                    gripper_quat = memory["fail_memory"][idx].state.get(gripper, "quaternion")
                     
                     # If reference position/rotation not provided, use handle state
                     if reference_pos is None or reference_rot is None:
                         handle = RoboKitchenEnv.object_name_to_object("handle")
-                        handle_pos, handle_quat = get_pos_quat_from_mujoco_state(memory["fail_memory"][idx].state, handle)
+                        handle_pos = memory["fail_memory"][idx].state.get(handle, "translation")
+                        handle_quat = memory["fail_memory"][idx].state.get(handle, "quaternion")
                         ref_pos = handle_pos
                         ref_rot = R.from_quat(handle_quat).as_matrix()
                     else:
@@ -260,9 +262,13 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
                     rel_gripper_visualizer_rot = np.array([[0, 0, 1], # NOTE: this is a "correction" term: to rotate gripper's frame to visualize in the way we want
                                                           [1, 0, 0],
                                                           [0, 1, 0]])
-                    CFG.visualizer.update_robot_position(pos_in_handle, xyzw_to_wxyz(R.from_matrix(rot_in_handle @ rel_gripper_visualizer_rot).as_quat()))
+                    gripper_quat_in_visualizer_xyzw = R.from_matrix(rot_in_handle @ rel_gripper_visualizer_rot).as_quat()
+                    gripper_quat_in_visualizer_wxyz = np.array([gripper_quat_in_visualizer_xyzw[3], gripper_quat_in_visualizer_xyzw[0], gripper_quat_in_visualizer_xyzw[1], gripper_quat_in_visualizer_xyzw[2]])
+                    CFG.visualizer.update_robot_position(pos_in_handle, gripper_quat_in_visualizer_wxyz)
                     CFG.visualizer.update_ref_traj(ds_policy.ref_traj_idx)
-                    CFG.visualizer.update_ref_point(ds_policy.x[ds_policy.ref_traj_idx][ds_policy.ref_point_idx], xyzw_to_wxyz(R.from_matrix(rot_in_handle @ rel_gripper_visualizer_rot).as_quat()))
+                    ref_quat_in_visualizer_xyzw = R.from_matrix(rot_in_handle @ rel_gripper_visualizer_rot).as_quat()
+                    ref_quat_in_visualizer_wxyz = np.array([ref_quat_in_visualizer_xyzw[3], ref_quat_in_visualizer_xyzw[0], ref_quat_in_visualizer_xyzw[1], ref_quat_in_visualizer_xyzw[2]])
+                    CFG.visualizer.update_ref_point(ds_policy.x[ds_policy.ref_traj_idx][ds_policy.ref_point_idx], ref_quat_in_visualizer_wxyz)
                     
                 x_dot_handle = vel[:3]
                 r_dot_handle = vel[3:]
@@ -407,7 +413,7 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
         
         def _DS_move_away_terminal(state: State, memory: Dict, objects: Sequence[Object], params: Array) -> bool:
             gripper, _, base = objects
-            gripper_pos, gripper_quat = get_pos_quat_from_mujoco_state(state, gripper)
+            gripper_pos = state.get(gripper, "translation")
             
             # Store previous gripper position if not already in memory
             if "prev_gripper_pos" not in memory:
