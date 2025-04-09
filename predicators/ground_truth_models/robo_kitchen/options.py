@@ -121,34 +121,34 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
 
         def frame_transform(source_pos: np.ndarray, source_quat: np.ndarray, reference_pos: np.ndarray, reference_rot: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:                
             source_rotation = R.from_quat(source_quat).as_matrix()
-            
+
             relative_position = source_pos - reference_pos
-            
+
             position_in_reference = reference_rot.T @ relative_position
             rotation_in_reference = reference_rot.T @ source_rotation
-            
+
             return position_in_reference, rotation_in_reference
-        
-        def _is_robot_stuck(memory: Dict, velocity: float, velocity_threshold: float = 0.005, stuck_time_threshold: int = 10) -> bool:
+
+        def _is_robot_stuck(memory: Dict, velocity: float, velocity_threshold: float = 0.001, stuck_time_threshold: int = 10) -> bool:
             # Initialize velocity history if not already in memory
             if "velocity_history" not in memory:
                 memory["velocity_history"] = []
-            
+
             # Add current velocity to history
             memory["velocity_history"].append(velocity)
-            
+
             # Keep only the most recent velocities for memory efficiency
             if len(memory["velocity_history"]) > stuck_time_threshold + 10:
                 memory["velocity_history"] = memory["velocity_history"][-stuck_time_threshold - 10:]
-            
+
             # Check if we have enough history to make a determination
             if len(memory["velocity_history"]) < stuck_time_threshold:
                 return False
-            
+
             # Check if the robot has been moving slowly for the threshold duration
             recent_velocities = memory["velocity_history"][-stuck_time_threshold:]
             return all(v < velocity_threshold for v in recent_velocities)
-        
+
         def _process_fail_memory(memory: Dict, option_name: str, reference_pos: Optional[np.ndarray] = None, reference_rot: Optional[np.ndarray] = None) -> None:
             """Process fail memory entries for a specific option and update demo trajectory probabilities.
             
@@ -160,13 +160,13 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
             """
             if "fail_memory" not in memory or not memory["fail_memory"]:
                 return
-                
+
             for idx in range(len(memory["fail_memory"])-1, -1, -1):
                 if memory["fail_memory"][idx].option_name == option_name:
                     gripper = RoboKitchenEnv.object_name_to_object("gripper")
                     gripper_pos = memory["fail_memory"][idx].state.get(gripper, "translation")
                     gripper_quat = memory["fail_memory"][idx].state.get(gripper, "quaternion")
-                    
+
                     # If reference position/rotation not provided, use handle state
                     if reference_pos is None or reference_rot is None:
                         handle = RoboKitchenEnv.object_name_to_object("handle")
@@ -177,27 +177,27 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
                     else:
                         ref_pos = reference_pos
                         ref_rot = reference_rot
-                    
+
                     # Transform gripper state to reference frame
                     gripper_pos_in_ref, gripper_rot_in_ref = frame_transform(
                         gripper_pos, gripper_quat, ref_pos, ref_rot
                     )
                     gripper_quat_in_ref = R.from_matrix(gripper_rot_in_ref).as_quat()
-                    
+
                     # Update demo trajectory probabilities
                     memory["ds_policy"].update_demo_traj_probs(
                         np.concatenate([gripper_pos_in_ref, gripper_quat_in_ref]),
                         "ref_point", penalty=0.8, traj_threshold=0.2, radius=0.02,
                         angle_threshold=np.pi/2, lookahead=10
                     )
-                    
+
                     # Remove processed entry
                     memory["fail_memory"].pop(idx)
 
         """---------------------------------- Helper function ends ----------------------------------"""
 
         """---------------------------------- general move option starts ----------------------------------"""
-        
+
         def _DS_general_move_option_policy(state: State, memory: Dict, objects: Sequence[Object], params: Array) -> Action:
             # Get objects
             gripper, _, base = objects
@@ -244,7 +244,7 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
                 arr = np.zeros(7, dtype=np.float32)
                 arr[:3] = velocity_robot_base
                 arr[3:6] = 0.8 * robot_base_w
-            
+
             elif "ds_policy" in memory:
                 # Use DS policy
                 ds_policy = memory["ds_policy"]
@@ -263,7 +263,7 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
                     ref_quat_in_visualizer_xyzw = R.from_matrix(rot_in_handle @ rel_gripper_visualizer_rot).as_quat()
                     ref_quat_in_visualizer_wxyz = np.array([ref_quat_in_visualizer_xyzw[3], ref_quat_in_visualizer_xyzw[0], ref_quat_in_visualizer_xyzw[1], ref_quat_in_visualizer_xyzw[2]])
                     CFG.visualizer.update_ref_point(ds_policy.x[ds_policy.ref_traj_idx][ds_policy.ref_point_idx], ref_quat_in_visualizer_wxyz)
-                    
+
                 x_dot_handle = vel[:3]
                 r_dot_handle = vel[3:]
                 x_dot_world = handle_rot @ x_dot_handle
@@ -290,7 +290,7 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
             arr = np.clip(arr, action_low, action_high)
 
             return Action(arr)
-        
+
         def _DS_general_move_option_policy_move_away_gripper_closed(state: State, memory: Dict, objects: Sequence[Object], params: Array) -> Action:
             """
             NOTE: this is a cheat. hardcoded gripper closed for move away option
@@ -322,9 +322,9 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
                 CFG.option_to_policy["DS_move_towards_option"] = memory["ds_policy"]
             else:
                 memory["ds_policy"] = CFG.option_to_policy["DS_move_towards_option"]
-            
+
             _process_fail_memory(memory, "DS_move_towards_option")
-            
+
             if CFG.visualizer:
                 CFG.visualizer.set_demo_trajs(memory["ds_policy"].x, memory["ds_policy"].demo_traj_probs)
 
@@ -336,7 +336,7 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
             gripper_pos = state.get(gripper, "translation")
             gripper_quat = state.get(gripper, "quaternion")
             gripper_pos_in_handle, _ = frame_transform(gripper_pos, gripper_quat, memory["handle_pos"], memory["handle_rot"])
-            
+
             # Store previous gripper position if not already in memory
             if "prev_gripper_pos" not in memory:
                 memory["prev_gripper_pos"] = gripper_pos
@@ -345,17 +345,17 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
             # Update previous gripper position
             velocity = np.linalg.norm(gripper_pos - memory["prev_gripper_pos"])
             memory["prev_gripper_pos"] = gripper_pos
-            
+
             # Check if the robot is stuck (velocity too small for too long)
             if _is_robot_stuck(memory, velocity):
                 return True
-            
+
             # Original success condition
             if np.linalg.norm(gripper_pos_in_handle[0]) <= 0.1 and \
                 gripper_pos_in_handle[1] > 0 and \
                 velocity < 0.01:
                 return True
-            
+
             return False
 
         DS_move_towards_option = ParameterizedOption(
@@ -379,7 +379,7 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
                 memory["model"] = _create_simple_ds_model()
             memory["handle_pos"], memory["handle_rot"] = _init_handle_transform(state, objects, offset_handle_frame=np.array([-0.6, -0.6, 0.0]))
             return True
-        
+
         def _DS_move_away_option_initiable_node(state: State, memory: Dict, objects: Sequence[Object], params: Array) -> bool:
             if "DS_move_away_option" not in CFG.option_to_init_pose:
                 memory["handle_pos"], memory["handle_rot"] = _init_handle_transform(state, objects, offset_handle_frame=np.array([0.0, 0.0, 0.0]))
@@ -399,29 +399,29 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
             _process_fail_memory(memory, "DS_move_away_option", 
                                 reference_pos=CFG.option_to_init_pose["DS_move_away_option"][0],
                                 reference_rot=CFG.option_to_init_pose["DS_move_away_option"][1])
-            
+
             if CFG.visualizer:
                 CFG.visualizer.set_demo_trajs(memory["ds_policy"].x, memory["ds_policy"].demo_traj_probs)
-                
+
             return True
-        
+
         def _DS_move_away_terminal(state: State, memory: Dict, objects: Sequence[Object], params: Array) -> bool:
             gripper, _, base = objects
             gripper_pos = state.get(gripper, "translation")
-            
+
             # Store previous gripper position if not already in memory
             if "prev_gripper_pos" not in memory:
                 memory["prev_gripper_pos"] = gripper_pos
                 return False
-            
+
             # Calculate velocity
             velocity = np.linalg.norm(gripper_pos - memory["prev_gripper_pos"])
             memory["prev_gripper_pos"] = gripper_pos
-            
+
             # Check if the robot is stuck (velocity too small for too long)
             if _is_robot_stuck(memory, velocity):
                 return True
-            
+
             return False
 
         DS_move_away_option = ParameterizedOption(
@@ -441,9 +441,9 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
 
         # ReachBehindandPull_option
         def _ReachBehindandPull_option_initiable_linear(state: State, memory: Dict, objects: Sequence[Object], params: Array) -> bool:
-            # in memory, add a few waypoints, move first downwards, -z, then move forward, x, then move upwards, z, then -x 
+            # in memory, add a few waypoints, move first downwards, -z, then move forward, x, then move upwards, z, then -x
             # raise ValueError("ReachBehindandPull_option_initiable is not working, frame of waypoints is not correct")
-            #print in red 
+            # print in red
             waypoints = [
                 np.array([0.0, -0.1, 0.0]),
                 np.array([0.2, -0.1, 0.0]), 
@@ -453,7 +453,7 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
             memory["num_waypoints"] = len(waypoints)
             memory["waypoints"] = []
             memory["current_waypoint"] = 0
-            
+
             for i, waypoint in enumerate(waypoints):
                 model = _create_simple_ds_model()
                 handle_pos, handle_rot = _init_handle_transform(
@@ -473,7 +473,7 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
                 memory["waypoints"].append(handle_pos)
 
             return True
-        
+
         def _ReachBehindandPull_option_initiable_node(state: State, memory: Dict, objects: Sequence[Object], params: Array) -> bool:
             memory["handle_pos"], memory["handle_rot"] = _init_handle_transform(state, objects, offset_handle_frame=np.array([0.0, 0.0, 0.0]))
 
@@ -493,23 +493,23 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
         def _ReachBehindandPull_option_policy(state: State, memory: Dict, objects: Sequence[Object], params: Array) -> Action:
             if memory["current_waypoint"] == len(memory["waypoints"]):
                 return Action(np.zeros(7, dtype=np.float32))
-            
+
             # Get current gripper position and transform to handle frame
             gripper_state = state.vec([objects[0]])
             # Store previous state if not already stored
             if "prev_gripper_state" not in memory:
                 memory["prev_gripper_state"] = gripper_state
-            
+
             # Check if gripper is not moving much
             # gripper_movement = np.linalg.norm(gripper_state[:3] - memory["prev_gripper_state"][:3])
             # if gripper_movement < 0.01:
             #     memory["stationary_count"] += 1
             # else:
             #     memory["stationary_count"] = 0
-                
+
             # # Update previous state
             # memory["prev_gripper_state"] = gripper_state
-            
+
             # If within threshold of current waypoint or gripper is stuck, move to next one
             print (np.linalg.norm(gripper_state[:3] - memory["waypoints"][memory["current_waypoint"]]))
             if (np.linalg.norm(gripper_state[:3] - memory["waypoints"][memory["current_waypoint"]]) < 0.06):
@@ -522,28 +522,28 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
                 memory["model"] = memory[f"model{memory['current_waypoint']}"]
                 memory["handle_pos"] = memory[f"handle_pos{memory['current_waypoint']}"]
                 memory["handle_rot"] = memory[f"handle_rot{memory['current_waypoint']}"]
-                
+
             return _DS_general_move_option_policy(state, memory, objects, params)
 
         def _ReachBehindandPull_option_terminal(state: State, memory: Dict, objects: Sequence[Object], params: Array) -> bool:
             gripper, _, base = objects
             gripper_pos = state.get(gripper, "translation")
-            
+
             # Store previous gripper position if not already in memory
             if "prev_gripper_pos" not in memory:
                 memory["prev_gripper_pos"] = gripper_pos
                 return False
-            
+
             # Calculate velocity
             velocity = np.linalg.norm(gripper_pos - memory["prev_gripper_pos"])
             memory["prev_gripper_pos"] = gripper_pos
-            
+
             # Check if the robot is stuck (velocity too small for too long)
             if _is_robot_stuck(memory, velocity):
                 return True
-            
+
             return False
-            
+
         ReachBehindandPull_option = ParameterizedOption(
             "ReachBehindandPull_option",
             types=[gripper, handle, base],
@@ -587,10 +587,6 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
             memory["prev_quat"] = curr_quat
 
             return quat_unchanged and is_open
-
-        # Get finger types
-        left_finger = types["left_finger_type"]
-        right_finger = types["right_finger_type"]
 
         GripperOpen_option = ParameterizedOption(
             "GripperOpen_option",
