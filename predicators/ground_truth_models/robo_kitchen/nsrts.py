@@ -83,7 +83,7 @@ class RoboKitchenGroundTruthNSRTFactory(GroundTruthNSRTFactory):
             reach_behind_and_pull_sampler,
             maintain_effects,
         )
-        nsrts.add(reach_behind_and_pull_nsrt)
+        # nsrts.add(reach_behind_and_pull_nsrt)
 
 
         # OpenGripper

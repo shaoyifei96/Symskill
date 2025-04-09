@@ -7,19 +7,19 @@ from typing import Optional
 from scipy.spatial.transform import Rotation as R
 
 class MeshcatVisualizer:
-    def __init__(self, demo_trajs: Optional[list[np.ndarray]] = None, demo_traj_probs: Optional[np.ndarray] = None):
+    def __init__(self, demo_trajs: Optional[list[np.ndarray]] = None, demo_traj_scores: Optional[np.ndarray] = None):
         self.vis = meshcat.Visualizer()
         self.vis.open()
         self.vis["/Grid"].set_property("visible", False)
         self.vis["/Background"].set_property("visible", False)
 
         self.demo_trajs = demo_trajs
-        self.demo_traj_probs = demo_traj_probs
+        self.demo_traj_scores = demo_traj_scores
         self.generated_traj = []
 
         # Define colors for interpolation
-        self.low_prob_color = np.array([128, 0, 128])  # Purple RGB
-        self.high_prob_color = np.array([255, 165, 0])  # Orange RGB
+        self.high_prob_color = np.array([128, 0, 128])  # Purple RGB
+        self.low_prob_color = np.array([255, 165, 0])  # Orange RGB
         self.robot_color = np.array([255, 0, 0])  # Red RGB for robot
         self.ref_traj_color = np.array([0, 0, 255])  # Blue RGB for ref traj
 
@@ -44,10 +44,11 @@ class MeshcatVisualizer:
                                                 g.MeshBasicMaterial(color=color_array_to_hex(self.ref_traj_color)))
         self.vis["ref_point"]["marker"].set_transform(marker_transform)
 
-        if self.demo_trajs is not None and self.demo_traj_probs is not None:
+        if self.demo_trajs is not None and self.demo_traj_scores is not None:
+            self.demo_traj_scores = rescale(self.demo_traj_scores)
             for i in range(len(self.demo_trajs)):
                 # Interpolate between purple (low prob) and orange (high prob)
-                rgb = self._interpolate_color(self.demo_traj_probs[i])
+                rgb = self._interpolate_color(self.demo_traj_scores[i])
                 
                 self.vis[f"traj_{i}"].set_object(g.Line(
                     g.PointsGeometry(self.demo_trajs[i].T),
@@ -59,16 +60,17 @@ class MeshcatVisualizer:
         rgb = self.low_prob_color + probability * (self.high_prob_color - self.low_prob_color)
         return rgb.astype(int)
 
-    def set_demo_trajs(self, demo_trajs: list[np.ndarray], demo_traj_probs: Optional[np.ndarray] = None):
+    def set_demo_trajs(self, demo_trajs: list[np.ndarray], demo_traj_scores: Optional[np.ndarray] = None):
         if self.demo_trajs is not None: 
             for i in range(len(self.demo_trajs)):
                 self.vis[f"traj_{i}"].delete()
         self.demo_trajs = demo_trajs
-        self.demo_traj_probs = demo_traj_probs if demo_traj_probs is not None else np.ones(len(demo_trajs))
-        if self.demo_trajs is not None and self.demo_traj_probs is not None:
+        self.demo_traj_scores = demo_traj_scores if demo_traj_scores is not None else np.ones(len(demo_trajs))
+        if self.demo_trajs is not None and self.demo_traj_scores is not None:
+            self.demo_traj_scores = rescale(self.demo_traj_scores)
             for i in range(len(self.demo_trajs)):
                 # Interpolate between purple (low prob) and orange (high prob)
-                rgb = self._interpolate_color(self.demo_traj_probs[i])
+                rgb = self._interpolate_color(self.demo_traj_scores[i])
                 
                 self.vis[f"traj_{i}"].set_object(g.Line(
                     g.PointsGeometry(self.demo_trajs[i].T),
@@ -84,13 +86,14 @@ class MeshcatVisualizer:
             transform = translation
         self.vis["robot"].set_transform(transform)
 
-    def update_demo_traj_probs(self, demo_traj_probs: list[float]):
+    def update_demo_traj_colors(self, demo_traj_scores: list[float]):
+        demo_traj_scores = rescale(demo_traj_scores)
         for i in range(len(self.demo_trajs)):
             # Store the new probability
-            self.demo_traj_probs[i] = float(demo_traj_probs[i])
+            self.demo_traj_scores[i] = float(demo_traj_scores[i])
             
             # Interpolate between purple (low prob) and orange (high prob)
-            rgb = self._interpolate_color(self.demo_traj_probs[i])
+            rgb = self._interpolate_color(self.demo_traj_scores[i])
             
             # Recreate the line with updated material
             self.vis[f"traj_{i}"].set_object(g.Line(
@@ -115,6 +118,12 @@ class MeshcatVisualizer:
 
     def shutdown(self):
         self.vis.close()
+
+def rescale(scores: np.ndarray) -> np.ndarray:
+    max_score = np.max(scores)
+    min_score = np.min(scores)
+    return (scores - min_score) / (max_score - min_score)
+
 
 def color_array_to_hex(color: np.ndarray) -> int:
     return float((color[0] << 16) | (color[1] << 8) | color[2])

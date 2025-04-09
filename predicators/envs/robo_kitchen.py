@@ -41,7 +41,7 @@ MAX_ROTATION_DISPLACEMENT = 1.0
 class RoboKitchenEnv(BaseEnv):
     """Kitchen environment using robosuite."""
 
-    hinge_open_thresh = 0.9  # rad
+    hinge_open_thresh = 1.3  # rad
     door_half_open_thresh = 0.4  # rad
     close_distance_thresh = 0.02  # m
     gripper_fingers_distance_thresh = 0.1  # m
@@ -235,7 +235,7 @@ class RoboKitchenEnv(BaseEnv):
                     "controller_configs": controller_config,
                     "layout_ids": 2,
                     "style_ids": 0,
-                    "translucent_robot": True,
+                    "translucent_robot": False,
                 }
 
                 print(colored(f"Initializing environment for task: {task_name}", "yellow"))
