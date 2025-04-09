@@ -45,7 +45,9 @@ class RoboKitchenEnv(BaseEnv):
     door_half_open_thresh = 0.4  # rad
     close_distance_thresh = 0.02  # m
     gripper_fingers_distance_thresh = 0.08  # m
+    gripper_fingers_distance_thresh = 0.08  # m
     offset_inwards_from_handle = 0.10  # m
+    close_distance_thresh = 0.05  # m
     close_distance_thresh = 0.05  # m
 
     # Types
@@ -56,6 +58,9 @@ class RoboKitchenEnv(BaseEnv):
     left_finger_type = Type("left_finger_type", ["translation", "quaternion"], parent=object_type)
     right_finger_type = Type("right_finger_type", ["translation", "quaternion"], parent=object_type)
     cabinet_type = Type("cabinet_type", ["translation", "quaternion"], parent=object_type)
+    handle_type = Type("handle_type", ["translation", "quaternion"], parent=object_type)
+    surface_type = Type("surface_type", ["translation", "quaternion"], parent=object_type)
+    thing_type = Type("thing_type", ["translation", "quaternion"], parent=object_type)
     handle_type = Type("handle_type", ["translation", "quaternion"], parent=grab_type)
     surface_type = Type("surface_type", ["translation", "quaternion"], parent=object_type)
     thing_type = Type("thing_type", ["translation", "quaternion"], parent=grab_type)
