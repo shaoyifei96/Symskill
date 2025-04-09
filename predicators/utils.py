@@ -2204,7 +2204,7 @@ def strip_predicate(predicate: Predicate) -> Predicate:
 def strip_task(task: Task, included_predicates: Set[Predicate]) -> Task:
     """Create a new task where any excluded goal predicates have their
     classifiers removed."""
-    stripped_goal: Set[GroundAtom] = set()
+    stripped_goal: Set[GroundAprinttom] = set()
     for atom in task.goal:
         if atom.predicate in included_predicates:
             stripped_goal.add(atom)
@@ -2517,7 +2517,7 @@ def abstract(state: State,
     for pred in preds:
         if pred not in vlm_preds:
             for choice in get_object_combinations(list(state), pred.types):
-                print(choice)
+                # print(choice)
                 if pred.holds(state, choice):
                     atoms.add(GroundAtom(pred, choice))
     if len(vlm_preds) > 0:
