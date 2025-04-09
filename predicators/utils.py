@@ -2227,7 +2227,7 @@ def strip_predicate(predicate: Predicate) -> Predicate:
 def strip_task(task: Task, included_predicates: Set[Predicate]) -> Task:
     """Create a new task where any excluded goal predicates have their
     classifiers removed."""
-    stripped_goal: Set[GroundAtom] = set()
+    stripped_goal: Set[GroundAprinttom] = set()
     for atom in task.goal:
         if atom.predicate in included_predicates:
             stripped_goal.add(atom)
