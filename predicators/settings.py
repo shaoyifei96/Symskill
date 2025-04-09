@@ -37,14 +37,14 @@ class GlobalSettings:
     clustering_search_constraint_penalty = 10.0
     # robo_kitchen env parameters
     robo_kitchen_randomize_init_state = True # not used
-    robo_kitchen_task = "PnPCounterToCab"
-    # robo_kitchen_task = "OpenSingleDoor"
+    # robo_kitchen_task = "PnPCounterToCab"
+    robo_kitchen_task = "OpenSingleDoor"
     # robo_kitchen_viz_debug = False # i think the use_gui flag covers this
     robo_kitchen_contact_smoothing_window = 21
     robo_kitchen_load_dataset = True # this has priority, if False, then save flag is considered
     robo_kitchen_save_dataset = False
-    robo_kitchen_save_traj_by_segment = False
-    robo_kitchen_policy_model = "node" # "simple_ds" or "node
+    robo_kitchen_save_traj_by_segment = True
+    robo_kitchen_policy_model = "node"  # "simple_ds" or "node"
     make_test_videos = False
     loglevel = 10
     if enable_meshcat:
@@ -58,7 +58,7 @@ class GlobalSettings:
     """Unchanging settings."""
     # global parameters
     num_train_tasks = 10 # in robocasa, either the max demo number or num_train_tasks will be used
-    num_test_tasks = 1
+    num_test_tasks = 2
     # Perform online learning for this many cycles or until this many
     # transitions have been collected, whichever happens first.
     num_online_learning_cycles = 10

@@ -302,7 +302,7 @@ class RoboKitchenGroundTruthNSRTFactory(GroundTruthNSRTFactory):
         nsrts.add(move_to_handle_nsrt)
         nsrts.add(move_to_thing_nsrt)
         nsrts.add(pull_open_door_nsrt)
-        nsrts.add(reach_behind_and_pull_nsrt)
+        # nsrts.add(reach_behind_and_pull_nsrt)
         nsrts.add(place_thing_on_surface)
 
         return nsrts
