@@ -60,8 +60,6 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
         gripper = types["gripper_type"]
         handle = types["handle_type"]
         base = types["base_type"]
-        door = types["door_type"]
-        cabinet = types["cabinet_type"]
         left_finger = types["left_finger_type"]
         right_finger = types["right_finger_type"]
 

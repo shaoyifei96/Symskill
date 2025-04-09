@@ -19,7 +19,6 @@ class GlobalSettings:
     # clustering_translation_constancy_tol = 0.01/10 # 10 hz 0.01 m 
     # clustering_quaternion_constancy_tol = 0.01 # 10 hz 0.01 rad
     # clustering_feature_constancy_tol = 0.01 # 10 hz 0.01 m # default not used!
-    
 
     clustering_mahalanobis_confidence = 0.95
     clustering_translation_epsilon = 0.3 # set dbscane to be different
@@ -27,7 +26,7 @@ class GlobalSettings:
     clustering_dbscan_ratio = 0.1 # dbscan is 10 times smaller than this
     clustering_agglomerative_ratio = 0.3 # what ratio of data range
     clustering_epsilon = 0.3# default not used!
-    
+
     clustering_algorithm = "agglomerative" # "dbscan" or "agglomerative"
     clustering_min_ratio_of_data = 0.1
     clustering_max_clusters = 3
@@ -39,6 +38,7 @@ class GlobalSettings:
     # robo_kitchen env parameters
     robo_kitchen_randomize_init_state = True # not used
     robo_kitchen_task = "PnPCounterToCab"
+    # robo_kitchen_task = "OpenSingleDoor"
     # robo_kitchen_viz_debug = False # i think the use_gui flag covers this
     robo_kitchen_contact_smoothing_window = 21
     robo_kitchen_load_dataset = True # this has priority, if False, then save flag is considered
@@ -58,7 +58,7 @@ class GlobalSettings:
     """Unchanging settings."""
     # global parameters
     num_train_tasks = 10 # in robocasa, either the max demo number or num_train_tasks will be used
-    num_test_tasks = 5
+    num_test_tasks = 1
     # Perform online learning for this many cycles or until this many
     # transitions have been collected, whichever happens first.
     num_online_learning_cycles = 10

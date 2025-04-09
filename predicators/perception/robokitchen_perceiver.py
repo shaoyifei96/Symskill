@@ -15,23 +15,24 @@ class RoboKitchenPerceiver(BasePerceiver):
 
     def reset(self, env_task: EnvironmentTask) -> Task:
         state = self._observation_to_state(env_task.init_obs)
-        
+
         pred_name_to_pred = RoboKitchenEnv.create_predicates()
 
-        HingeOpen = pred_name_to_pred["HingeOpen"]
-        AtLocation = pred_name_to_pred["AtLocation"]
+        DoorOpen = pred_name_to_pred["DoorOpen"]
+        OnSurface = pred_name_to_pred["OnSurface"]
 
-        door = RoboKitchenEnv.object_name_to_object("door")
+        handle = RoboKitchenEnv.object_name_to_object("handle")
         cabinet = RoboKitchenEnv.object_name_to_object("cabinet")
-        obj_obj = RoboKitchenEnv.object_name_to_object("obj")
+        obj = RoboKitchenEnv.object_name_to_object("obj")
+        bottom = RoboKitchenEnv.object_name_to_object("bottom")
         goal_desc = env_task.goal_description
         if goal_desc == 'OpenSingleDoor':
             goal = {
-                GroundAtom(HingeOpen, [door, cabinet]),
+                GroundAtom(DoorOpen, [handle, cabinet]),
             }
         elif goal_desc == 'PnPCounterToCab':
             goal = {
-                GroundAtom(AtLocation, [obj_obj, cabinet]),
+                GroundAtom(OnSurface, [obj, bottom]),
             }
         else:
             raise NotImplementedError(f"Unrecognized goal: {goal_desc}")
