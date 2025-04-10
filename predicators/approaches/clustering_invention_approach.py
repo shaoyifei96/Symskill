@@ -207,14 +207,13 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             # Load the learned predicates set if available
             learned_preds_path = f"{save_path}_learned_predicates.pkl"
             if utils.file_exists(learned_preds_path):
-                 self._learned_predicates = utils.load_from_pickle(learned_preds_path)
-                 logging.info(f"Loaded {len(self._learned_predicates)} learned predicates.")
+                self._learned_predicates = utils.load_from_pickle(learned_preds_path)
+                logging.info(f"Loaded {len(self._learned_predicates)} learned predicates.")
             else:
-                 self._learned_predicates = set()
+                self._learned_predicates = set()
         else: # In online learning, learned predicates are already part of NSRTs
             preds, _ = utils.extract_preds_and_types(self._nsrts)
             self._learned_predicates = set(preds.values()) - self._initial_predicates
-
 
     def _get_current_predicates(self) -> Set[Predicate]:
         return self._initial_predicates | self._learned_predicates
@@ -225,7 +224,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         # Filter dataset to only keep specific trajectory indices
         keep_indices = [0, 3, 4, 5, 7, 8]
         dataset._trajectories = [dataset._trajectories[i] for i in keep_indices]
-            
+
         logging.info(f"Filtered dataset to trajectories (indices: {keep_indices})")
         # Clear caches before starting learning
         self._atom_dataset_cache = {}
@@ -237,8 +236,8 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         logging.info(f"Generated {len(candidates)} candidate predicates.")
         logging.info(f"Candidate predicates: {candidates}")
         if not candidates:
-             logging.warning("No candidate predicates generated. Learning NSRTs with initial predicates only.")
-             self._learned_predicates = set()
+            logging.warning("No candidate predicates generated. Learning NSRTs with initial predicates only.")
+            self._learned_predicates = set()
         else:
             logging.info("Selecting predicates via beam search...")
             self._learned_predicates = self._select_predicates_by_beam_search(candidates, dataset, self._train_tasks)
@@ -273,7 +272,6 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         # Save the final approach components (including NSRTs with learned predicates)
         save_path = utils.get_approach_save_path_str()
         self._save(save_path, online_learning_cycle=None)
-
 
     # --- Candidate Generation Functions ---
     def _generate_candidate_predicates(self, dataset: Dataset) -> Dict[Predicate, float]:
@@ -311,44 +309,43 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             # 2. Gripper handle quaternion (with gripper first)
             # 3. Gripper handle translation (with gripper first)
             # 4. Finger finger translation (with left_finger first)
-            
+
             # Check if this is a feature combination we want to keep
             keep_feature = False
 
             if (type1.name == "handle_type" and type2.name == "gripper_type") and feat_name == quat_feat_name:
                 keep_feature = True
                 logging.info(f"Keeping handle-gripper quaternion feature")
-            
+
             if (type1.name == "handle_type" and type2.name == "gripper_type") and feat_name == trans_feat_name:
                 keep_feature = True
                 logging.info(f"Keeping handle-gripper translation feature")
-            
+
             # Cabinet handle quaternion - keep cabinet first
             if (type1.name == "cabinet_type" and type2.name == "door_type") and feat_name == quat_feat_name:
                 keep_feature = True
                 logging.info(f"Keeping cabinet-handle quaternion feature")
-            
+
             # Gripper handle quaternion - keep gripper first
             elif (type1.name == "gripper_type" and type2.name == "door_type") and feat_name == quat_feat_name:
                 keep_feature = True
                 logging.info(f"Keeping gripper-handle quaternion feature")
-            
+
             # Gripper handle translation - keep gripper first
             elif (type1.name == "gripper_type" and type2.name == "door_type") and feat_name == trans_feat_name:
                 keep_feature = True
                 logging.info(f"Keeping gripper-handle translation feature")
-            
+
             # Finger finger translation - keep left_finger first
             elif (type1.name == "left_finger_type" and type2.name == "right_finger_type") and feat_name == trans_feat_name:
                 keep_feature = True
                 logging.info(f"Keeping finger-finger translation feature")
-            
+
             # Skip all other feature combinations
             if not keep_feature:
                 logging.debug(f"Skipping feature {feat_name} for ({type1.name}, {type2.name}) in debug mode")
                 continue
 
-            
             if not data: continue # Skip if no data collected
 
             # Select clustering epsilon based on feature type
@@ -476,7 +473,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 candidates[pred] = pred.arity + 1.0
                 predicate_counter += 1
 
-        # Process absolute features 
+        # Process absolute features
         # skip absolute features for now since all things are relative
         # for (type1, feat_name), data in absolute_feature_datasets.items():
         #     logging.debug(f"Clustering absolute feature {feat_name} for ({type1.name}) with {len(data)} points.")
@@ -521,8 +518,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         # Use product to get ordered pairs, ensuring both (A, B) and (B, A) are considered.
         # This allows calculating relative features in both A's frame and B's frame.
 
-
-        ##!!! Keep depending on 
+        ##!!! Keep depending on
         type_pairs = list(product(sorted(list(types)), repeat=2))
         # type_pairs = list(combinations_with_replacement(sorted(list(types)), 2))
 
@@ -590,9 +586,9 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                                     feature_data[(type1, type2, feat_name)].append(rel_feat_t)
                                     feature_changes[(type1, type2, feat_name)].append(np.linalg.norm(rel_feat_t - rel_feat_t1))
                                 except KeyError as e:
-                                     # If a required feature (like quaternion for translation) is missing, skip this pair
-                                     # logging.debug(f"Skipping object pair due to missing feature: {e}")
-                                     continue
+                                    # If a required feature (like quaternion for translation) is missing, skip this pair
+                                    # logging.debug(f"Skipping object pair due to missing feature: {e}")
+                                    continue
         for feature_key, changes in feature_changes.items():
             # Only keep features that are relatively constant (below 30th percentile of changes)
             # First collect all changes, then filter based on percentile
@@ -600,10 +596,8 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             percentile_30 = np.percentile(changes, 30)
             bool_mask = changes < percentile_30            
             feature_data[feature_key] = [feat for feat, is_constant in zip(feature_data[feature_key], bool_mask) if is_constant]
-            
 
         return feature_data
-
 
     def _generate_absolute_feature_datasets(self, dataset: Dataset) -> Dict[Tuple[Type, str], List[np.ndarray]]:
         """Extracts absolute features constant between consecutive states."""
@@ -615,21 +609,21 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 state_t = traj.states[t]
                 state_t1 = traj.states[t+1]
                 for type1 in types:
-                     # Consider object might not have features?
+                    # Consider object might not have features?
                     #  if not hasattr(type1, 'feature_names'): continue
-                     objs1 = list(state_t.get_objects(type1))
-                     for feat_name in sorted(type1.feature_names):
-                          for o1 in objs1:
-                               # Check if object exists in the next state
+                    objs1 = list(state_t.get_objects(type1))
+                    for feat_name in sorted(type1.feature_names):
+                        for o1 in objs1:
+                            # Check if object exists in the next state
                             #    if o1 not in state_t1:
                             #        continue
-                               # Get features at time t and t+1
-                               feat_t = np.array(state_t.get(o1, feat_name))
-                               feat_t1 = np.array(state_t1.get(o1, feat_name))
+                            # Get features at time t and t+1
+                            feat_t = np.array(state_t.get(o1, feat_name))
+                            feat_t1 = np.array(state_t1.get(o1, feat_name))
 
-                               # Check for constancy
-                               if np.linalg.norm(feat_t - feat_t1) < CFG.clustering_feature_constancy_tol:
-                                    feature_data[(type1, feat_name)].append(feat_t)
+                            # Check for constancy
+                            if np.linalg.norm(feat_t - feat_t1) < CFG.clustering_feature_constancy_tol:
+                                feature_data[(type1, feat_name)].append(feat_t)
         return feature_data
 
     def _get_feature_difference_function(self, feature_name: str) -> Callable[[Any, Any], Any]:
@@ -637,20 +631,19 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         # TODO: Implement more sophisticated difference functions, especially for orientation.
         # This basic version assumes vector subtraction works.
         if "quaternion" == feature_name:
-             # For quaternions/rotations, relative rotation is often more meaningful
-             def _quat_diff(q1: np.ndarray, q2: np.ndarray) -> np.ndarray:
-                  # Calculate relative rotation: q_rel = q1.inverse * q2
-                  # Return the rotation vector representation of the relative rotation.
-                  rot1 = Rotation.from_quat(q1)
-                  rot2 = Rotation.from_quat(q2)
-                  rel_rot = rot1.inv() * rot2
-                  rot_vec = rel_rot.as_rotvec()
-                  # Return the 3D rotation vector.
-                  return rot_vec
-             return _quat_diff
+            # For quaternions/rotations, relative rotation is often more meaningful
+            def _quat_diff(q1: np.ndarray, q2: np.ndarray) -> np.ndarray:
+                # Calculate relative rotation: q_rel = q1.inverse * q2
+                # Return the rotation vector representation of the relative rotation.
+                rot1 = Rotation.from_quat(q1)
+                rot2 = Rotation.from_quat(q2)
+                rel_rot = rot1.inv() * rot2
+                rot_vec = rel_rot.as_rotvec()
+                # Return the 3D rotation vector.
+                return rot_vec
+            return _quat_diff
         # Default to simple subtraction for position, velocity, etc.
         return np.subtract
-
 
     def _cluster_feature_dataset(self, feature_data: List[np.ndarray], initial_epsilon: float) -> Tuple[np.ndarray, np.ndarray, Set[int], float]:
         """Performs clustering based on epsilon distance using either agglomerative or DBSCAN.
@@ -668,11 +661,10 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
 
         # Handle case with 0 or 1 data point early to avoid errors in pdist/clustering
         if data_array.shape[0] < 2:
-             labels = np.array([0]) if data_array.shape[0] == 1 else np.array([])
-             unique_labels = {0} if data_array.shape[0] == 1 else set()
-             # Return initial epsilon if clustering wasn't really performed
-             return data_array, labels, unique_labels, initial_epsilon
-
+            labels = np.array([0]) if data_array.shape[0] == 1 else np.array([])
+            unique_labels = {0} if data_array.shape[0] == 1 else set()
+            # Return initial epsilon if clustering wasn't really performed
+            return data_array, labels, unique_labels, initial_epsilon
 
         # Choose clustering algorithm based on configuration
         effective_epsilon = initial_epsilon # Initialize with the provided epsilon
@@ -696,7 +688,6 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 effective_epsilon = dynamic_epsilon # Use the dynamically calculated one
                 logging.debug(f"Using Agglomerative Clustering Epsilon: {effective_epsilon:.4f}")
 
-
                 # linkage='average' corresponds well to the paper's description
                 # distance_threshold ensures clusters stop merging when distance exceeds epsilon
                 clustering = AgglomerativeClustering(n_clusters=None,
@@ -714,7 +705,6 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
 
         # Return raw results including the effective epsilon used
         return data_array, labels, unique_labels, effective_epsilon
-
 
     def _plot_cluster_results(self,
                               data_array: np.ndarray,
@@ -797,7 +787,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 # Plot centroid marker
                 marker_kwargs = {'c': 'purple', 's': 150, 'marker': '*'} # Removed label here
                 if not centroids_plotted:
-                     marker_kwargs['label'] = 'Kept Centroids' # Add label only for the first one
+                    marker_kwargs['label'] = 'Kept Centroids' # Add label only for the first one
 
                 if num_dims == 1:
                     ax.scatter(centroid[0], 0, **marker_kwargs)
@@ -867,11 +857,10 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                         boundaries_plotted = True
 
                     except ValueError as e:
-                         logging.warning(f"Could not plot ellipsoid for cluster {label}: Value error ({e}). Check eigenvalues/vectors.")
+                        logging.warning(f"Could not plot ellipsoid for cluster {label}: Value error ({e}). Check eigenvalues/vectors.")
                 else:
-                     logging.debug(f"Skipping ellipsoid plot for cluster {label}: Missing covariance or threshold info.")
-                     logging.debug(f"  Available info keys: {list(info.keys())}")
-
+                    logging.debug(f"Skipping ellipsoid plot for cluster {label}: Missing covariance or threshold info.")
+                    logging.debug(f"  Available info keys: {list(info.keys())}")
 
             ax.set_title(title)
             # Create custom legend handles
@@ -880,7 +869,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 plt.Line2D([0], [0], marker='o', color='w', label='Discarded Pts', markersize=10, markerfacecolor='red'),
             ]
             if -1 in unique_labels:
-                 handles.append(plt.Line2D([0], [0], marker='o', color='w', label='Noise Pts', markersize=10, markerfacecolor='black'))
+                handles.append(plt.Line2D([0], [0], marker='o', color='w', label='Noise Pts', markersize=10, markerfacecolor='black'))
             if centroids_plotted:
                 handles.append(plt.Line2D([0], [0], marker='*', color='w', label='Kept Centroids', markersize=10, markerfacecolor='purple', linestyle='None'))
             if boundaries_plotted:
@@ -899,7 +888,6 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             plt.close(fig) # Close after showing
         else:
             logging.warning(f"Could not plot for {fname}, unsupported dimension: {num_dims}")
-
 
     def _create_predicate_from_relative_cluster(self, type1: Type, type2: Type, feature_name: str, cluster_center: np.ndarray, inv_covariance_matrix: np.ndarray, mahalanobis_threshold: float, diff_fn: Callable, cluster_id: int) -> Predicate:
         """Creates a binary predicate from a relative feature cluster."""
@@ -920,7 +908,6 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
 
     # --- Predicate Selection Functions (Beam Search) ---
 
-
     def _select_predicates_by_beam_search(self,
                                           candidates: Dict[Predicate, float],
                                           dataset: Dataset,
@@ -939,7 +926,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         # initial_valid = self._check_plan_length_constraint(initial_pred_set, set(), dataset, [], train_tasks) # Operators not learned yet
         # if not initial_valid:
         #     logging.warning("Initial predicates may violate plan length constraint (if planner were integrated).")
-            # Or potentially handle this case more strictly if constraint must hold from start
+        # Or potentially handle this case more strictly if constraint must hold from start
 
         best_score = -np.inf
         best_pred_set = frozenset()
@@ -950,12 +937,11 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         while True: # Loop until convergence or max iterations
             iteration += 1
             if max_iterations is not None and iteration > max_iterations:
-                 logging.info(f"Beam search reached max iterations ({max_iterations}).")
-                 break
+                logging.info(f"Beam search reached max iterations ({max_iterations}).")
+                break
 
             successors: List[Tuple[float, FrozenSet[Predicate]]] = []
             processed_sets: Set[FrozenSet[Predicate]] = set(p for _, p, _ in beam)
-
 
             # Generate successors by adding one predicate to each set in the beam
             for _, current_preds, _ in beam:
@@ -997,15 +983,12 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
 
             beam = new_beam
 
-
         # Final selection: the best predicate set found that satisfies constraints
         # Need to re-evaluate the best set found to get its final props if needed elsewhere
         final_selected_learned_preds = best_pred_set_added if best_score > -np.inf else frozenset()
 
-
         # Return only the *learned* predicates (excluding initial ones)
         return set(final_selected_learned_preds)
-
 
     def _evaluate_objective(self,
                             predicates: FrozenSet[Predicate],
@@ -1035,7 +1018,6 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         # logging.debug(f"Pred set size {len(predicates)}, Seg: {seg_term}, OpComp: {op_term}, Score: {score:.3f}")
         return score, operators
 
-
     def _calculate_segmentation_term(self,
                                      predicates: FrozenSet[Predicate],
                                      atom_dataset: List[GroundAtomTrajectory]) -> int:
@@ -1053,7 +1035,6 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             total_segments += len(segments)
         self._segmentation_cache[predicates] = total_segments / len(atom_dataset)
         return self._segmentation_cache[predicates]
-
 
     def _calculate_operator_complexity_term(self,
                                             predicates: FrozenSet[Predicate],
@@ -1077,12 +1058,12 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             # Print predicates and segment information for each demo
             logging.info(f"Predicates: {', '.join(p.name for p in predicates)}")
             # for i, (_traj, atom_seq) in enumerate(pruned_atom_data):
-                # segments = segment_trajectory(ll_traj, predicates, atom_seq=atom_seq)
+            # segments = segment_trajectory(ll_traj, predicates, atom_seq=atom_seq)
             # Calculate both segment counts and action counts for each demo
             # segment_lengths = [len(segment) for segment in segmented_trajs]
-            segment_action_counts = [[len(segment.actions) for segment in demo_segments] 
-                                    for demo_segments in segmented_trajs]
-            logging.info(f"Segment action counts: \n {segment_action_counts}")
+            # segment_action_counts = [[len(segment.actions) for segment in demo_segments] 
+            #                         for demo_segments in segmented_trajs]
+            # logging.info(f"Segment action counts: \n {segment_action_counts}")
             # for p in predicates:
             #     if p.name [-3:] == 'ID4':
             #         pass
@@ -1113,7 +1094,6 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         self._operator_complexity_cache[predicates] = result
         return result
 
-
     def _check_plan_length_constraint(self,
                                       predicates: FrozenSet[Predicate],
                                       operators: Set[STRIPSOperator],
@@ -1129,7 +1109,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         """
         if predicates in self._plan_constraint_cache:
             return self._plan_constraint_cache[predicates]
-        
+
         # Initialize cache entry to 0 (no difference)
         self._plan_constraint_cache[predicates] = 0
 
@@ -1144,8 +1124,8 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
 
         # The 'operators' set already contains STRIPSOperator objects
         strips_ops = operators
-        
-        min_diff = float('inf')  # Track the minimum difference across all trajectories
+
+        diffs = []  # Store differences for all trajectories
 
         # Iterate through each demonstration trajectory
         for i, (ll_traj, atom_seq) in enumerate(atom_dataset):
@@ -1191,20 +1171,12 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 # Calculate difference: positive if plan is longer, negative if shorter
                 diff = planner_plan_len - demo_plan_len
                 # logging.debug(f"Traj {i}: Demo len={demo_plan_len}, Planner len={planner_plan_len}, Diff={diff}")
-                
-                # Keep track of the minimum difference (most negative)
-                # This represents the worst case where the planner found a much shorter path
-                if diff < min_diff:
-                    min_diff = diff
 
-        # If we didn't process any valid trajectories, return 0
-        if min_diff == float('inf'):
-            min_diff = 0
-            
-        self._plan_constraint_cache[predicates] = min_diff
-        return min_diff
+                diffs.append(np.abs(diff))
 
-
+        avg_diff = np.mean(diffs) if len(diffs) > 0 else np.inf
+        self._plan_constraint_cache[predicates] = avg_diff
+        return avg_diff
 
     # --- Helper Functions ---
     def _create_atom_dataset(self, dataset: Dataset, predicates: Set[Predicate] | FrozenSet[Predicate]) -> List[GroundAtomTrajectory]:
@@ -1212,7 +1184,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         # Convert to frozenset for caching key
         frozen_preds = frozenset(predicates)
         if frozen_preds in self._atom_dataset_cache:
-             return self._atom_dataset_cache[frozen_preds]
+            return self._atom_dataset_cache[frozen_preds]
 
         # Important: Ensure this creates atoms *only* for the given predicates.
         atom_dataset = utils.create_ground_atom_dataset(dataset.trajectories, set(predicates))
@@ -1231,8 +1203,8 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             # Basic sanity check/replacement if needed
             new_name = new_name.replace("(", "_").replace(")", "_").replace(",", "_").replace(" ", "")
             if new_name != p.name:
-                 renamed_pred = Predicate(new_name, p.types, p._classifier) # pylint: disable=protected-access
-                 renamed_predicates[renamed_pred] = cost
+                renamed_pred = Predicate(new_name, p.types, p._classifier) # pylint: disable=protected-access
+                renamed_predicates[renamed_pred] = cost
             else:
-                 renamed_predicates[p] = cost
+                renamed_predicates[p] = cost
         return renamed_predicates 

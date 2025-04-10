@@ -1227,27 +1227,27 @@ def run_task_plan_once(
                                 max_skeletons_optimized=CFG.sesame_max_skeletons_optimized,
                                 use_visited_state_set=True,
                                 **kwargs)
-        
+
         # Get first plan
         try:
             first_plan = next(plan_generator)
             plans.append(first_plan[0])
             atoms_seqs.append(first_plan[1])
             metrics_list.append(first_plan[2])
-            
+
             # Try to get more plans up to max_skeletons_optimized
             for plan_tuple in islice(plan_generator, CFG.sesame_max_skeletons_optimized - 1):
                 plans.append(plan_tuple[0])
                 atoms_seqs.append(plan_tuple[1])
                 metrics_list.append(plan_tuple[2])
-                
+
         except _MaxSkeletonsFailure:
             # No plans found
             pass
             # print ("\033[95mNo more plans found\033[0m")
 
         # If previous plan exists, prioritize most similar plan
-        if len(previous_plan) > 0 and len(plans) > 1: # only if there are multiple plans
+        if previous_plan is not None and len(plans) > 1:  # only if there are multiple plans
             # Untested!
             # Calculate similarity scores based on matching operators
             similarities = []
@@ -1259,14 +1259,14 @@ def run_task_plan_once(
                     previous_plan = previous_plan[-len(plan):]
                 score = sum(1 for a, b in zip(plan, previous_plan)
                           if a.name == b.name)
-                #TODO: use edit distance instead of simple matching
+                # TODO: use edit distance instead of simple matching
                 # check if plan is subplan of previous plan's tail, if so, score is high
-                
+
                 similarities.append(score)
                 print(f"Plan [{', '.join(nsrt.name for nsrt in plan)}] has {score} score")
-            
+
             # Select plan with highest similarity
-            
+
             # Choose min/max similarity based on whether we want to stay close to previous plan
             if stay_close_to_previous_plan is None:
                 # Choose random index since stay_close_to_previous_plan is None
