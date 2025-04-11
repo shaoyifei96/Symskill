@@ -41,7 +41,7 @@ MAX_ROTATION_DISPLACEMENT = 1.0
 class RoboKitchenEnv(BaseEnv):
     """Kitchen environment using robosuite."""
 
-    hinge_open_thresh = 1.3  # rad
+    door_open_thresh = 1.3  # rad
     door_half_open_thresh = 0.4  # rad
     close_distance_thresh = 0.02  # m
     gripper_fingers_distance_thresh = 0.08  # m
@@ -50,14 +50,16 @@ class RoboKitchenEnv(BaseEnv):
 
     # Types
     object_type = Type("object_type", ["translation", "quaternion"])
+    grab_type = Type("grab_type", ["translation", "quaternion"], parent=object_type)
     base_type = Type("base_type", ["translation", "quaternion"], parent=object_type)
     gripper_type = Type("gripper_type", ["translation", "quaternion"], parent=object_type)
     left_finger_type = Type("left_finger_type", ["translation", "quaternion"], parent=object_type)
     right_finger_type = Type("right_finger_type", ["translation", "quaternion"], parent=object_type)
     cabinet_type = Type("cabinet_type", ["translation", "quaternion"], parent=object_type)
-    handle_type = Type("handle_type", ["translation", "quaternion"], parent=object_type)
+    handle_type = Type("handle_type", ["translation", "quaternion"], parent=grab_type)
     surface_type = Type("surface_type", ["translation", "quaternion"], parent=object_type)
-    thing_type = Type("thing_type", ["translation", "quaternion"], parent=object_type)
+    thing_type = Type("thing_type", ["translation", "quaternion"], parent=grab_type)
+    
 
     obj_name_to_type = {
         "handle": handle_type,
@@ -241,7 +243,7 @@ class RoboKitchenEnv(BaseEnv):
                     "controller_configs": controller_config,
                     "layout_ids": 2,
                     "style_ids": 0,
-                    "translucent_robot": False,
+                    "translucent_robot": True,
                 }
 
                 print(colored(f"Initializing environment for task: {task_name}", "yellow"))
@@ -436,6 +438,7 @@ class RoboKitchenEnv(BaseEnv):
             self.handle_type,
             self.surface_type,
             self.thing_type,
+            self.grab_type,
         }
 
     def get_observation(self) -> Observation:
