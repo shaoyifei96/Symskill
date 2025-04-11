@@ -43,8 +43,8 @@ class RoboKitchenGroundTruthNSRTFactory(GroundTruthNSRTFactory):
         obj = Variable("?object", object_type)
 
         # Options
-        DS_OpenSingleDoor_MoveTowards_option = options["DS_OpenSingleDoor_MoveTowards_option"]
-        DS_OpenSingleDoor_MoveAway_option = options["DS_OpenSingleDoor_MoveAway_option"]
+        OpenSingleDoor_MoveTowards_option = options["OpenSingleDoor_MoveTowards_option"]
+        OpenSingleDoor_MoveAway_option = options["OpenSingleDoor_MoveAway_option"]
         GripperOpen_option = options["GripperOpen_option"]
         GripperClose_option = options["GripperClose_option"]
         DummyOption = options["DummyOption"]
@@ -123,7 +123,7 @@ class RoboKitchenGroundTruthNSRTFactory(GroundTruthNSRTFactory):
         add_effects = {LiftedAtom(ReadyGrabObj, [gripper, handle])}
         delete_effects = set()
         ignore_effects = set()
-        option = DS_OpenSingleDoor_MoveTowards_option
+        option = OpenSingleDoor_MoveTowards_option
         option_vars = [gripper, handle, base]
 
         def move_to_handle_sampler(state: State, memory: dict, objects: Sequence[Object], params: Array) -> Array:
@@ -246,7 +246,7 @@ class RoboKitchenGroundTruthNSRTFactory(GroundTruthNSRTFactory):
         add_effects = {LiftedAtom(DoorOpen, [handle, cabinet])}
         delete_effects = {LiftedAtom(DoorClosed, [handle, cabinet])}
         ignore_effects = set()
-        option = DS_OpenSingleDoor_MoveAway_option
+        option = OpenSingleDoor_MoveAway_option
         option_vars = [gripper, handle, base]
 
         def pull_open_door_sampler(state: State, memory: dict, objects: Sequence[Object], params: Array) -> Array:

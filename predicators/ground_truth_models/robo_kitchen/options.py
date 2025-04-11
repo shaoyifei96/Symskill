@@ -87,6 +87,16 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
                 'pos_model': {
                     'special_mode': 'none',
                     # 'load_path': f"ds_policy/models/mlp_width128_depth3_{option}.pt",
+                    # 'width': 256,
+                    # 'depth': 5,
+                    # 'save_path': f"models/mlp_width256_depth5_{option}.pt",
+                    # 'batch_size': 100,
+                    # 'device': "mps",  # Can be "cpu", "cuda", or "mps"
+                    # 'lr_strategy': (1e-3, 1e-4, 1e-5),
+                    # 'epoch_strategy': (50, 50, 50),
+                    # 'length_strategy': (0.4, 0.7, 1),
+                    # 'plot': False,
+                    # 'print_every': 10
                 },
                 'quat_model': {
                     'special_mode': 'simple',
@@ -172,6 +182,7 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
             if "fail_memory" not in memory or not memory["fail_memory"]:
                 return
 
+            memory["backtrack"] = 0
             for idx in range(len(memory["fail_memory"])-1, -1, -1):
                 if memory["fail_memory"][idx].option_name == option_name:
                     gripper_pos = memory["fail_memory"][idx].state.get(gripper, "translation")
@@ -199,7 +210,8 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
                         "ref_point", penalty=0.8, traj_threshold=0.2, radius=0.02,
                         angle_threshold=np.pi/2, lookahead=10
                     )
-                    CFG.visualizer.update_demo_traj_colors(memory["ds_policy"].demo_traj_probs)
+
+                    memory["backtrack"] += 10
                     
                     # Remove processed entry
                     memory["fail_memory"].pop(idx)
@@ -303,8 +315,11 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
             elif "ds_policy" in memory:
                 # Use DS policy
                 ds_policy = memory["ds_policy"]
-
-                action = ds_policy.get_action(np.concatenate([pos_in_object_of_interest, R.from_matrix(rot_in_object_of_interest).as_quat()]), clf=True, alpha_V=10.0, lookahead=20)
+                if "backtrack" in memory and memory["backtrack"] > 0:
+                    action = ds_policy.get_action(np.concatenate([pos_in_object_of_interest, R.from_matrix(rot_in_object_of_interest).as_quat()]), clf=True, alpha_V=10.0, lookahead=20, backtrack=True)
+                    memory["backtrack"] -= 1
+                else:
+                    action = ds_policy.get_action(np.concatenate([pos_in_object_of_interest, R.from_matrix(rot_in_object_of_interest).as_quat()]), clf=True, alpha_V=10.0, lookahead=20)
                 vel = action[:6] # position + angular velocity
 
                 if CFG.visualizer:
@@ -370,19 +385,19 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
                 
         """---------------------------------- general move option ends ----------------------------------"""
 
-        """---------------------------------- DS_OpenSingleDoor_MoveTowards_option starts ----------------------------------"""
+        """---------------------------------- OpenSingleDoor_MoveTowards_option starts ----------------------------------"""
 
-        def _DS_OpenSingleDoor_MoveTowards_option_initiable_linear(state: State, memory: Dict, objects: Sequence[Object], params: Array) -> bool:
+        def _OpenSingleDoor_MoveTowards_option_initiable_linear(state: State, memory: Dict, objects: Sequence[Object], params: Array) -> bool:
             if "model" not in memory:
                 memory["model"] = _create_simple_ds_model()
             memory["handle_pos"], memory["handle_rot"] = _init_object_of_interest_transform(state, objects, offset_handle_frame=np.array([-0.0, RoboKitchenEnv.offset_inwards_from_handle, 0.0]))
             return True
 
         # DS_move_option - always initiable, empty policy, never terminates
-        def _DS_OpenSingleDoor_MoveTowards_option_initiable_node(state: State, memory: Dict, objects: Sequence[Object], params: Array) -> bool:
-            return _DS_general_move_static_option_initiable(option="move_towards", state=state, memory=memory, objects=objects, params=params)
+        def _OpenSingleDoor_MoveTowards_option_initiable_node(state: State, memory: Dict, objects: Sequence[Object], params: Array) -> bool:
+            return _DS_general_move_static_option_initiable(option="OpenSingleDoor_MoveTowards_option", state=state, memory=memory, objects=objects, params=params)
 
-        def _DS_OpenSingleDoor_MoveTowards_option_terminal(state: State, memory: Dict, objects: Sequence[Object], params: Array) -> bool:
+        def _OpenSingleDoor_MoveTowards_option_terminal(state: State, memory: Dict, objects: Sequence[Object], params: Array) -> bool:
             general_terminal = _DS_general_move_option_terminal(state, memory, objects, params)
 
             if general_terminal:
@@ -404,24 +419,24 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
 
             return False
 
-        """---------------------------------- DS_OpenSingleDoor_MoveTowards_option ends ----------------------------------"""
+        """---------------------------------- OpenSingleDoor_MoveTowards_option ends ----------------------------------"""
 
-        """---------------------------------- DS_OpenSingleDoor_MoveAway_option starts ----------------------------------"""
+        """---------------------------------- OpenSingleDoor_MoveAway_option starts ----------------------------------"""
 
         # DS_move_away_option - always initiable, empty policy, never terminates
-        def _DS_OpenSingleDoor_MoveAway_option_initiable_linear(state: State, memory: Dict, objects: Sequence[Object], params: Array) -> bool:
+        def _OpenSingleDoor_MoveAway_option_initiable_linear(state: State, memory: Dict, objects: Sequence[Object], params: Array) -> bool:
             if "model" not in memory:
                 memory["model"] = _create_simple_ds_model()
             memory["handle_pos"], memory["handle_rot"] = _init_object_of_interest_transform(state, objects, offset_handle_frame=np.array([-0.6, -0.6, 0.0]))
             return True
 
-        def _DS_OpenSingleDoor_MoveAway_option_initiable_node(state: State, memory: Dict, objects: Sequence[Object], params: Array) -> bool:
-            return _DS_general_move_dynamic_option_initiable(option="move_away", state=state, memory=memory, objects=objects, params=params)
+        def _OpenSingleDoor_MoveAway_option_initiable_node(state: State, memory: Dict, objects: Sequence[Object], params: Array) -> bool:
+            return _DS_general_move_dynamic_option_initiable(option="OpenSingleDoor_MoveAway_option", state=state, memory=memory, objects=objects, params=params)
 
-        def _DS_OpenSingleDoor_MoveAway_option_terminal(state: State, memory: Dict, objects: Sequence[Object], params: Array) -> bool:
+        def _OpenSingleDoor_MoveAway_option_terminal(state: State, memory: Dict, objects: Sequence[Object], params: Array) -> bool:
             return _DS_general_move_option_terminal(state, memory, objects, params)
 
-        """---------------------------------- DS_OpenSingleDoor_MoveAway_option ends ----------------------------------"""
+        """---------------------------------- OpenSingleDoor_MoveAway_option ends ----------------------------------"""
 
         """---------------------------------- ReachBehindandPull_option starts ----------------------------------"""
 
@@ -663,27 +678,27 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
 
         """---------------------------------- DummyOption ends ----------------------------------"""
 
-        DS_OpenSingleDoor_MoveTowards_option = ParameterizedOption(
-            "DS_OpenSingleDoor_MoveTowards_option",
+        OpenSingleDoor_MoveTowards_option = ParameterizedOption(
+            "OpenSingleDoor_MoveTowards_option",
             types=[gripper, grab, base],
             # Unused params
             params_space=Box(-5, 5, (1,)),
             policy=_DS_general_move_option_policy,
-            initiable=_DS_OpenSingleDoor_MoveTowards_option_initiable_linear if CFG.robo_kitchen_policy_model == "simple_ds" else _DS_OpenSingleDoor_MoveTowards_option_initiable_node,
-            terminal=_DS_OpenSingleDoor_MoveTowards_option_terminal,
+            initiable=_OpenSingleDoor_MoveTowards_option_initiable_linear if CFG.robo_kitchen_policy_model == "simple_ds" else _OpenSingleDoor_MoveTowards_option_initiable_node,
+            terminal=_OpenSingleDoor_MoveTowards_option_terminal,
         )
-        options.add(DS_OpenSingleDoor_MoveTowards_option)
+        options.add(OpenSingleDoor_MoveTowards_option)
 
-        DS_OpenSingleDoor_MoveAway_option = ParameterizedOption(
-            "DS_OpenSingleDoor_MoveAway_option",
+        OpenSingleDoor_MoveAway_option = ParameterizedOption(
+            "OpenSingleDoor_MoveAway_option",
             types=[gripper, handle, base],
             # Unused params
             params_space=Box(-5, 5, (1,)),
             policy=_DS_general_move_gripper_closed_option_policy,
-            initiable=_DS_OpenSingleDoor_MoveAway_option_initiable_linear if CFG.robo_kitchen_policy_model == "simple_ds" else _DS_OpenSingleDoor_MoveAway_option_initiable_node,
-            terminal=_DS_OpenSingleDoor_MoveAway_option_terminal,
+            initiable=_OpenSingleDoor_MoveAway_option_initiable_linear if CFG.robo_kitchen_policy_model == "simple_ds" else _OpenSingleDoor_MoveAway_option_initiable_node,
+            terminal=_OpenSingleDoor_MoveAway_option_terminal,
         )
-        options.add(DS_OpenSingleDoor_MoveAway_option)
+        options.add(OpenSingleDoor_MoveAway_option)
 
         ReachBehindandPull_option = ParameterizedOption(
             "ReachBehindandPull_option",
