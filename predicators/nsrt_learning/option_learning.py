@@ -613,6 +613,7 @@ class _BehaviorCloningOptionLearner(_OptionLearnerBase):
                 assert len(segment.states) == len(segment.actions) + 1
                 for state, action in zip(segment.states, segment.actions):
                     state_features = state.vec(all_objects_in_operator)
+                    state_features = _flatten_and_convert_to_array(state_features)
                     if self._is_parameterized:
                         # Compute the relative goal vector for this segment.
                         state_param = _create_absolute_option_param(
@@ -682,11 +683,14 @@ class _BehaviorCloningOptionLearner(_OptionLearnerBase):
                     continue
                 if v not in changing_var_to_feat_set:
                     changing_var_to_feat_set[v] = set()
-                changed_indices = {
-                    i
-                    for i in range(len(start[o]))
-                    if abs(start[o][i] - end[o][i]) > 1e-7
-                }
+                changed_indices = set()
+                for i in range(len(start[o])):
+                    if isinstance(start[o][i], np.ndarray):
+                        for j in range(len(start[o][i])):
+                            if abs(start[o][i][j] - end[o][i][j]) > 1e-7:
+                                changed_indices.add((i, j))
+                    elif abs(start[o][i] - end[o][i]) > 1e-7:
+                        changed_indices.add(i)
                 changing_var_to_feat_set[v].update(changed_indices)
         changing_var_to_feat = {
             v: sorted(f)
@@ -794,5 +798,31 @@ def _create_absolute_option_param(state: State,
         obj = var_to_obj[v]
         obj_vec = state[obj]
         for idx in changing_var_to_feat[v]:
-            vec.append(obj_vec[idx])
+            if isinstance(idx, (list, tuple)):
+                i, j = idx
+                vec.append(obj_vec[i][j])
+            else:
+                vec.append(obj_vec[idx])
     return np.array(vec, dtype=np.float32)
+
+
+def _flatten_and_convert_to_array(vec: List) -> Array:
+    """Flatten any nested arrays in the vector and convert to a numpy array.
+    
+    Args:
+        vec: A list that may contain numpy arrays
+        
+    Returns:
+        A flattened numpy array
+    """
+    if any(isinstance(x, np.ndarray) for x in vec):
+        # Flatten any nested arrays
+        flattened_vec = []
+        for item in vec:
+            if isinstance(item, np.ndarray):
+                flattened_vec.extend(item.flatten())
+            else:
+                flattened_vec.append(item)
+        return np.array(flattened_vec, dtype=np.float32)
+    else:
+        return np.array(vec, dtype=np.float32)

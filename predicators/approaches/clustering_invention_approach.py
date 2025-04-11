@@ -269,10 +269,6 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             online_learning_cycle=None
         )
 
-        # Save the final approach components (including NSRTs with learned predicates)
-        save_path = utils.get_approach_save_path_str()
-        self._save(save_path, online_learning_cycle=None)
-
     # --- Candidate Generation Functions ---
     def _generate_candidate_predicates(self, dataset: Dataset) -> Dict[Predicate, float]:
         """Generates candidate predicates by clustering relative and absolute features."""

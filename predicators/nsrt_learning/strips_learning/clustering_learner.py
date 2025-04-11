@@ -165,12 +165,24 @@ class ClusterAndIntersectSTRIPSLearner(ClusteringSTRIPSLearner):
             # Combine all preconditions
             preconditions = preconditions.union(additional_preconditions)
 
-            
+            # Update the datastore to include the new variables mapped to objects
+            updated_datastore = []
+            for segment, var_to_obj, type_to_obj_other in pnad.datastore:
+                new_var_mappings = {}
+                for param_type, new_var in new_vars_to_add_dict.items():
+                    # Find the object corresponding to the type in this segment's context
+                    obj = type_to_obj_other[param_type]
+                    new_var_mappings[new_var] = obj
+                # Create a new updated var_to_obj dictionary
+                updated_var_to_obj = var_to_obj.copy()
+                updated_var_to_obj.update(new_var_mappings)
+                updated_datastore.append((segment, updated_var_to_obj))
+
             new_params = list(current_params) + new_vars_to_add
             new_pnads.append(
                 PNAD(pnad.op.copy_with(parameters=new_params,
                                      preconditions=preconditions),
-                     pnad.datastore, pnad.option_spec))
+                     updated_datastore, pnad.option_spec))
         return new_pnads
 
     @classmethod

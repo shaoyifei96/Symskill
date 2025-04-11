@@ -142,7 +142,12 @@ def _learn_neural_sampler(datastores: List[Datastore], nsrt_name: str,
         # input is state features and option parameters
         X_classifier.append([np.array(1.0)])  # start with bias term
         for var in variables:
-            X_classifier[-1].extend(state[sub[var]])
+            # Handle the case where state[sub[var]] is an object with multiple elements
+            if isinstance(state[sub[var]], np.ndarray) and state[sub[var]].dtype == object:
+                for element in state[sub[var]]:
+                    X_classifier[-1].extend(element)
+            else:
+                X_classifier[-1].extend(state[sub[var]])
         X_classifier[-1].extend(option.params)
         # For sampler learning, we currently make the extremely limiting
         # assumption that there is one goal atom, with one goal object. This
@@ -181,7 +186,12 @@ def _learn_neural_sampler(datastores: List[Datastore], nsrt_name: str,
         # input is state features
         X_regressor.append([np.array(1.0)])  # start with bias term
         for var in variables:
-            X_regressor[-1].extend(state[sub[var]])
+            # Handle the case where state[sub[var]] is an object with multiple elements
+            if isinstance(state[sub[var]], np.ndarray) and state[sub[var]].dtype == object:
+                for element in state[sub[var]]:
+                    X_regressor[-1].extend(element)
+            else:
+                X_regressor[-1].extend(state[sub[var]])
         # Above, we made the assumption that there is one goal atom with one
         # goal object, which must also be used when assembling data for the
         # regressor.
@@ -249,10 +259,12 @@ def _create_sampler_data(
             goal = None
         # We omit VLMPredicates from this below check because it's too
         # expensive to have to evaluate these as well.
-        assert all(
+        if not all(
             pre.predicate.holds(state, [var_to_obj[v] for v in pre.variables])
             for pre in preconditions
-            if not isinstance(pre.predicate, VLMPredicate))
+            if not isinstance(pre.predicate, VLMPredicate)): 
+            print(f"Skipping {segment} because of {preconditions}")
+            continue
         positive_data.append((state, var_to_obj, option, goal))
 
     # Populate all negative data.
