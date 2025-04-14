@@ -7,6 +7,7 @@ import logging
 from collections import defaultdict
 from dataclasses import dataclass, field
 from functools import cached_property
+import os
 from typing import Any, Callable, Dict, FrozenSet, List, Optional, Sequence, Set, Tuple
 from itertools import combinations_with_replacement, product
 
@@ -17,7 +18,7 @@ from gym.spaces import Box
 from sklearn.cluster import AgglomerativeClustering, DBSCAN
 from scipy.spatial.distance import cdist
 from scipy.spatial.transform import Rotation
-from scipy.spatial.distance import pdist
+from scipy.spatial.distance import pdist, squareform
 # Need linalg for inverse and norm
 from numpy.linalg import inv, norm, det, LinAlgError
 
@@ -47,83 +48,96 @@ import numpy.linalg # For eigh
 @dataclass(frozen=True, eq=False, repr=False)
 class _RelativeFeatureClusterClassifier(_BinaryClassifier):
     """Classifies based on the Mahalanobis distance of a relative feature vector
-    between two objects to a target cluster center and covariance.
-
-    The features are defined by feature_name for objects of type1 and type2.
-    The diff_fn calculates the difference between the features of the two objects.
-    The cluster_center is the representative point for this cluster.
-    Classification is True if the Mahalanobis distance squared is less than or
-    equal to mahalanobis_threshold.
+    (including 7D pose) between two objects to a target cluster center and covariance.
     """
     object1_type: Type
     object2_type: Type
-    feature_name: str
-    cluster_center: np.ndarray
-    inv_covariance_matrix: np.ndarray # Store inverse covariance
-    mahalanobis_threshold: float    # Store threshold for Mahalanobis distance squared
-    diff_fn: Callable[[Any, Any], Any] # Function to compute feature difference
-    cluster_id: int # For unique naming
+    feature_name: str # Will be "pose" for SE(3) clusters
+    cluster_center: np.ndarray # Can be 7D for pose
+    inv_covariance_matrix: np.ndarray # Can be 7x7 for pose
+    mahalanobis_threshold: float
+    # diff_fn might not be needed for 'pose' if calculation is explicit
+    diff_fn: Optional[Callable[[Any, Any], Any]] # Made optional
+    cluster_id: int
+
+    # Cache feature names
+    _trans_feat_name: str = field(default="translation", init=False)
+    _quat_feat_name: str = field(default="quaternion", init=False)
+    _pose_feat_name: str = field(default="pose", init=False)
+
 
     def _classify_object(self, s: State, obj1: Object, obj2: Object) -> bool:
-        # Ensure objects match the types this classifier is defined for.
-        # Allow parent type matching.
         assert obj1.is_instance(self.object1_type)
         assert obj2.is_instance(self.object2_type)
 
-        # Get features from state.
-        obj1_feat = s.get(obj1, self.feature_name)
-        obj2_feat = s.get(obj2, self.feature_name)
-
-        # Assumed orientation feature name
-        quat_feat_name = "quaternion"
-
-        # Compute the relative feature value.
-        if self.feature_name == "translation" and quat_feat_name in obj1.type.feature_names:
-            try:
-                obj1_quat = s.get(obj1, quat_feat_name)
-                obj1_rot = Rotation.from_quat(obj1_quat)
-                world_diff = np.subtract(obj2_feat, obj1_feat)
-                relative_feature = obj1_rot.inv().apply(world_diff)
-            except KeyError:
-                # If quaternion is missing, cannot compute local frame translation.
-                # Behavior depends on desired handling: either raise error or return False.
-                logging.warning(f"Missing quaternion for {obj1}, cannot compute relative translation.")
-                return False
+        # Calculate the relevant relative feature
+        if self.feature_name == self._pose_feat_name:
+            # Calculate the 7D relative pose
+            relative_feature = _calculate_relative_pose(s, obj1, obj2, 
+                                                       self._trans_feat_name, 
+                                                       self._quat_feat_name)
+            if relative_feature is None:
+                logging.warning(f"Could not compute relative pose for classification between {obj1}, {obj2}. Returning False.")
+                return False # Cannot classify if pose cannot be computed
         else:
-            # Use the provided difference function for other features.
-            relative_feature = np.array(self.diff_fn(obj1_feat, obj2_feat), dtype=self.cluster_center.dtype)
+            # Handle original features (e.g., translation only, rotation only if kept)
+            obj1_feat = s.get(obj1, self.feature_name)
+            obj2_feat = s.get(obj2, self.feature_name)
+            
+            # Special handling for local frame translation (if kept as separate feature)
+            if self.feature_name == self._trans_feat_name and self._quat_feat_name in obj1.type.feature_names:
+                try:
+                    obj1_quat = s.get(obj1, self._quat_feat_name)
+                    obj1_rot = Rotation.from_quat(obj1_quat)
+                    world_diff = np.subtract(obj2_feat, obj1_feat)
+                    relative_feature = obj1_rot.inv().apply(world_diff)
+                except KeyError:
+                    logging.warning(f"Missing quaternion for {obj1}, cannot compute relative translation for classifier.")
+                    return False
+            elif self.diff_fn is not None:
+                 # Use the provided difference function for other features.
+                 relative_feature = np.array(self.diff_fn(obj1_feat, obj2_feat), dtype=self.cluster_center.dtype)
+            else:
+                 logging.error(f"Missing diff_fn for non-pose feature {self.feature_name} in classifier {self}")
+                 return False # Cannot compute difference
+
+        # Ensure feature is numpy array for Mahalanobis calculation
+        relative_feature = np.array(relative_feature, dtype=self.cluster_center.dtype)
 
         # Calculate Mahalanobis distance squared
         diff = relative_feature - self.cluster_center
         try:
-            # Ensure diff is a column vector for matrix multiplication if it's 1D
             if diff.ndim == 1:
-                diff = diff[:, np.newaxis]
-            # Mahalanobis distance squared: (x - mu)^T * Sigma^-1 * (x - mu)
+                diff = diff[:, np.newaxis] # Ensure column vector
             mahalanobis_dist_sq = diff.T @ self.inv_covariance_matrix @ diff
-            # If result is a 1x1 matrix, extract the scalar value
             if isinstance(mahalanobis_dist_sq, np.ndarray) and mahalanobis_dist_sq.size == 1:
-                mahalanobis_dist_sq = mahalanobis_dist_sq.item()
+                mahalanobis_dist_sq = mahalanobis_dist_sq.item() # Extract scalar
         except ValueError as e:
             logging.error(f"Error calculating Mahalanobis distance for {self}: {e}")
             logging.error(f"Shapes: diff.T: {diff.T.shape}, inv_covariance_matrix: {self.inv_covariance_matrix.shape}, diff: {diff.shape}")
-            return False # Or handle error differently
+            logging.error(f"Relative feature: {relative_feature}, Cluster center: {self.cluster_center}")
+            return False
 
         return mahalanobis_dist_sq <= self.mahalanobis_threshold
 
     def __str__(self) -> str:
-        # Generate a unique name based on types, feature, and cluster ID.
-        return (f"RelEllipsoidCluster-{self.object1_type.name}-{self.object2_type.name}-"
+        # Keep name format similar, maybe indicate pose explicitly if needed
+        prefix = "RelPoseEllipsoidCluster" if self.feature_name == self._pose_feat_name else "RelEllipsoidCluster"
+        return (f"{prefix}-{self.object1_type.name}-{self.object2_type.name}-"
                 f"{self.feature_name}-ID{self.cluster_id}")
 
     def pretty_str(self) -> Tuple[str, str]:
-        # Provide a human-readable description.
         name1 = CFG.grammar_search_classifier_pretty_str_names[0]
         name2 = CFG.grammar_search_classifier_pretty_str_names[1]
         vars_str = f"{name1}:{self.object1_type.name}, {name2}:{self.object2_type.name}"
-        # Representing the Mahalanobis check symbolically
-        body_str = (f"MahaDistSq(Diff({name1}.{self.feature_name}, {name2}.{self.feature_name}), "
-                    f"Cluster-{self.feature_name}-ID{self.cluster_id}) <= {self.mahalanobis_threshold:.3f}")
+        # Adapt body string for pose
+        if self.feature_name == self._pose_feat_name:
+             feat_desc = f"RelPose({name1}, {name2})"
+        else:
+             feat_desc = f"Diff({name1}.{self.feature_name}, {name2}.{self.feature_name})"
+        
+        body_str = (f"MahaDistSq({feat_desc}, Cluster-{self.feature_name}-ID{self.cluster_id}) "
+                    f"<= {self.mahalanobis_threshold:.3f}")
         return vars_str, body_str
 
 
@@ -222,10 +236,10 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
     def learn_from_offline_dataset(self, dataset: Dataset) -> None:
         logging.info("Generating candidate predicates via clustering...")
         # Filter dataset to only keep specific trajectory indices
-        keep_indices = [0, 3, 4, 5, 7, 8]
-        dataset._trajectories = [dataset._trajectories[i] for i in keep_indices]
+        # keep_indices = [0, 3, 4, 5, 7, 8]
+        # dataset._trajectories = [dataset._trajectories[i] for i in keep_indices]
 
-        logging.info(f"Filtered dataset to trajectories (indices: {keep_indices})")
+        # logging.info(f"Filtered dataset to trajectories (indices: {keep_indices})")
         # Clear caches before starting learning
         self._atom_dataset_cache = {}
         self._operator_complexity_cache = {}
@@ -268,6 +282,13 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             annotations=annotations,
             online_learning_cycle=None
         )
+
+
+    def _get_feature_difference_function(self, feat_name: str) -> Callable:
+        if feat_name == "pose":
+            return self._calculate_se3_distance
+        else:
+            return self._get_feature_difference_function(feat_name)
 
     # --- Candidate Generation Functions ---
     def _generate_candidate_predicates(self, dataset: Dataset) -> Dict[Predicate, float]:
@@ -313,48 +334,60 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 keep_feature = True
                 logging.info(f"Keeping handle-gripper quaternion feature")
 
-            if (type1.name == "handle_type" and type2.name == "gripper_type") and feat_name == trans_feat_name:
-                keep_feature = True
-                logging.info(f"Keeping handle-gripper translation feature")
+            # if (type1.name == "handle_type" and type2.name == "gripper_type") and feat_name == trans_feat_name:
+            #     keep_feature = True
+            #     logging.info(f"Keeping handle-gripper translation feature")
 
-            # Cabinet handle quaternion - keep cabinet first
-            if (type1.name == "cabinet_type" and type2.name == "door_type") and feat_name == quat_feat_name:
-                keep_feature = True
-                logging.info(f"Keeping cabinet-handle quaternion feature")
+            # # Cabinet handle quaternion - keep cabinet first
+            # if (type1.name == "cabinet_type" and type2.name == "door_type") and feat_name == quat_feat_name:
+            #     keep_feature = True
+            #     logging.info(f"Keeping cabinet-handle quaternion feature")
 
-            # Gripper handle quaternion - keep gripper first
-            elif (type1.name == "gripper_type" and type2.name == "door_type") and feat_name == quat_feat_name:
-                keep_feature = True
-                logging.info(f"Keeping gripper-handle quaternion feature")
+            # # Gripper handle quaternion - keep gripper first
+            # elif (type1.name == "gripper_type" and type2.name == "door_type") and feat_name == quat_feat_name:
+            #     keep_feature = True
+            #     logging.info(f"Keeping gripper-handle quaternion feature")
 
-            # Gripper handle translation - keep gripper first
-            elif (type1.name == "gripper_type" and type2.name == "door_type") and feat_name == trans_feat_name:
-                keep_feature = True
-                logging.info(f"Keeping gripper-handle translation feature")
+            # # Gripper handle translation - keep gripper first
+            # elif (type1.name == "gripper_type" and type2.name == "door_type") and feat_name == trans_feat_name:
+            #     keep_feature = True
+            #     logging.info(f"Keeping gripper-handle translation feature")
 
-            # Finger finger translation - keep left_finger first
-            elif (type1.name == "left_finger_type" and type2.name == "right_finger_type") and feat_name == trans_feat_name:
-                keep_feature = True
-                logging.info(f"Keeping finger-finger translation feature")
+            # # Finger finger translation - keep left_finger first
+            # elif (type1.name == "left_finger_type" and type2.name == "right_finger_type") and feat_name == trans_feat_name:
+            #     keep_feature = True
+            #     logging.info(f"Keeping finger-finger translation feature")
 
-            # Skip all other feature combinations
-            if not keep_feature:
-                logging.debug(f"Skipping feature {feat_name} for ({type1.name}, {type2.name}) in debug mode")
-                continue
+            # # Skip all other feature combinations
+            # if not keep_feature:
+            #     logging.debug(f"Skipping feature {feat_name} for ({type1.name}, {type2.name}) in debug mode")
+            #     continue
 
             if not data: continue # Skip if no data collected
+
+            # Save the feature data for analysis and debugging
+            feature_key = f"{type1.name}_{type2.name}_{feat_name}"
+            
+            # Create directory if it doesn't exist
+            os.makedirs("feature_data", exist_ok=True)
+            
+            # Save the data to a numpy file
+            data_path = f"feature_data/{feature_key}.npy"
+            np.save(data_path, np.array(data))
+            
+            logging.info(f"Saved {len(data)} data points for feature {feature_key} to {data_path}")
 
             # Select clustering epsilon based on feature type
             if feat_name == trans_feat_name:
                 epsilon = CFG.clustering_translation_epsilon
             elif feat_name == quat_feat_name:
                 epsilon = CFG.clustering_quaternion_epsilon
-            else:
+            else: #pose_feature
                 epsilon = CFG.clustering_epsilon
 
             logging.debug(f"Using epsilon: {epsilon:.4f} for feature {feat_name}")
             # Perform clustering
-            data_array, labels, unique_labels, effective_epsilon = self._cluster_feature_dataset(data, epsilon)
+            data_array, labels, unique_labels, effective_epsilon = self._cluster_feature_dataset(data, epsilon, feat_name)
             diff_fn = self._get_feature_difference_function(feat_name)
 
             if data_array.size == 0: continue # Skip if clustering returned empty
@@ -504,202 +537,283 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         return renamed_candidates
 
     def _generate_relative_feature_datasets(self, dataset: Dataset) -> Dict[Tuple[Type, Type, str], List[np.ndarray]]:
-        """Extracts relative features constant between consecutive states."""
+        """Extracts relative features constant between consecutive states.
+        Includes relative SE(3) pose for types with translation and quaternion.
+        """
         feature_data = defaultdict(list)
-        feature_changes = defaultdict(list)
+        feature_changes = defaultdict(list) # Track change magnitudes
 
-        # Corrected approach: Iterate through objects in the initial state and get their types.
         types = {obj.type for traj in dataset.trajectories for obj in traj.states[0]}
+        # Optional: Filter types as before
+        filtered_types = set()
+        # Example filter (adjust as needed):
+        allowed_type_names = {"handle", "gripper", "left_finger", "right_finger", "cabinet", "door"} # Added door_type based on usage
+        for type_obj in types:
+            if any(name in type_obj.name for name in allowed_type_names):
+                filtered_types.add(type_obj)
+                logging.info(f"Keeping type for relative features: {type_obj.name}")
+            else:
+                logging.debug(f"Filtering out type: {type_obj.name}")
+        types = filtered_types
+        logging.info(f"Filtered to {len(types)} types for relative features: {[t.name for t in types]}")
 
-        # Use product to get ordered pairs, ensuring both (A, B) and (B, A) are considered.
-        # This allows calculating relative features in both A's frame and B's frame.
+        # Use combinations to avoid duplicate pairs like (A, B) and (B, A) if order doesn't matter,
+        # or product if A->B relative pose is distinct from B->A relative pose.
+        # Using combinations_with_replacement allows A->A (if needed) and considers (A,B) once.
+        # If B->A frame is also important, use product. Let's stick with combinations for now.
+        type_pairs = list(combinations_with_replacement(sorted(list(types)), 2))
 
-        ##!!! Keep depending on
-        type_pairs = list(product(sorted(list(types)), repeat=2))
-        # type_pairs = list(combinations_with_replacement(sorted(list(types)), 2))
-
-        # Assumed orientation feature name
         quat_feat_name = "quaternion"
-        # Assumed translation feature name
         trans_feat_name = "translation"
+        pose_feat_name = "pose" # New combined feature name
 
-        for traj in dataset.trajectories:
+        for i, traj in enumerate(dataset.trajectories):
+            logging.debug(f"Processing trajectory {i+1}/{len(dataset.trajectories)} for relative features")
             for t in range(len(traj.states) - 1):
                 state_t = traj.states[t]
                 state_t1 = traj.states[t+1]
                 for type1, type2 in type_pairs:
-                    shared_features = sorted(list(set(type1.feature_names) & set(type2.feature_names)))
-                    if not shared_features:
-                        # warnings.warn(f"No shared features between {type1.name} and {type2.name}. Skipping.")
-                        continue
-
                     objs1 = list(state_t.get_objects(type1))
                     objs2 = list(state_t.get_objects(type2))
 
-                    for feat_name in shared_features:
-                        # Check if we need obj1's orientation (only for translation)
-                        needs_quat_for_trans = (feat_name == trans_feat_name and quat_feat_name in type1.feature_names)
+                    # --- SE(3) Pose Feature ---
+                    # Check if BOTH types have translation and quaternion
+                    # has_trans1 = trans_feat_name in type1.feature_names
+                    # has_quat1 = quat_feat_name in type1.feature_names
+                    # has_trans2 = trans_feat_name in type2.feature_names
+                    # has_quat2 = quat_feat_name in type2.feature_names
 
-                        for o1 in objs1:
-                            # If types are the same, avoid comparing object to itself.
-                            obj2_list = objs2 if type1 != type2 else [o for o in objs2 if o != o1]
-                            for o2 in obj2_list:
-                                try:
-                                    # Get features at time t
-                                    feat_t_o1 = state_t.get(o1, feat_name)
-                                    feat_t_o2 = state_t.get(o2, feat_name)
-                                    # Get features at time t+1
-                                    feat_t1_o1 = state_t1.get(o1, feat_name)
-                                    feat_t1_o2 = state_t1.get(o2, feat_name)
+                    # if has_trans1 and has_quat1 and has_trans2 and has_quat2:
+                        # logging.debug(f"Calculating relative pose for ({type1.name}, {type2.name})")
+                    for o1 in objs1:
+                        # Handle type1 == type2 case
+                        obj2_list = objs2 if type1 != type2 else [o for o in objs2 if o != o1]
+                        for o2 in obj2_list:
+                            rel_pose_t = self._calculate_relative_pose(state_t, o1, o2, trans_feat_name, quat_feat_name)
+                            rel_pose_t1 = self._calculate_relative_pose(state_t1, o1, o2, trans_feat_name, quat_feat_name)
 
-                                    # Compute relative feature at time t
-                                    if feat_name == trans_feat_name and needs_quat_for_trans:
-                                        quat_t_o1 = state_t.get(o1, quat_feat_name)
-                                        rot_t_o1 = Rotation.from_quat(quat_t_o1)
-                                        diff_t_world = np.subtract(feat_t_o2, feat_t_o1)
-                                        rel_feat_t = rot_t_o1.inv().apply(diff_t_world)
-                                    else:
-                                        diff_fn = self._get_feature_difference_function(feat_name)
-                                        rel_feat_t = np.array(diff_fn(feat_t_o1, feat_t_o2))
+                            if rel_pose_t is not None and rel_pose_t1 is not None:
+                                # Calculate change in relative pose (using SE(3) distance concept)
+                                # We need a distance function here, let's define a simple one for constancy check
+                                pose_diff_norm = self._calculate_se3_distance(rel_pose_t, rel_pose_t1, 
+                                                                                CFG.clustering_se3_trans_weight, 
+                                                                                CFG.clustering_se3_rot_weight)
+                                
+                                # Add the pose at time t to the dataset
+                                feature_key = (type1, type2, pose_feat_name)
+                                feature_data[feature_key].append(rel_pose_t)
+                                feature_changes[feature_key].append(pose_diff_norm)
 
-                                    # Compute relative feature at time t+1
-                                    if feat_name == trans_feat_name and needs_quat_for_trans:
-                                        quat_t1_o1 = state_t1.get(o1, quat_feat_name)
-                                        rot_t1_o1 = Rotation.from_quat(quat_t1_o1)
-                                        diff_t1_world = np.subtract(feat_t1_o2, feat_t1_o1)
-                                        rel_feat_t1 = rot_t1_o1.inv().apply(diff_t1_world)
-                                    else:
-                                        # Recompute diff_fn for t+1 in case it's state-dependent (though unlikely here)
-                                        diff_fn = self._get_feature_difference_function(feat_name)
-                                        rel_feat_t1 = np.array(diff_fn(feat_t1_o1, feat_t1_o2))
+                    
 
-                                    # Ensure numpy arrays for norm calculation
-                                    rel_feat_t = np.array(rel_feat_t)
-                                    rel_feat_t1 = np.array(rel_feat_t1)
+        # Filter based on constancy (e.g., keep points below 30th percentile of change)
+        final_feature_data = defaultdict(list)
+        for feature_key, data_points in feature_data.items():
+            changes = np.array(feature_changes[feature_key])
+            if len(changes) > 1: # Need at least 2 points to compute percentile
+                # Use a threshold relative to the feature type maybe?
+                # Using percentile seems reasonable for now.
+                # Consider CFG.clustering_feature_constancy_percentile ?
+                constancy_threshold = np.percentile(changes, CFG.clustering_feature_constancy_percentile) # Default 30?
+                logging.debug(f"Constancy threshold for {feature_key}: {constancy_threshold:.4f} ({CFG.clustering_feature_constancy_percentile}th percentile)")
+                mask = changes <= constancy_threshold
+                final_feature_data[feature_key] = [pt for pt, keep in zip(data_points, mask) if keep]
+                logging.debug(f"Kept {sum(mask)} / {len(data_points)} points for {feature_key} based on constancy.")
+            else:
+                 logging.debug(f"No data points collected for {feature_key}.")
 
-                                    # Check for constancy using the feature-specific tolerance
-                                    # if np.linalg.norm(rel_feat_t - rel_feat_t1) < tolerance:
-                                    feature_data[(type1, type2, feat_name)].append(rel_feat_t)
-                                    feature_changes[(type1, type2, feat_name)].append(np.linalg.norm(rel_feat_t - rel_feat_t1))
-                                except KeyError as e:
-                                    # If a required feature (like quaternion for translation) is missing, skip this pair
-                                    # logging.debug(f"Skipping object pair due to missing feature: {e}")
-                                    continue
-        for feature_key, changes in feature_changes.items():
-            # Only keep features that are relatively constant (below 30th percentile of changes)
-            # First collect all changes, then filter based on percentile
-            # This is done outside the loop to avoid modifying the dictionary during iteration
-            percentile_30 = np.percentile(changes, 30)
-            bool_mask = changes < percentile_30            
-            feature_data[feature_key] = [feat for feat, is_constant in zip(feature_data[feature_key], bool_mask) if is_constant]
 
-        return feature_data
+        return final_feature_data
 
-    def _generate_absolute_feature_datasets(self, dataset: Dataset) -> Dict[Tuple[Type, str], List[np.ndarray]]:
-        """Extracts absolute features constant between consecutive states."""
-        feature_data = defaultdict(list)
-        types = {obj.type for traj in dataset.trajectories for obj in traj.states[0]}
+    def _calculate_relative_pose(self, state: State, o1: Object, o2: Object, trans_feat_name: str, quat_feat_name: str) -> Optional[np.ndarray]:
+        """Calculates the relative pose of o2 with respect to o1's frame.
+        
+        Returns a 7D vector [tx, ty, tz, qx, qy, qz, qw] or None if features missing.
+        """
+        try:
+            trans_o1 = state.get(o1, trans_feat_name)
+            trans_o2 = state.get(o2, trans_feat_name)
+            quat_o1 = state.get(o1, quat_feat_name)
+            quat_o2 = state.get(o2, quat_feat_name)
 
-        for traj in dataset.trajectories:
-            for t in range(len(traj.states) - 1):
-                state_t = traj.states[t]
-                state_t1 = traj.states[t+1]
-                for type1 in types:
-                    # Consider object might not have features?
-                    #  if not hasattr(type1, 'feature_names'): continue
-                    objs1 = list(state_t.get_objects(type1))
-                    for feat_name in sorted(type1.feature_names):
-                        for o1 in objs1:
-                            # Check if object exists in the next state
-                            #    if o1 not in state_t1:
-                            #        continue
-                            # Get features at time t and t+1
-                            feat_t = np.array(state_t.get(o1, feat_name))
-                            feat_t1 = np.array(state_t1.get(o1, feat_name))
+            rot_o1 = Rotation.from_quat(quat_o1)
+            rot_o2 = Rotation.from_quat(quat_o2)
 
-                            # Check for constancy
-                            if np.linalg.norm(feat_t - feat_t1) < CFG.clustering_feature_constancy_tol:
-                                feature_data[(type1, feat_name)].append(feat_t)
-        return feature_data
+            relative_trans_world = np.subtract(trans_o2, trans_o1)
+            relative_trans_local = rot_o1.inv().apply(relative_trans_world)
 
-    def _get_feature_difference_function(self, feature_name: str) -> Callable[[Any, Any], Any]:
-        """Returns an appropriate difference function for a given feature."""
-        # TODO: Implement more sophisticated difference functions, especially for orientation.
-        # This basic version assumes vector subtraction works.
-        if "quaternion" == feature_name:
-            # For quaternions/rotations, relative rotation is often more meaningful
-            def _quat_diff(q1: np.ndarray, q2: np.ndarray) -> np.ndarray:
-                # Calculate relative rotation: q_rel = q1.inverse * q2
-                # Return the rotation vector representation of the relative rotation.
-                rot1 = Rotation.from_quat(q1)
-                rot2 = Rotation.from_quat(q2)
-                rel_rot = rot1.inv() * rot2
-                rot_vec = rel_rot.as_rotvec()
-                # Return the 3D rotation vector.
-                return rot_vec
-            return _quat_diff
-        # Default to simple subtraction for position, velocity, etc.
-        return np.subtract
+            relative_rot = rot_o1.inv() * rot_o2
+            relative_quat = relative_rot.as_quat()
+            # Ensure consistent quaternion representation (e.g., w >= 0) - optional
+            # if relative_quat[3] < 0:
+            #     relative_quat *= -1
 
-    def _cluster_feature_dataset(self, feature_data: List[np.ndarray], initial_epsilon: float) -> Tuple[np.ndarray, np.ndarray, Set[int], float]:
-        """Performs clustering based on epsilon distance using either agglomerative or DBSCAN.
+            pose_vec = np.concatenate([relative_trans_local, relative_quat])
+            return pose_vec # 7D vector
+        except KeyError as e:
+            logging.debug(f"Missing feature {e} for relative pose between {o1} and {o2}. Skipping.")
+            return None
+
+    def _calculate_se3_distance(self, pose_vec1: np.ndarray, pose_vec2: np.ndarray, 
+                                trans_weight: float, rot_weight: float) -> float:
+        """Calculates a weighted SE(3) distance between two 7D pose vectors."""
+        # Assumes pose_vec is [tx, ty, tz, qx, qy, qz, qw]
+        trans1, quat1 = pose_vec1[:3], pose_vec1[3:]
+        trans2, quat2 = pose_vec2[:3], pose_vec2[3:]
+
+        # Translational distance (Euclidean)
+        trans_dist_sq = np.sum((trans1 - trans2)**2)
+
+        # Rotational distance (angle of relative rotation)
+        # Ensure quaternions are valid rotations
+        if np.isclose(norm(quat1), 0) or np.isclose(norm(quat2), 0):
+            # Handle zero quaternions if they occur, maybe return large distance?
+            logging.warning("Encountered near-zero quaternion in SE(3) distance calculation.")
+            rot_dist_sq = np.pi**2 # Max possible squared angle
+        else:
+            try:
+                # Normalize quaternions robustly before creating Rotation objects
+                quat1_norm = quat1 / norm(quat1)
+                quat2_norm = quat2 / norm(quat2)
+                # Handle potential numerical instability if quats are *exactly* opposite
+                # dot_product = np.dot(quat1_norm, quat2_norm)
+                # if np.isclose(dot_product, -1.0):
+                #     rot_dist = np.pi # Angle is pi for opposite rotations
+                # else:
+                rot1 = Rotation.from_quat(quat1_norm)
+                rot2 = Rotation.from_quat(quat2_norm)
+                relative_rot = rot1.inv() * rot2
+                # Use magnitude() which gives the angle in radians
+                rot_dist = relative_rot.magnitude() 
+                rot_dist_sq = rot_dist**2
+            except ValueError as e:
+                 logging.error(f"Error calculating rotation distance: {e}. Quats: {quat1}, {quat2}")
+                 rot_dist_sq = np.pi**2 # Penalize problematic rotations
+
+        # Weighted combination
+        # Using CFG values directly here for simplicity, assuming they are accessible.
+        # Ideally, pass them as args or access via self.CFG if inside the class.
+        # Requires CFG values: clustering_se3_trans_weight, clustering_se3_rot_weight
+        weighted_dist = np.sqrt(CFG.clustering_se3_trans_weight * trans_dist_sq + 
+                                CFG.clustering_se3_rot_weight * rot_dist_sq)
+        return weighted_dist
+
+    def _cluster_feature_dataset(self, feature_data: List[np.ndarray], initial_epsilon: float, feature_name: str) -> Tuple[np.ndarray, np.ndarray, Set[int], float]:
+        """Performs clustering based on epsilon distance.
+        Uses SE(3) metric for 'pose' features, Euclidean otherwise.
 
         Returns the data array, cluster labels for each point, the set of unique labels,
         and the effective epsilon used for clustering.
         """
         if not feature_data:
-            # Return empty structures and the initial epsilon if no data
             return np.array([]), np.array([]), set(), initial_epsilon
 
         data_array = np.array(feature_data)
-        if data_array.ndim == 1: # Handle scalar features by adding a dimension
+        if data_array.ndim == 1:
             data_array = data_array.reshape(-1, 1)
-
-        # Handle case with 0 or 1 data point early to avoid errors in pdist/clustering
+        
+        # Handle case with 0 or 1 data point early
         if data_array.shape[0] < 2:
             labels = np.array([0]) if data_array.shape[0] == 1 else np.array([])
             unique_labels = {0} if data_array.shape[0] == 1 else set()
-            # Return initial epsilon if clustering wasn't really performed
             return data_array, labels, unique_labels, initial_epsilon
 
-        # Choose clustering algorithm based on configuration
-        effective_epsilon = initial_epsilon # Initialize with the provided epsilon
+        # --- Determine Metric and Epsilon ---
+
+        if feature_name == "pose":
+            # Use the SE(3) distance function as the metric
+            # Define a lambda or wrapper if needed to pass weights, assuming CFG accessible
+            metric = lambda p1, p2: self._calculate_se3_distance(p1, p2, 
+                                                            CFG.clustering_se3_trans_weight, 
+                                                            CFG.clustering_se3_rot_weight)
+            # Use a specific epsilon for SE(3) clustering
+            effective_epsilon = CFG.clustering_se3_epsilon # Needs to be defined in CFG
+            logging.debug(f"Using SE(3) metric with epsilon: {effective_epsilon:.4f}")
+        else:
+            raise ValueError(f"Unsupported feature type: {feature_name}")
+            # effective_epsilon = initial_epsilon # Start with provided/feature-specific epsilon
+
+            # # For non-pose features, potentially keep dynamic epsilon logic?
+            # # Or just use the passed initial_epsilon which might be feature-specific
+            # # Let's use the initial_epsilon passed (e.g., translation or quaternion specific)
+            # logging.debug(f"Using Euclidean metric with epsilon: {effective_epsilon:.4f} for {feature_name}")
+            # Optional: Re-enable dynamic epsilon calculation for non-pose Euclidean cases if desired
+            # if CFG.clustering_algorithm != "dbscan": # Only relevant for Agglomerative
+            #     try:
+            #         pairwise_distances = pdist(data_array)
+            #         dynamic_epsilon = np.percentile(pairwise_distances, 95) * CFG.clustering_agglomerative_ratio
+            #         effective_epsilon = dynamic_epsilon
+            #         logging.debug(f"Using Dynamic Agglomerative Epsilon: {effective_epsilon:.4f}")
+            #     except ValueError as e:
+            #         logging.warning(f"Could not calculate dynamic epsilon: {e}")
+
+
+        # --- Perform Clustering ---
         if CFG.clustering_algorithm == "dbscan":
             try:
-                # Use a ratio of the initial epsilon for DBSCAN
-                effective_epsilon = initial_epsilon * CFG.clustering_dbscan_ratio
-                logging.debug(f"Using DBSCAN Epsilon: {effective_epsilon:.4f}")
-                clustering = DBSCAN(eps=effective_epsilon).fit(data_array)
+                # Note: DBSCAN's epsilon interpretation might differ slightly with custom metrics.
+                # May need tuning.
+                # If using SE(3), effective_epsilon is already CFG.clustering_se3_epsilon.
+                # If Euclidean, might apply ratio: effective_epsilon *= CFG.clustering_dbscan_ratio
+                if metric == 'euclidean': # Apply ratio only for Euclidean
+                     effective_epsilon *= CFG.clustering_dbscan_ratio
+                
+                logging.debug(f"Running DBSCAN with effective epsilon: {effective_epsilon:.4f} and metric: {'SE(3)' if callable(metric) else metric}")
+                clustering = DBSCAN(eps=effective_epsilon, metric=metric, # Pass the metric
+                                    min_samples=CFG.clustering_min_samples_per_cluster).fit(data_array) # Use min_samples config
             except ValueError as e:
                 logging.error(f"DBSCAN Clustering failed: {e}")
-                logging.error(f"Data shape: {data_array.shape}, Epsilon: {effective_epsilon}")
-                logging.error(f"Example data point: {data_array[0] if len(data_array) > 0 else 'N/A'}")
+                # Add more debug info
+                logging.error(f"Data shape: {data_array.shape}, Epsilon: {effective_epsilon}, Metric: {'SE(3)' if callable(metric) else metric}")
+                logging.error(f"Sample data point: {data_array[0] if len(data_array) > 0 else 'N/A'}")
+                # If using custom metric, check for NaN/inf distances
+                if callable(metric):
+                    try:
+                        dists = pdist(data_array, metric=metric)
+                        logging.error(f"Sample pairwise distances: {dists[:10] if len(dists) > 0 else 'N/A'}")
+                        logging.error(f"Distance stats: min={np.min(dists):.4f}, max={np.max(dists):.4f}, mean={np.mean(dists):.4f}, nan={np.isnan(dists).any()}, inf={np.isinf(dists).any()}")
+                    except Exception as dist_e:
+                        logging.error(f"Error calculating pairwise distances for debug: {dist_e}")
                 raise e
-        else:  # Default to agglomerative clustering
-            try:
-                # Dynamically set epsilon based on data range
-                pairwise_distances = pdist(data_array)
-                # Get the 95th percentile of distances
-                dynamic_epsilon = np.percentile(pairwise_distances, 95) * CFG.clustering_agglomerative_ratio
-                effective_epsilon = dynamic_epsilon # Use the dynamically calculated one
-                logging.debug(f"Using Agglomerative Clustering Epsilon: {effective_epsilon:.4f}")
-
-                # linkage='average' corresponds well to the paper's description
-                # distance_threshold ensures clusters stop merging when distance exceeds epsilon
-                clustering = AgglomerativeClustering(n_clusters=None,
-                                                    affinity='euclidean',
-                                                    linkage='average', # Or 'complete', 'ward'
-                                                    distance_threshold=effective_epsilon).fit(data_array)
-            except ValueError as e:
-                logging.error(f"Agglomerative Clustering failed: {e}")
-                logging.error(f"Data shape: {data_array.shape}, Epsilon: {effective_epsilon}")
-                logging.error(f"Example data point: {data_array[0] if len(data_array) > 0 else 'N/A'}")
-                raise e
+        else: # Agglomerative clustering
+            # try:
+                 # Use the effective_epsilon determined earlier (SE3 specific or feature specific)
+                 # Agglomerative needs precomputed distances if metric is not standard Euclidean/etc.
+                 # Or, if metric is callable AND linkage is 'average', 'complete', 'single', it *might* work directly.
+                 # Let's try passing the callable metric directly first.
+            logging.debug(f"Running Agglomerative Clustering with distance_threshold: {effective_epsilon:.4f} and metric: {'SE(3)' if callable(metric) else metric}")
+            dists = pdist(data_array, metric=metric)
+            dist_matrix = squareform(dists)
+            clustering = AgglomerativeClustering(n_clusters=None,
+                                                affinity="precomputed", # Pass metric
+                                                linkage='average', # Check compatibility with custom metric
+                                                distance_threshold=effective_epsilon).fit(dist_matrix)
+            # except ValueError as e:
+            #      # If the callable metric doesn't work directly with chosen linkage:
+            #      if callable(metric) and "Metric 'function' not valid for linkage" in str(e):
+            #           logging.warning(f"Callable metric not directly supported for linkage 'average'. Precomputing distance matrix...")
+            #           try:
+            #                distance_matrix = pdist(data_array, metric=metric)
+            #                # Convert to squareform for AgglomerativeClustering
+            #                distance_matrix_sq = squareform(distance_matrix)
+            #                logging.debug(f"Precomputed distance matrix shape: {distance_matrix_sq.shape}")
+            #                # Use 'precomputed' metric with the distance matrix
+            #                clustering = AgglomerativeClustering(n_clusters=None,
+            #                                                     metric='precomputed', # Use precomputed
+            #                                                     linkage='average', # Linkage works with precomputed
+            #                                                     distance_threshold=effective_epsilon).fit(distance_matrix_sq) # Fit the matrix
+            #           except Exception as precompute_e:
+            #                logging.error(f"Failed to cluster using precomputed SE(3) distances: {precompute_e}")
+            #                raise precompute_e
+            #      else:
+            #          logging.error(f"Agglomerative Clustering failed: {e}")
+            #          logging.error(f"Data shape: {data_array.shape}, Epsilon: {effective_epsilon}, Metric: {'SE(3)' if callable(metric) else metric}")
+            #          logging.error(f"Sample data point: {data_array[0] if len(data_array) > 0 else 'N/A'}")
+            #          raise e
 
         labels = clustering.labels_
         unique_labels = set(labels)
 
-        # Return raw results including the effective epsilon used
         return data_array, labels, unique_labels, effective_epsilon
 
     def _plot_cluster_results(self,
@@ -710,12 +824,16 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                               type1_name: str,
                               type2_name: Optional[str], # None for absolute features
                               feat_name: str) -> None:
-        """Helper function to visualize clustering results with ellipsoidal boundaries."""
+        """Helper function to visualize clustering results.
+        For 'pose' features, plots 3D translation and centroid frames.
+        """
         if not CFG.clustering_debug or data_array.size == 0:
-            return # Skip if debug flag is off or no data
+            return
 
-        # We need matplotlib, etc. Already checked in the calling function.
-        # from matplotlib.patches import Ellipse is needed for 2D.
+        # Imports are assumed present based on original code
+        import matplotlib.pyplot as plt
+        from mpl_toolkits.mplot3d import Axes3D
+        from matplotlib.patches import Ellipse # For 2D
 
         # Determine if relative or absolute for titles/filenames
         if type2_name:
@@ -725,31 +843,43 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             cluster_type_str = f"Absolute Cluster: {type1_name}"
             fname_prefix = f"abs_cluster_{type1_name}"
 
-        # Calculate stats for title
-        num_total_clusters = len(unique_labels - {-1}) # Exclude noise label if present
+        num_total_clusters = len(unique_labels - {-1})
         num_kept_clusters = len(kept_clusters_info)
 
         fig = plt.figure(figsize=(12, 10))
-        # Title now reflects Mahalanobis usage, removed effective_epsilon
         title = (f"{cluster_type_str} ({feat_name})\n"
                  f"MinRatio={CFG.clustering_min_ratio_of_data}, Kept={num_kept_clusters}/{num_total_clusters}")
-        # Filename doesn't need epsilon anymore
         fname = f"{fname_prefix}_{feat_name}_clusters.png"
 
-        # Determine colors: green for kept, red for discarded, black for noise
         colors = []
         for label in labels:
-            if label == -1:
-                colors.append('black') # Noise
-            elif label in kept_clusters_info:
-                colors.append('green') # Kept
-            else:
-                colors.append('red')   # Discarded
+            if label == -1: colors.append('black') # Noise
+            elif label in kept_clusters_info: colors.append('green') # Kept
+            else: colors.append('red') # Discarded
 
         num_dims = data_array.shape[1]
-        ax = None # Initialize ax
+        ax = None 
+        is_3d = False
 
-        if num_dims == 1:
+        # --- Setup Plot Axes ---
+        if feat_name == "pose":
+            # For pose (7D), plot the translational part (first 3 dims)
+            if num_dims >= 3:
+                ax = fig.add_subplot(111, projection='3d')
+                # Scatter plot using only the first 3 dimensions (translation)
+                ax.scatter(data_array[:, 0], data_array[:, 1], data_array[:, 2], c=colors, alpha=0.7)
+                ax.set_xlabel('Relative Tx')
+                ax.set_ylabel('Relative Ty')
+                ax.set_zlabel('Relative Tz')
+                is_3d = True
+                # Optionally add origin marker for relative pose
+                ax.scatter([0], [0], [0], c='blue', s=100, marker='x', label='Origin (Frame 1)')
+            else:
+                 logging.warning(f"Pose feature has fewer than 3 dimensions ({num_dims}), cannot plot 3D translation.")
+                 # Fallback to 2D or 1D plot if desired? For now, just skip plotting.
+                 plt.close(fig)
+                 return
+        elif num_dims == 1:
             ax = fig.add_subplot(111)
             ax.scatter(data_array[:, 0], np.zeros_like(data_array[:, 0]), c=colors, alpha=0.7)
             ax.set_xlabel(f'{feat_name} dim 1')
@@ -758,19 +888,22 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             ax.scatter(data_array[:, 0], data_array[:, 1], c=colors, alpha=0.7)
             ax.set_xlabel(f'{feat_name} dim 1')
             ax.set_ylabel(f'{feat_name} dim 2')
-        elif num_dims >= 3:
+            ax.set_aspect('equal', adjustable='box') # Keep aspect ratio for 2D
+        elif num_dims >= 3: # Non-pose 3D+ features
             ax = fig.add_subplot(111, projection='3d')
             ax.scatter(data_array[:, 0], data_array[:, 1], data_array[:, 2], c=colors, alpha=0.7)
             ax.set_xlabel(f'{feat_name} dim 1')
             ax.set_ylabel(f'{feat_name} dim 2')
             ax.set_zlabel(f'{feat_name} dim 3')
-            if feat_name == "translation":
-                ax.scatter([0], [0], [0], c='blue', s=100, marker='x', label='Origin')
+            is_3d = True
 
-        # Plot centroids and ellipsoidal boundaries for *kept* clusters
+
+        # --- Plot Centroids and Boundaries/Frames ---
         centroids_plotted = False
         boundaries_plotted = False
-        if ax is not None: # Ensure ax was created
+        frames_plotted = False # Track if frames legend is added
+
+        if ax is not None: 
             cluster_counts = defaultdict(int)
             for label in labels:
                 cluster_counts[label] += 1
@@ -780,86 +913,112 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 count = cluster_counts.get(label, 0)
                 label_text = f"Cluster {label}: {count} pts"
 
-                # Plot centroid marker
-                marker_kwargs = {'c': 'purple', 's': 150, 'marker': '*'} # Removed label here
+                # --- Plot Centroid Marker ---
+                marker_kwargs = {'c': 'purple', 's': 150, 'marker': '*'} 
                 if not centroids_plotted:
-                    marker_kwargs['label'] = 'Kept Centroids' # Add label only for the first one
+                     marker_kwargs['label'] = 'Kept Centroids'
 
-                if num_dims == 1:
+                if feat_name == "pose" and is_3d:
+                     ax.scatter(centroid[0], centroid[1], centroid[2], **marker_kwargs)
+                     ax.text(centroid[0], centroid[1], centroid[2], label_text, fontsize=9)
+                elif num_dims == 1:
                     ax.scatter(centroid[0], 0, **marker_kwargs)
-                    ax.text(centroid[0], 0.01, label_text, fontsize=9) # Slightly offset text
+                    ax.text(centroid[0], 0.01, label_text, fontsize=9) 
                 elif num_dims == 2:
                     ax.scatter(centroid[0], centroid[1], **marker_kwargs)
                     ax.text(centroid[0], centroid[1], label_text, fontsize=9)
-                elif num_dims >= 3:
+                elif num_dims >= 3 and is_3d: # Non-pose 3D
                     ax.scatter(centroid[0], centroid[1], centroid[2], **marker_kwargs)
                     ax.text(centroid[0], centroid[1], centroid[2], label_text, fontsize=9)
                 centroids_plotted = True
 
-                # Plot Ellipsoidal Boundary
-                if 'covariance_matrix' in info and 'mahalanobis_threshold' in info:
-                    cov_matrix = info['covariance_matrix']
-                    maha_thresh = info['mahalanobis_threshold']
-                    legend_label = 'Ellipsoid Boundary' if not boundaries_plotted else ""
-                    logging.debug(f"Plotting ellipsoid for Cluster {label}: Centroid={centroid}, MahaThresh={maha_thresh:.4f}")
-                    # logging.debug(f"Covariance Matrix:\n{cov_matrix}") # Optional: uncomment for detailed matrix view
 
-                    try:
-                        if num_dims == 1:
-                            # Handle potential 0 variance by adding small epsilon
-                            variance = max(cov_matrix[0, 0], 1e-9)
-                            std_dev = np.sqrt(variance)
-                            radius = std_dev * np.sqrt(maha_thresh) # sqrt(thresh * variance)
-                            logging.debug(f"  1D Ellipsoid: Radius={radius:.4f}")
-                            ax.plot([centroid[0] - radius, centroid[0] + radius], [0, 0], 'k--', alpha=0.6, label=legend_label)
-                        elif num_dims == 2:
-                            eigenvalues, eigenvectors = np.linalg.eigh(cov_matrix)
-                            # Clamp small/negative eigenvalues due to numerical issues
-                            eigenvalues = np.maximum(eigenvalues, 1e-9)
-                            # Order eigenvalues and eigenvectors
-                            order = eigenvalues.argsort()[::-1]
-                            eigenvalues, eigenvectors = eigenvalues[order], eigenvectors[:, order]
-                            # Ellipse axes lengths: sqrt(thresh * eigenvalue)
-                            width, height = 2 * np.sqrt(maha_thresh * eigenvalues)
-                            angle = np.degrees(np.arctan2(*eigenvectors[:, 0][::-1]))
-                            logging.debug(f"  2D Ellipsoid: Width={width:.4f}, Height={height:.4f}, Angle={angle:.2f}")
-                            ellipse = Ellipse(xy=centroid, width=width, height=height, angle=angle,
-                                              edgecolor='k', fc='None', ls='--', alpha=0.6, label=legend_label)
-                            ax.add_patch(ellipse)
-                        elif num_dims >= 3:
-                            # Use first 3 dimensions for plotting 3D ellipsoid
-                            cov_3d = cov_matrix[:3, :3]
-                            centroid_3d = centroid[:3]
-                            eigenvalues, eigenvectors = np.linalg.eigh(cov_3d)
-                            # Clamp small/negative eigenvalues
-                            eigenvalues = np.maximum(eigenvalues, 1e-9)
-                            # Axes lengths
-                            radii = np.sqrt(maha_thresh * eigenvalues)
-                            logging.debug(f"  3D Ellipsoid: Radii={radii}")
-                            # Generate points on a unit sphere
-                            u = np.linspace(0.0, 2.0 * np.pi, 100)
-                            v = np.linspace(0.0, np.pi, 50)
-                            x = np.outer(np.cos(u), np.sin(v))
-                            y = np.outer(np.sin(u), np.sin(v))
-                            z = np.outer(np.ones_like(u), np.cos(v))
-                            # Scale, rotate, and translate points
-                            points = np.stack((x.flatten(), y.flatten(), z.flatten()))
-                            scaled_rotated_points = eigenvectors @ np.diag(radii) @ points
-                            translated_points = scaled_rotated_points + centroid_3d[:, np.newaxis]
-                            # Reshape for plotting
-                            x_ell, y_ell, z_ell = translated_points.reshape(3, *x.shape)
-                            ax.plot_wireframe(x_ell, y_ell, z_ell, color='k', alpha=0.2, rstride=4, cstride=4, label=legend_label)
+                # --- Plot Boundaries (Ellipsoids for non-pose) or Frames (for pose) ---
+                if feat_name == "pose" and is_3d:
+                    # Plot coordinate frame for the centroid pose
+                    # try:
+                    centroid_trans = centroid[:3]
+                    centroid_quat = centroid[3:]
+                    # Normalize quaternion to ensure valid rotation
+                    q_norm = norm(centroid_quat)
+                    if np.isclose(q_norm, 0): raise ValueError("Centroid quaternion norm is zero.")
+                    centroid_quat /= q_norm
+                    
+                    rot_mat = Rotation.from_quat(centroid_quat).as_matrix()
+                    axis_len = CFG.clustering_visualization_frame_axis_length # Add to CFG (e.g., 0.05)
 
-                        boundaries_plotted = True
+                    # Quiver args
+                    q_args = {'length': axis_len, 'normalize': False, 'alpha': 0.8}
+                    
+                    # X-axis (Red)
+                    ax.quiver(centroid_trans[0], centroid_trans[1], centroid_trans[2], 
+                                rot_mat[0, 0], rot_mat[1, 0], rot_mat[2, 0], 
+                                color='r', **q_args, label='Centroid Frame X' if not frames_plotted else None)
+                    # Y-axis (Green)
+                    ax.quiver(centroid_trans[0], centroid_trans[1], centroid_trans[2], 
+                                rot_mat[0, 1], rot_mat[1, 1], rot_mat[2, 1], 
+                                color='g', **q_args, label='Centroid Frame Y' if not frames_plotted else None)
+                    # Z-axis (Blue)
+                    ax.quiver(centroid_trans[0], centroid_trans[1], centroid_trans[2], 
+                                rot_mat[0, 2], rot_mat[1, 2], rot_mat[2, 2], 
+                                color='b', **q_args, label='Centroid Frame Z' if not frames_plotted else None)
+                    frames_plotted = True
+                    # except Exception as e:
+                    #      logging.warning(f"Could not plot coordinate frame for cluster {label}: {e}")
 
-                    except ValueError as e:
-                        logging.warning(f"Could not plot ellipsoid for cluster {label}: Value error ({e}). Check eigenvalues/vectors.")
+                elif 'covariance_matrix' in info and 'mahalanobis_threshold' in info:
+                     # Plot ellipsoidal boundary (original logic for non-pose features)
+                     # ... (keep original ellipsoid plotting logic here) ...
+                     # Ensure you set boundaries_plotted = True if ellipsoid is drawn
+                     # (Code omitted for brevity, but it's the same as before)
+                     cov_matrix = info['covariance_matrix']
+                     maha_thresh = info['mahalanobis_threshold']
+                     legend_label = 'Ellipsoid Boundary' if not boundaries_plotted else ""
+                     logging.debug(f"Plotting ellipsoid for Cluster {label}: Centroid={centroid}, MahaThresh={maha_thresh:.4f}")
+                     try:
+                         # --- Ellipsoid Plotting Logic (copied from original) ---
+                         if num_dims == 1:
+                             variance = max(cov_matrix[0, 0], 1e-9)
+                             std_dev = np.sqrt(variance)
+                             radius = std_dev * np.sqrt(maha_thresh)
+                             ax.plot([centroid[0] - radius, centroid[0] + radius], [0, 0], 'k--', alpha=0.6, label=legend_label)
+                         elif num_dims == 2:
+                             eigenvalues, eigenvectors = np.linalg.eigh(cov_matrix)
+                             eigenvalues = np.maximum(eigenvalues, 1e-9)
+                             order = eigenvalues.argsort()[::-1]
+                             eigenvalues, eigenvectors = eigenvalues[order], eigenvectors[:, order]
+                             width, height = 2 * np.sqrt(maha_thresh * eigenvalues)
+                             angle = np.degrees(np.arctan2(*eigenvectors[:, 0][::-1]))
+                             ellipse = Ellipse(xy=centroid, width=width, height=height, angle=angle,
+                                               edgecolor='k', fc='None', ls='--', alpha=0.6, label=legend_label)
+                             ax.add_patch(ellipse)
+                         elif num_dims >= 3 and is_3d: # Non-pose 3D
+                             cov_3d = cov_matrix[:3, :3]
+                             centroid_3d = centroid[:3]
+                             eigenvalues, eigenvectors = np.linalg.eigh(cov_3d)
+                             eigenvalues = np.maximum(eigenvalues, 1e-9)
+                             radii = np.sqrt(maha_thresh * eigenvalues)
+                             u = np.linspace(0.0, 2.0 * np.pi, 100)
+                             v = np.linspace(0.0, np.pi, 50)
+                             x = np.outer(np.cos(u), np.sin(v))
+                             y = np.outer(np.sin(u), np.sin(v))
+                             z = np.outer(np.ones_like(u), np.cos(v))
+                             points = np.stack((x.flatten(), y.flatten(), z.flatten()))
+                             scaled_rotated_points = eigenvectors @ np.diag(radii) @ points
+                             translated_points = scaled_rotated_points + centroid_3d[:, np.newaxis]
+                             x_ell, y_ell, z_ell = translated_points.reshape(3, *x.shape)
+                             ax.plot_wireframe(x_ell, y_ell, z_ell, color='k', alpha=0.2, rstride=4, cstride=4, label=legend_label)
+                         # --- End Ellipsoid Plotting Logic ---
+                         boundaries_plotted = True
+                     except ValueError as e:
+                         logging.warning(f"Could not plot ellipsoid for cluster {label}: Value error ({e}). Check eigenvalues/vectors.")
                 else:
-                    logging.debug(f"Skipping ellipsoid plot for cluster {label}: Missing covariance or threshold info.")
-                    logging.debug(f"  Available info keys: {list(info.keys())}")
+                     logging.debug(f"Skipping boundary/frame plot for cluster {label}: Missing info.")
 
+
+            # --- Finalize Plot ---
             ax.set_title(title)
-            # Create custom legend handles
+            # Create legend handles
             handles = [
                 plt.Line2D([0], [0], marker='o', color='w', label='Kept Pts', markersize=10, markerfacecolor='green'),
                 plt.Line2D([0], [0], marker='o', color='w', label='Discarded Pts', markersize=10, markerfacecolor='red'),
@@ -868,26 +1027,32 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 handles.append(plt.Line2D([0], [0], marker='o', color='w', label='Noise Pts', markersize=10, markerfacecolor='black'))
             if centroids_plotted:
                 handles.append(plt.Line2D([0], [0], marker='*', color='w', label='Kept Centroids', markersize=10, markerfacecolor='purple', linestyle='None'))
-            if boundaries_plotted:
+            if boundaries_plotted: # Ellipsoid legend
                 handles.append(plt.Line2D([0], [0], linestyle='--', color='k', label='Ellipsoid Boundary (Maha. Thresh.)'))
-            if feat_name == "translation" and num_dims >= 3:
-                handles.append(plt.Line2D([0], [0], marker='x', color='w', label='Origin', markersize=10, markerfacecolor='blue', linestyle='None'))
-
-            # Add aspect ratio setting for 2D plots to make ellipses look right
-            if num_dims == 2:
-                ax.set_aspect('equal', adjustable='box')
+            if frames_plotted: # Add legend entries for frames if any were plotted
+                 handles.append(plt.Line2D([0],[0], color='r', lw=2, label='Centroid Frame X'))
+                 handles.append(plt.Line2D([0],[0], color='g', lw=2, label='Centroid Frame Y'))
+                 handles.append(plt.Line2D([0],[0], color='b', lw=2, label='Centroid Frame Z'))
+            if feat_name == "pose" and is_3d: # Origin marker for pose
+                 handles.append(plt.Line2D([0], [0], marker='x', color='w', label='Origin (Frame 1)', markersize=10, markerfacecolor='blue', linestyle='None'))
 
             ax.legend(handles=handles)
+            if is_3d: # Set view angles, etc., for 3D plots if desired
+                 ax.view_init(elev=20., azim=-35) # Example view angle
             plt.tight_layout()
+            # Ensure output directory exists
+            os.makedirs(os.path.dirname(fname) or ".", exist_ok=True) 
             plt.savefig(fname)
             logging.info(f"Cluster visualization saved to {fname}")
-            plt.close(fig) # Close after showing
+            plt.close(fig)
         else:
-            logging.warning(f"Could not plot for {fname}, unsupported dimension: {num_dims}")
+            logging.warning(f"Could not plot for {fname}, plotting axis not created (likely unsupported dimension: {num_dims} for feature {feat_name}).")
 
-    def _create_predicate_from_relative_cluster(self, type1: Type, type2: Type, feature_name: str, cluster_center: np.ndarray, inv_covariance_matrix: np.ndarray, mahalanobis_threshold: float, diff_fn: Callable, cluster_id: int) -> Predicate:
-        """Creates a binary predicate from a relative feature cluster."""
-        classifier = _RelativeFeatureClusterClassifier(type1, type2, feature_name, cluster_center, inv_covariance_matrix, mahalanobis_threshold, diff_fn, cluster_id)
+    def _create_predicate_from_relative_cluster(self, type1: Type, type2: Type, feature_name: str, cluster_center: np.ndarray, inv_covariance_matrix: np.ndarray, mahalanobis_threshold: float, diff_fn: Optional[Callable], cluster_id: int) -> Predicate:
+        """Creates a binary predicate from a relative feature cluster (including pose)."""
+        classifier = _RelativeFeatureClusterClassifier(type1, type2, feature_name, 
+                                                     cluster_center, inv_covariance_matrix, 
+                                                     mahalanobis_threshold, diff_fn, cluster_id)
         name = str(classifier)
         types = [type1, type2]
         pred = Predicate(name, types, classifier)
