@@ -16,6 +16,8 @@ from gym.spaces import Box
 # We will use Agglomerative Clustering as described.
 # May need `pip install scikit-learn`
 from sklearn.cluster import AgglomerativeClustering, DBSCAN
+# Import HDBSCAN (may need `pip install hdbscan`)
+from hdbscan import HDBSCAN
 from scipy.spatial.distance import cdist
 from scipy.spatial.transform import Rotation
 from scipy.spatial.distance import pdist, squareform
@@ -236,10 +238,10 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
     def learn_from_offline_dataset(self, dataset: Dataset) -> None:
         logging.info("Generating candidate predicates via clustering...")
         # Filter dataset to only keep specific trajectory indices
-        # keep_indices = [0, 3, 4, 5, 7, 8]
-        # dataset._trajectories = [dataset._trajectories[i] for i in keep_indices]
+        keep_indices = [0, 3, 4,6, 7, 8]
+        dataset._trajectories = [dataset._trajectories[i] for i in keep_indices]
 
-        # logging.info(f"Filtered dataset to trajectories (indices: {keep_indices})")
+        logging.info(f"Filtered dataset to trajectories (indices: {keep_indices})")
         # Clear caches before starting learning
         self._atom_dataset_cache = {}
         self._operator_complexity_cache = {}
@@ -302,10 +304,26 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         # Feature names for special handling
         quat_feat_name = "quaternion"
         trans_feat_name = "translation"
+        pose_feature_name = "pose"
+        
+        # Initialize cluster visualization storage attributes
+        self._last_cluster_fig = None
+        self._last_cluster_ax = None
+        self._last_cluster_type1 = None
+        self._last_cluster_type2 = None
+        self._last_cluster_feat = None
+        self._last_cluster_title = None
+        self._last_cluster_fname = None
 
         # Process relative features
         for (type1, type2, feat_name), data in relative_feature_datasets.items():
             logging.debug(f"Clustering relative feature {feat_name} for ({type1.name}, {type2.name}) with {len(data)} points.")
+            
+            # Generate trajectory visualization for this type pair
+            # if feat_name == pose_feature_name:
+            #     # Visualize trajectories for this type pair
+            #     self._plot_relative_trajectories(dataset, type1.name, type2.name)
+            
             # Skip if we are having gripper type and handle type
             # if ((type1.name == "left_finger_type" and type2.name == "right_finger_type") or \
             #    (type1.name == "right_finger_type" and type2.name == "left_finger_type")) and \
@@ -330,7 +348,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             # Check if this is a feature combination we want to keep
             keep_feature = False
 
-            if (type1.name == "handle_type" and type2.name == "gripper_type") and feat_name == quat_feat_name:
+            if (type1.name == "handle_type" and type2.name == "gripper_type") and feat_name == pose_feature_name:
                 keep_feature = True
                 logging.info(f"Keeping handle-gripper quaternion feature")
 
@@ -338,15 +356,19 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             #     keep_feature = True
             #     logging.info(f"Keeping handle-gripper translation feature")
 
-            # # Cabinet handle quaternion - keep cabinet first
-            # if (type1.name == "cabinet_type" and type2.name == "door_type") and feat_name == quat_feat_name:
-            #     keep_feature = True
-            #     logging.info(f"Keeping cabinet-handle quaternion feature")
+            # Cabinet handle quaternion - keep cabinet first
+            if (type1.name == "cabinet_type" and type2.name == "handle_type") and feat_name == pose_feature_name:
+                keep_feature = True
+                logging.info(f"Keeping cabinet-handle pose feature")
 
             # # Gripper handle quaternion - keep gripper first
-            # elif (type1.name == "gripper_type" and type2.name == "door_type") and feat_name == quat_feat_name:
-            #     keep_feature = True
-            #     logging.info(f"Keeping gripper-handle quaternion feature")
+            elif (type1.name == "cabinet_type" and type2.name == "gripper_type") and feat_name == pose_feature_name:
+                keep_feature = True
+                logging.info(f"Keeping gripper-handle pose feature")
+
+            elif (type1.name == "door_type" and type2.name == "gripper_type") and feat_name == pose_feature_name:
+                keep_feature = True
+                logging.info(f"Keeping door-gripper pose feature")
 
             # # Gripper handle translation - keep gripper first
             # elif (type1.name == "gripper_type" and type2.name == "door_type") and feat_name == trans_feat_name:
@@ -359,9 +381,9 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             #     logging.info(f"Keeping finger-finger translation feature")
 
             # # Skip all other feature combinations
-            # if not keep_feature:
-            #     logging.debug(f"Skipping feature {feat_name} for ({type1.name}, {type2.name}) in debug mode")
-            #     continue
+            if not keep_feature:
+                logging.debug(f"Skipping feature {feat_name} for ({type1.name}, {type2.name}) in debug mode")
+                continue
 
             if not data: continue # Skip if no data collected
 
@@ -385,7 +407,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             else: #pose_feature
                 epsilon = CFG.clustering_epsilon
 
-            logging.debug(f"Using epsilon: {epsilon:.4f} for feature {feat_name}")
+            # logging.debug(f"Using epsilon: {epsilon:.4f} for feature {feat_name}")
             # Perform clustering
             data_array, labels, unique_labels, effective_epsilon = self._cluster_feature_dataset(data, epsilon, feat_name)
             diff_fn = self._get_feature_difference_function(feat_name)
@@ -482,6 +504,10 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 self._plot_cluster_results(data_array, labels, unique_labels, kept_clusters_info,
                                            type1.name, type2.name if type2 else None, feat_name)
 
+                # Plot relative trajectories *after* cluster plot, if applicable
+                if feat_name == pose_feature_name and type2 is not None:
+                    self._plot_relative_trajectories(dataset, type1.name, type2.name)
+
             # Sort kept clusters by size (descending) for top_k selection AFTER plotting
             # Filter out any clusters where covariance calculation failed (if needed, though `continue` above handles it)
             valid_kept_clusters = {k: v for k, v in kept_clusters_info.items() if 'inv_covariance_matrix' in v}
@@ -547,7 +573,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         # Optional: Filter types as before
         filtered_types = set()
         # Example filter (adjust as needed):
-        allowed_type_names = {"handle", "gripper", "left_finger", "right_finger", "cabinet", "door"} # Added door_type based on usage
+        allowed_type_names = {"handle", "gripper", "cabinet", "door"} # Added door_type based on usage
         for type_obj in types:
             if any(name in type_obj.name for name in allowed_type_names):
                 filtered_types.add(type_obj)
@@ -555,13 +581,15 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             else:
                 logging.debug(f"Filtering out type: {type_obj.name}")
         types = filtered_types
+        
         logging.info(f"Filtered to {len(types)} types for relative features: {[t.name for t in types]}")
 
         # Use combinations to avoid duplicate pairs like (A, B) and (B, A) if order doesn't matter,
         # or product if A->B relative pose is distinct from B->A relative pose.
         # Using combinations_with_replacement allows A->A (if needed) and considers (A,B) once.
         # If B->A frame is also important, use product. Let's stick with combinations for now.
-        type_pairs = list(combinations_with_replacement(sorted(list(types)), 2))
+        # type_pairs = list(combinations_with_replacement(sorted(list(types)), 2))
+        type_pairs = list(product(sorted(list(types)), repeat=2))
 
         quat_feat_name = "quaternion"
         trans_feat_name = "translation"
@@ -750,31 +778,15 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
 
         # --- Perform Clustering ---
         if CFG.clustering_algorithm == "dbscan":
-            try:
-                # Note: DBSCAN's epsilon interpretation might differ slightly with custom metrics.
-                # May need tuning.
-                # If using SE(3), effective_epsilon is already CFG.clustering_se3_epsilon.
-                # If Euclidean, might apply ratio: effective_epsilon *= CFG.clustering_dbscan_ratio
-                if metric == 'euclidean': # Apply ratio only for Euclidean
-                     effective_epsilon *= CFG.clustering_dbscan_ratio
-                
-                logging.debug(f"Running DBSCAN with effective epsilon: {effective_epsilon:.4f} and metric: {'SE(3)' if callable(metric) else metric}")
-                clustering = DBSCAN(eps=effective_epsilon, metric=metric, # Pass the metric
-                                    min_samples=CFG.clustering_min_samples_per_cluster).fit(data_array) # Use min_samples config
-            except ValueError as e:
-                logging.error(f"DBSCAN Clustering failed: {e}")
-                # Add more debug info
-                logging.error(f"Data shape: {data_array.shape}, Epsilon: {effective_epsilon}, Metric: {'SE(3)' if callable(metric) else metric}")
-                logging.error(f"Sample data point: {data_array[0] if len(data_array) > 0 else 'N/A'}")
-                # If using custom metric, check for NaN/inf distances
-                if callable(metric):
-                    try:
-                        dists = pdist(data_array, metric=metric)
-                        logging.error(f"Sample pairwise distances: {dists[:10] if len(dists) > 0 else 'N/A'}")
-                        logging.error(f"Distance stats: min={np.min(dists):.4f}, max={np.max(dists):.4f}, mean={np.mean(dists):.4f}, nan={np.isnan(dists).any()}, inf={np.isinf(dists).any()}")
-                    except Exception as dist_e:
-                        logging.error(f"Error calculating pairwise distances for debug: {dist_e}")
-                raise e
+            min_clust_size = max(3, int(0.06 * len(data_array)))
+            logging.debug(f"Running HDBSCAN with min_cluster_size: {min_clust_size}, min_samples: {min_clust_size} and metric: {'SE(3)' if callable(metric) else metric}")
+            clustering = HDBSCAN(min_cluster_size=min_clust_size,
+                                    min_samples=min_clust_size, # Often set to min_cluster_size
+                                    metric=metric, # Pass the custom or standard metric
+                                    # cluster_selection_epsilon=effective_epsilon, # Optional: for DBSCAN-like flat extraction
+                                    allow_single_cluster=False # Default is False
+                                ).fit(data_array)
+
         else: # Agglomerative clustering
             # try:
                  # Use the effective_epsilon determined earlier (SE3 specific or feature specific)
@@ -826,6 +838,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                               feat_name: str) -> None:
         """Helper function to visualize clustering results.
         For 'pose' features, plots 3D translation and centroid frames.
+        Uses distinct colors for each kept cluster.
         """
         if not CFG.clustering_debug or data_array.size == 0:
             return
@@ -834,6 +847,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         import matplotlib.pyplot as plt
         from mpl_toolkits.mplot3d import Axes3D
         from matplotlib.patches import Ellipse # For 2D
+        import matplotlib # Added for colormap access
 
         # Determine if relative or absolute for titles/filenames
         if type2_name:
@@ -846,19 +860,38 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         num_total_clusters = len(unique_labels - {-1})
         num_kept_clusters = len(kept_clusters_info)
 
-        fig = plt.figure(figsize=(12, 10))
+        fig = plt.figure(figsize=(15, 12))
         title = (f"{cluster_type_str} ({feat_name})\n"
                  f"MinRatio={CFG.clustering_min_ratio_of_data}, Kept={num_kept_clusters}/{num_total_clusters}")
         fname = f"{fname_prefix}_{feat_name}_clusters.png"
+        
+        # Store figure reference for potential trajectory overlay
+        self._last_cluster_fig = fig
+        self._last_cluster_type1 = type1_name
+        self._last_cluster_type2 = type2_name if type2_name else None
+        self._last_cluster_feat = feat_name
+        self._last_cluster_fname = fname
+
+        # --- Assign Colors ---
+        kept_labels = sorted(list(kept_clusters_info.keys()))
+        num_kept = len(kept_labels)
+        # Use a colormap suitable for distinct categories
+        cmap = matplotlib.colormaps.get_cmap('tab10') # Get the colormap object
+        # Map kept cluster labels to colors
+        kept_color_map = {label: cmap(i / max(1, num_kept-1)) if num_kept > 1 else cmap(0.0)
+                          for i, label in enumerate(kept_labels)}
 
         colors = []
         for label in labels:
-            if label == -1: colors.append('black') # Noise
-            elif label in kept_clusters_info: colors.append('green') # Kept
-            else: colors.append('red') # Discarded
+            if label == -1:
+                colors.append('black') # Noise
+            elif label in kept_color_map:
+                colors.append(kept_color_map[label]) # Kept cluster color
+            else:
+                colors.append('lightgrey') # Discarded cluster
 
         num_dims = data_array.shape[1]
-        ax = None 
+        ax = None
         is_3d = False
 
         # --- Setup Plot Axes ---
@@ -867,13 +900,16 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             if num_dims >= 3:
                 ax = fig.add_subplot(111, projection='3d')
                 # Scatter plot using only the first 3 dimensions (translation)
-                ax.scatter(data_array[:, 0], data_array[:, 1], data_array[:, 2], c=colors, alpha=0.7)
+                ax.scatter(data_array[:, 0], data_array[:, 1], data_array[:, 2], c=colors, alpha=0.5, s=30, label='Feature Points')
                 ax.set_xlabel('Relative Tx')
                 ax.set_ylabel('Relative Ty')
                 ax.set_zlabel('Relative Tz')
                 is_3d = True
                 # Optionally add origin marker for relative pose
                 ax.scatter([0], [0], [0], c='blue', s=100, marker='x', label='Origin (Frame 1)')
+                
+                # Store axis reference for trajectory overlay
+                self._last_cluster_ax = ax
             else:
                  logging.warning(f"Pose feature has fewer than 3 dimensions ({num_dims}), cannot plot 3D translation.")
                  # Fallback to 2D or 1D plot if desired? For now, just skip plotting.
@@ -909,12 +945,14 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 cluster_counts[label] += 1
 
             for label, info in kept_clusters_info.items():
+                cluster_color = kept_color_map[label] # Get the assigned color for this kept cluster
                 centroid = info['center']
                 count = cluster_counts.get(label, 0)
                 label_text = f"Cluster {label}: {count} pts"
 
                 # --- Plot Centroid Marker ---
-                marker_kwargs = {'c': 'purple', 's': 150, 'marker': '*'} 
+                marker_kwargs = {'color': cluster_color, 's': 150, 'marker': '*'} # Use color argument
+                # Only add the label once for the first centroid plotted
                 if not centroids_plotted:
                      marker_kwargs['label'] = 'Kept Centroids'
 
@@ -974,6 +1012,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                      cov_matrix = info['covariance_matrix']
                      maha_thresh = info['mahalanobis_threshold']
                      legend_label = 'Ellipsoid Boundary' if not boundaries_plotted else ""
+                     boundary_color = cluster_color # Use cluster color for boundary
                      logging.debug(f"Plotting ellipsoid for Cluster {label}: Centroid={centroid}, MahaThresh={maha_thresh:.4f}")
                      try:
                          # --- Ellipsoid Plotting Logic (copied from original) ---
@@ -981,7 +1020,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                              variance = max(cov_matrix[0, 0], 1e-9)
                              std_dev = np.sqrt(variance)
                              radius = std_dev * np.sqrt(maha_thresh)
-                             ax.plot([centroid[0] - radius, centroid[0] + radius], [0, 0], 'k--', alpha=0.6, label=legend_label)
+                             ax.plot([centroid[0] - radius, centroid[0] + radius], [0, 0], color=boundary_color, linestyle='--', alpha=0.6, label=legend_label)
                          elif num_dims == 2:
                              eigenvalues, eigenvectors = np.linalg.eigh(cov_matrix)
                              eigenvalues = np.maximum(eigenvalues, 1e-9)
@@ -990,7 +1029,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                              width, height = 2 * np.sqrt(maha_thresh * eigenvalues)
                              angle = np.degrees(np.arctan2(*eigenvectors[:, 0][::-1]))
                              ellipse = Ellipse(xy=centroid, width=width, height=height, angle=angle,
-                                               edgecolor='k', fc='None', ls='--', alpha=0.6, label=legend_label)
+                                               edgecolor=boundary_color, fc='None', ls='--', alpha=0.6, label=legend_label)
                              ax.add_patch(ellipse)
                          elif num_dims >= 3 and is_3d: # Non-pose 3D
                              cov_3d = cov_matrix[:3, :3]
@@ -1007,7 +1046,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                              scaled_rotated_points = eigenvectors @ np.diag(radii) @ points
                              translated_points = scaled_rotated_points + centroid_3d[:, np.newaxis]
                              x_ell, y_ell, z_ell = translated_points.reshape(3, *x.shape)
-                             ax.plot_wireframe(x_ell, y_ell, z_ell, color='k', alpha=0.2, rstride=4, cstride=4, label=legend_label)
+                             ax.plot_wireframe(x_ell, y_ell, z_ell, color=boundary_color, alpha=0.2, rstride=4, cstride=4, label=legend_label)
                          # --- End Ellipsoid Plotting Logic ---
                          boundaries_plotted = True
                      except ValueError as e:
@@ -1018,17 +1057,33 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
 
             # --- Finalize Plot ---
             ax.set_title(title)
+
+            # --- Calculate and Store Axis Limits ---
+            xlim = ax.get_xlim()
+            ylim = ax.get_ylim()
+            self._last_cluster_xlim = xlim
+            self._last_cluster_ylim = ylim
+            if is_3d:
+                zlim = ax.get_zlim()
+                self._last_cluster_zlim = zlim
+            else:
+                 self._last_cluster_zlim = None # Ensure it's reset for non-3D plots
+
             # Create legend handles
-            handles = [
-                plt.Line2D([0], [0], marker='o', color='w', label='Kept Pts', markersize=10, markerfacecolor='green'),
-                plt.Line2D([0], [0], marker='o', color='w', label='Discarded Pts', markersize=10, markerfacecolor='red'),
-            ]
+            handles = []
+            # Create a single handle for all kept points using a generic marker
+            handles.append(plt.Line2D([0], [0], marker='o', color='w', label='Kept Cluster Pts', markersize=10, markerfacecolor='gray'))
+            # Handle for discarded points (updated color)
+            handles.append(plt.Line2D([0], [0], marker='o', color='w', label='Discarded Cluster Pts', markersize=10, markerfacecolor='lightgrey'))
+
             if -1 in unique_labels:
                 handles.append(plt.Line2D([0], [0], marker='o', color='w', label='Noise Pts', markersize=10, markerfacecolor='black'))
+            # Handle for centroids (generic marker)
             if centroids_plotted:
                 handles.append(plt.Line2D([0], [0], marker='*', color='w', label='Kept Centroids', markersize=10, markerfacecolor='purple', linestyle='None'))
+            # Handle for boundaries (generic color)
             if boundaries_plotted: # Ellipsoid legend
-                handles.append(plt.Line2D([0], [0], linestyle='--', color='k', label='Ellipsoid Boundary (Maha. Thresh.)'))
+                handles.append(plt.Line2D([0], [0], linestyle='--', color='gray', label='Ellipsoid Boundary (Maha. Thresh.)'))
             if frames_plotted: # Add legend entries for frames if any were plotted
                  handles.append(plt.Line2D([0],[0], color='r', lw=2, label='Centroid Frame X'))
                  handles.append(plt.Line2D([0],[0], color='g', lw=2, label='Centroid Frame Y'))
@@ -1037,16 +1092,19 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                  handles.append(plt.Line2D([0], [0], marker='x', color='w', label='Origin (Frame 1)', markersize=10, markerfacecolor='blue', linestyle='None'))
 
             ax.legend(handles=handles)
-            if is_3d: # Set view angles, etc., for 3D plots if desired
-                 ax.view_init(elev=20., azim=-35) # Example view angle
-            plt.tight_layout()
-            # Ensure output directory exists
-            os.makedirs(os.path.dirname(fname) or ".", exist_ok=True) 
-            plt.savefig(fname)
-            logging.info(f"Cluster visualization saved to {fname}")
-            plt.close(fig)
+            # No longer setting axis limits or view init here as it's done above
+
+            # Comment out saving/closing logic if overlay is pending
+            # plt.tight_layout()
+            # os.makedirs(os.path.dirname(fname) or ".", exist_ok=True)
+            # plt.savefig(fname)
+            # logging.info(f"Cluster visualization saved to feature_data/{fname}")
+            # plt.close(fig)
+            # self._last_cluster_fig = None
+            # self._last_cluster_ax = None
         else:
-            logging.warning(f"Could not plot for {fname}, plotting axis not created (likely unsupported dimension: {num_dims} for feature {feat_name}).")
+            # Just store the title for later finalization
+            self._last_cluster_title = title
 
     def _create_predicate_from_relative_cluster(self, type1: Type, type2: Type, feature_name: str, cluster_center: np.ndarray, inv_covariance_matrix: np.ndarray, mahalanobis_threshold: float, diff_fn: Optional[Callable], cluster_id: int) -> Predicate:
         """Creates a binary predicate from a relative feature cluster (including pose)."""
@@ -1369,3 +1427,165 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             else:
                 renamed_predicates[p] = cost
         return renamed_predicates 
+
+    def _plot_relative_trajectories(self, dataset: Dataset, type1_name: str, type2_name: str) -> None:
+        """Plots trajectories of the second object type in the reference frame of the first object type.
+        
+        For each trajectory in the dataset, transforms positions of type2 objects into
+        the reference frame of type1 objects and visualizes these relative motions.
+        """
+        if not CFG.clustering_debug:
+            return
+            
+        # Find the object types by name
+        type1 = None
+        type2 = None
+        for obj_type in {obj.type for traj in dataset.trajectories for obj in traj.states[0]}:
+            if obj_type.name == type1_name:
+                type1 = obj_type
+            elif obj_type.name == type2_name:
+                type2 = obj_type
+                
+        if type1 is None or type2 is None:
+            logging.warning(f"Could not find types {type1_name} and/or {type2_name} for trajectory visualization")
+            return
+            
+        trans_feat_name = "translation"
+        quat_feat_name = "quaternion"
+        
+        # Check if we have an existing cluster figure to overlay on
+        if (hasattr(self, '_last_cluster_fig') and self._last_cluster_fig is not None and
+            hasattr(self, '_last_cluster_ax') and self._last_cluster_ax is not None and
+            hasattr(self, '_last_cluster_type1') and self._last_cluster_type1 == type1_name and
+            hasattr(self, '_last_cluster_type2') and self._last_cluster_type2 == type2_name and
+            hasattr(self, '_last_cluster_feat') and self._last_cluster_feat == "pose"): # Ensure it's a pose plot
+
+            # Use the existing figure and axis for overlay
+            fig = self._last_cluster_fig
+            ax = self._last_cluster_ax
+            logging.info(f"Overlaying trajectories on existing cluster visualization for {type1_name}-{type2_name}")
+            is_overlay = True
+            fname = self._last_cluster_fname.replace("clusters", "clusters_with_trajectories")
+        else:
+            # Create a new figure
+            fig = plt.figure(figsize=(15, 10))
+            ax = fig.add_subplot(111, projection='3d')
+            ax.set_title(f"Trajectories of {type2_name} in {type1_name}'s reference frame")
+            ax.set_xlabel('X relative')
+            ax.set_ylabel('Y relative')
+            ax.set_zlabel('Z relative')
+            is_overlay = False
+            fname = f"rel_traj_{type1_name}_{type2_name}.png"
+        
+        # Different colors for different trajectories - use brighter colors for trajectories
+        colors = plt.cm.rainbow(np.linspace(0, 1, len(dataset.trajectories)))
+        
+        # Mark which trajectories are used
+        trajectories_plotted = False
+        
+        for traj_idx, traj in enumerate(dataset.trajectories):
+            # Skip trajectories with too few states
+            if len(traj.states) < 2:
+                continue
+                
+            # Find all objects of the required types in this trajectory
+            type1_objs = list(traj.states[0].get_objects(type1))
+            type2_objs = list(traj.states[0].get_objects(type2))
+            
+            if not type1_objs or not type2_objs:
+                continue
+                
+            # For simplicity, just use the first object of each type
+            # Could be extended to show all pairs
+            obj1 = type1_objs[0]
+            obj2 = type2_objs[0]
+            
+            # Collection for relative positions across time
+            relative_positions = []
+            
+            for state in traj.states:
+                # Calculate relative pose in each state
+                rel_pose = self._calculate_relative_pose(state, obj1, obj2, 
+                                                       trans_feat_name, 
+                                                       quat_feat_name)
+                if rel_pose is not None:
+                    # Just extract the translation part (first 3 components)
+                    relative_positions.append(rel_pose[:3])
+            
+            if relative_positions:
+                # Convert to numpy array for plotting
+                relative_positions = np.array(relative_positions)
+                
+                # Plot the trajectory
+                traj_label = f"Traj {traj_idx}" if not trajectories_plotted else None
+                ax.plot(relative_positions[:, 0], 
+                        relative_positions[:, 1], 
+                        relative_positions[:, 2], 
+                        '-', color=colors[traj_idx], 
+                        linewidth=2,
+                        label=traj_label)
+                
+                # Mark start and end points
+                ax.scatter(relative_positions[0, 0], 
+                           relative_positions[0, 1], 
+                           relative_positions[0, 2], 
+                           color=colors[traj_idx], marker='o', s=100, 
+                           label="Start point" if not trajectories_plotted else None)
+                ax.scatter(relative_positions[-1, 0], 
+                           relative_positions[-1, 1], 
+                           relative_positions[-1, 2], 
+                           color=colors[traj_idx], marker='s', s=100,
+                           label="End point" if not trajectories_plotted else None)
+                
+                trajectories_plotted = True
+        
+        # Determine final axis limits (considering overlay)
+        traj_xlim = ax.get_xlim()
+        traj_ylim = ax.get_ylim()
+        traj_zlim = ax.get_zlim()
+
+        if is_overlay and hasattr(self, '_last_cluster_xlim'): # Check if stored limits exist
+            # Combine cluster and trajectory limits
+            final_xlim = (min(traj_xlim[0], self._last_cluster_xlim[0]), 
+                          max(traj_xlim[1], self._last_cluster_xlim[1]))
+            final_ylim = (min(traj_ylim[0], self._last_cluster_ylim[0]), 
+                          max(traj_ylim[1], self._last_cluster_ylim[1]))
+            if self._last_cluster_zlim: # Check if cluster plot was 3D
+                final_zlim = (min(traj_zlim[0], self._last_cluster_zlim[0]),
+                              max(traj_zlim[1], self._last_cluster_zlim[1]))
+            else: # Fallback if cluster plot wasn't 3D (shouldn't happen for pose overlay)
+                final_zlim = traj_zlim
+        else:
+            final_xlim = traj_xlim
+            final_ylim = traj_ylim
+            final_zlim = traj_zlim
+        
+        # Apply equal aspect ratio based on the *final* combined range
+        # Avoid errors if range is zero
+        ax.set_xlim(final_xlim[0], final_xlim[1])
+        ax.set_ylim(final_ylim[0], final_ylim[1])
+        ax.set_zlim(final_zlim[0], final_zlim[1])
+
+        # Set view angle (consistent for both new and overlaid plots)
+        ax.view_init(elev=20., azim=-35) # Example view angle
+        
+        # Add legend with a good location
+        ax.legend(loc='upper right', bbox_to_anchor=(1, 1))
+        
+        # If we're overlaying, use the stored title from cluster visualization
+        if is_overlay and hasattr(self, '_last_cluster_title'):
+            ax.set_title(f"{self._last_cluster_title}\nWith Object Trajectories")
+        
+        # Save the visualization
+        os.makedirs("feature_data", exist_ok=True)
+        plt.tight_layout()
+        plt.savefig(f"feature_data/{fname}")
+        logging.info(f"Saved {'combined cluster and' if is_overlay else ''} relative trajectory visualization to feature_data/{fname}")
+        plt.close(fig)
+        
+        # Clear references
+        if is_overlay:
+            self._last_cluster_fig = None
+            self._last_cluster_ax = None
+            self._last_cluster_title = None
+            

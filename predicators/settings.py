@@ -16,10 +16,10 @@ class GlobalSettings:
     # clustering_invention approach parameters
     clustering_debug = True
     enable_meshcat = False
-    clustering_se3_trans_weight = 0.1 # 0.1 m
+    clustering_se3_trans_weight = 1.0*10.0 # 0.1 m
     clustering_se3_rot_weight = 1.0 # 1.0 rad
     clustering_feature_constancy_percentile = 30
-    clustering_se3_epsilon = 0.05
+    clustering_se3_epsilon = 0.2
     clustering_visualization_frame_axis_length = 0.05
     # clustering_translation_constancy_tol = 0.01/10 # 10 hz 0.01 m 
     # clustering_quaternion_constancy_tol = 0.01 # 10 hz 0.01 rad
@@ -33,8 +33,8 @@ class GlobalSettings:
     clustering_agglomerative_ratio = 0.3 # what ratio of data range
     clustering_epsilon = 0.3# default not used!
     
-    clustering_algorithm = "agglomerative" # "dbscan" or "agglomerative"
-    clustering_min_ratio_of_data = 0.1
+    clustering_algorithm = "dbscan" # "dbscan" or "agglomerative"
+    clustering_min_ratio_of_data = 0.03
     clustering_max_clusters = 3
     clustering_search_beam_width = 15
     clustering_search_alpha = 0.4
