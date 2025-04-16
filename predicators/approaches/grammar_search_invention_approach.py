@@ -1012,18 +1012,22 @@ class _PrunedGrammar(_DataBasedPredicateGrammar):
             left_finger_obj = RoboKitchenEnv.object_name_to_object("left_finger")  # TODO: hardcoded no good
             right_finger_obj = RoboKitchenEnv.object_name_to_object("right_finger")  # TODO: hardcoded no good
             object_obj = RoboKitchenEnv.object_name_to_object("obj")  # TODO: hardcoded no good
+            bottom_surf = RoboKitchenEnv.object_name_to_object("bottom")  # TODO: hardcoded no good
             for i, traj in enumerate(self.dataset.trajectories):
                 seg_traj = segment_trajectory(traj, predicates=set())
                 if CFG.robo_kitchen_save_traj_by_segment:
                     for seg_idx, seg in enumerate(seg_traj):
                         eef_traj = np.zeros((len(seg.states), 7))  # 3 for pos + 4 for quat
                         handle_traj = np.zeros((len(seg.states), 7))  # Assuming handle_obj is still 7D
+                        bottom_traj = np.zeros((len(seg.states), 7))  # Assuming bottom_surf is still 7D
                         object_traj = np.zeros((len(seg.states), 7))  # Assuming object_obj is still 7D
                         finger_dist_traj = np.zeros((len(seg.states), 1))  # Assuming left_finger_obj is still 7D
                         contact_traj = []
                         for t, state in enumerate(seg.states):
                             pos, quat = state[gripper_obj]
                             eef_traj[t] = np.concatenate([pos, quat])
+                            pos, quat = state[bottom_surf]
+                            bottom_traj[t] = np.concatenate([pos, quat])
                             # handle_pos, handle_quat = state[handle_obj]
                             # handle_traj[t] = np.concatenate([handle_pos, handle_quat])
                             finger_dist_traj[t] = np.linalg.norm(state[left_finger_obj][0] - state[right_finger_obj][0])
@@ -1037,6 +1041,7 @@ class _PrunedGrammar(_DataBasedPredicateGrammar):
                         np.save(f"demo_{demo_num}_seg_{seg_num}_finger_dist_traj.npy", finger_dist_traj)
                         np.save(f"demo_{demo_num}_seg_{seg_num}_contact_traj.npy", contact_traj)
                         np.save(f"demo_{demo_num}_seg_{seg_num}_object_traj.npy", object_traj)
+                        np.save(f"demo_{demo_num}_seg_{seg_num}_bottom_traj.npy", bottom_traj)
                 state_seq = utils.segment_trajectory_to_start_end_state_sequence(seg_traj)  # pylint:disable=line-too-long
                 self._state_sequences.append(state_seq)
 
