@@ -595,7 +595,7 @@ class _BehaviorCloningOptionLearner(_OptionLearnerBase):
                 if self._is_parameterized:
                     init_state = segment.states[0]
                     final_state = segment.states[-1]
-                    init_param = _create_absolute_option_param(
+                    init_param = _create_absolute_option_param( # this is pose of init_state, only changing_var_to_feat is included
                         init_state, changing_var_to_feat, changing_var_order,
                         var_to_obj)
                     final_param = _create_absolute_option_param(
@@ -1070,6 +1070,7 @@ def _create_absolute_option_param(state: State,
                                                              List[int]],
                                   var_order: Sequence[Variable],
                                   var_to_obj: VarToObjSub) -> Array:
+    """From state, which includes objects, extract only changing variables according to changing_var_to_feat"""
     vec = []
     for v in var_order:
         obj = var_to_obj[v]
