@@ -248,6 +248,17 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         self._segmentation_cache = {}
         self._plan_constraint_cache = {}
 
+        # Add test function call for HDBSCAN if debug flag is set
+        if CFG.testing_hdbscan:
+            logging.info("Running HDBSCAN test with synthetic data...")
+            self._test_clustering_with_dummy_data(
+                num_clusters=CFG.test_num_clusters, 
+                points_per_cluster=CFG.test_points_per_cluster,
+                noise_level=CFG.test_noise_level,
+                cluster_separation=CFG.test_cluster_separation
+            )
+            return  # Skip actual learning if we're just testing
+
         candidates = self._generate_candidate_predicates(dataset)
         logging.info(f"Generated {len(candidates)} candidate predicates.")
         logging.info(f"Candidate predicates: {candidates}")
@@ -777,7 +788,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
 
 
         # --- Perform Clustering ---
-        if CFG.clustering_algorithm == "dbscan":
+        if CFG.clustering_algorithm == "hdbscan":
             min_clust_size = max(3, int(0.06 * len(data_array)))
             logging.debug(f"Running HDBSCAN with min_cluster_size: {min_clust_size}, min_samples: {min_clust_size} and metric: {'SE(3)' if callable(metric) else metric}")
             clustering = HDBSCAN(min_cluster_size=min_clust_size,
@@ -1589,3 +1600,192 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             self._last_cluster_ax = None
             self._last_cluster_title = None
             
+    def _test_clustering_with_dummy_data(self, num_clusters=3, points_per_cluster=50, 
+                                        noise_level=0.05, cluster_separation=0.5):
+        """Test HDBSCAN clustering with synthetic pose data.
+        
+        Args:
+            num_clusters: Number of distinct clusters to generate
+            points_per_cluster: Number of points in each cluster
+            noise_level: Standard deviation of Gaussian noise added to each cluster
+            cluster_separation: Distance between cluster centers
+        """
+        logging.info(f"Generating synthetic pose data with {num_clusters} clusters, "
+                     f"{points_per_cluster} points per cluster, noise level {noise_level}")
+        
+        # Import necessary visualization packages
+        import matplotlib.pyplot as plt
+        from mpl_toolkits.mplot3d import Axes3D
+        import matplotlib.cm as cm
+        import matplotlib
+        matplotlib.use('TkAgg')  # Try TkAgg first
+        
+        # Set random seed for reproducibility
+        np.random.seed(42)
+        
+        # Function to generate random rotation quaternion
+        def random_quaternion():
+            # Generate random rotation axis
+            axis = np.random.randn(3)
+            axis = axis / np.linalg.norm(axis)
+            
+            # Random angle (in radians)
+            angle = np.random.uniform(0, 2*np.pi)
+            
+            # Convert axis-angle to quaternion
+            sin_a = np.sin(angle/2)
+            cos_a = np.cos(angle/2)
+            qx, qy, qz = axis * sin_a
+            qw = cos_a
+            
+            # Return in xyzw format
+            return np.array([qx, qy, qz, qw])
+        
+        # Generate cluster centers with good separation
+        centers = []
+        for i in range(num_clusters):
+            # Position each cluster in a grid pattern
+            grid_size = int(np.ceil(np.sqrt(num_clusters)))
+            row = i // grid_size
+            col = i % grid_size
+            
+            # Create translation with separation
+            trans = np.array([
+                col * cluster_separation - (grid_size-1) * cluster_separation / 2,
+                row * cluster_separation - (grid_size-1) * cluster_separation / 2,
+                0.0  # Keep Z at zero for clarity
+            ])
+            
+            # Create a random rotation for each cluster
+            quat = random_quaternion()
+            
+            # Combine into 7D pose vector [tx, ty, tz, qx, qy, qz, qw]
+            center = np.concatenate([trans, quat])
+            centers.append(center)
+        
+        # Generate data points with noise
+        all_data = []
+        true_labels = []
+
+        # Generate a single random quaternion to use for all clusters
+        # This makes all clusters have the same orientation, varying only in position
+        shared_quaternion = random_quaternion()
+        
+        # Update all centers to use the same quaternion
+        for i in range(len(centers)):
+            centers[i][3:] = shared_quaternion
+        
+        for cluster_idx, center in enumerate(centers):
+            for _ in range(points_per_cluster):
+                # Add Gaussian noise to translation
+                trans_noise = np.random.normal(0, noise_level, 3)
+                noisy_trans = center[:3] + trans_noise
+                
+                # Add noise to quaternion (small rotation perturbation)
+                # Generate small random rotation
+                noise_in_deg = 30
+                noise_angle = np.random.normal(0, noise_in_deg * np.pi / 180)  # Smaller noise for rotation
+                noise_axis = np.random.randn(3)
+                noise_axis = noise_axis / np.linalg.norm(noise_axis)
+                
+                # Convert to quaternion
+                sin_a = np.sin(noise_angle/2)
+                cos_a = np.cos(noise_angle/2)
+                noise_quat = np.array([*noise_axis * sin_a, cos_a])  # xyzw format
+                
+                # Apply noise rotation to center quaternion using quaternion multiplication
+                center_quat = center[3:]
+                
+                # Use scipy's Rotation for quaternion multiplication
+                from scipy.spatial.transform import Rotation
+                center_rot = Rotation.from_quat(center_quat)
+                noise_rot = Rotation.from_quat(noise_quat)
+                noisy_rot = noise_rot * center_rot
+                noisy_quat = noisy_rot.as_quat()
+                
+                # Create noisy pose
+                noisy_pose = np.concatenate([noisy_trans, noisy_quat])
+                all_data.append(noisy_pose)
+                true_labels.append(cluster_idx)
+        
+        # Add some random noise points
+        num_noise_points = int(points_per_cluster * 0.1)  # 10% of points per cluster
+        for _ in range(num_noise_points):
+            # Random position in the general area
+            trans = np.random.uniform(-cluster_separation * grid_size, 
+                                      cluster_separation * grid_size, 3)
+            quat = random_quaternion()
+            noise_point = np.concatenate([trans, quat])
+            all_data.append(noise_point)
+            true_labels.append(-1)  # -1 for noise points
+        
+        all_data = np.array(all_data)
+        true_labels = np.array(true_labels)
+        
+        # Run clustering
+        logging.info("Running HDBSCAN on synthetic data...")
+        feat_name = "pose"  # This will use the SE(3) metric
+        
+        # Use _cluster_feature_dataset to perform clustering
+        data_array, labels, unique_labels, effective_epsilon = self._cluster_feature_dataset(
+            all_data.tolist(), CFG.clustering_se3_epsilon, feat_name)
+        
+        # Calculate clustering metrics
+        num_clusters_found = len(unique_labels) - (1 if -1 in unique_labels else 0)
+        noise_points = sum(1 for label in labels if label == -1)
+        
+        logging.info(f"HDBSCAN found {num_clusters_found} clusters (ground truth: {num_clusters})")
+        logging.info(f"HDBSCAN identified {noise_points} noise points")
+        
+        # Create a visualization
+        fig = plt.figure(figsize=(20, 15))
+        
+        # 3D plot of translations with ground truth labels
+        ax1 = fig.add_subplot(221, projection='3d')
+        scatter1 = ax1.scatter(all_data[:, 0], all_data[:, 1], all_data[:, 2], 
+                              c=true_labels, cmap='tab10', s=50, alpha=0.7)
+        ax1.set_title('Ground Truth Clusters (Translations)')
+        ax1.set_xlabel('X')
+        ax1.set_ylabel('Y')
+        ax1.set_zlabel('Z')
+        
+        # 3D plot of translations with HDBSCAN labels
+        ax2 = fig.add_subplot(222, projection='3d')
+        scatter2 = ax2.scatter(data_array[:, 0], data_array[:, 1], data_array[:, 2], 
+                              c=labels, cmap='tab10', s=50, alpha=0.7)
+        ax2.set_title(f'HDBSCAN Clusters: {num_clusters_found} found (Translations)')
+        ax2.set_xlabel('X')
+        ax2.set_ylabel('Y')
+        ax2.set_zlabel('Z')
+        
+        # Rotation visualization (Optional)
+        # Project quaternions to 3D using PCA if needed
+        
+        # Add information table
+        params_text = (
+            f"Parameters:\n"
+            f"Number of clusters: {num_clusters}\n"
+            f"Points per cluster: {points_per_cluster}\n"
+            f"Noise level: {noise_level}\n"
+            f"Cluster separation: {cluster_separation}\n\n"
+            f"Results:\n"
+            f"Clusters found: {num_clusters_found}\n"
+            f"Noise points: {noise_points}/{len(labels)}"
+        )
+        
+        fig.text(0.1, 0.3, params_text, fontsize=12, bbox=dict(facecolor='white', alpha=0.5))
+        
+        # Draw cluster centers
+        for i, center in enumerate(centers):
+            ax1.scatter([center[0]], [center[1]], [center[2]], 
+                       c='black', marker='*', s=200, edgecolor='white')
+            ax1.text(center[0], center[1], center[2], f'Center {i}', fontsize=10)
+        
+        # Save figure
+        plt.tight_layout()
+        os.makedirs("feature_data", exist_ok=True)
+        plt.savefig("feature_data/hdbscan_test_results.png")
+        logging.info("Saved visualization to feature_data/hdbscan_test_results.png")
+        plt.show()
+        
+        return labels, true_labels

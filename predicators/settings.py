@@ -16,7 +16,7 @@ class GlobalSettings:
     # clustering_invention approach parameters
     clustering_debug = True
     enable_meshcat = False
-    clustering_se3_trans_weight = 1.0*10.0 # 0.1 m
+    clustering_se3_trans_weight = 1.0*20.0 # 0.1 m
     clustering_se3_rot_weight = 1.0 # 1.0 rad
     clustering_feature_constancy_percentile = 30
     clustering_se3_epsilon = 0.2
@@ -25,7 +25,13 @@ class GlobalSettings:
     # clustering_quaternion_constancy_tol = 0.01 # 10 hz 0.01 rad
     # clustering_feature_constancy_tol = 0.01 # 10 hz 0.01 m # default not used!
     
-
+    # HDBSCAN testing parameters
+    testing_hdbscan = True  # Set to True to run the HDBSCAN test with synthetic data
+    test_num_clusters = 2  # Number of clusters to generate for testing
+    test_points_per_cluster = 50  # Points per cluster for HDBSCAN testing
+    test_noise_level = 0.05  # Noise standard deviation for clusters
+    test_cluster_separation = 0.1  # Distance between cluster centers
+    
     clustering_mahalanobis_confidence = 0.95
     clustering_translation_epsilon = 0.3 # set dbscane to be different
     clustering_quaternion_epsilon = 0.7 
@@ -33,8 +39,8 @@ class GlobalSettings:
     clustering_agglomerative_ratio = 0.3 # what ratio of data range
     clustering_epsilon = 0.3# default not used!
     
-    clustering_algorithm = "dbscan" # "dbscan" or "agglomerative"
-    clustering_min_ratio_of_data = 0.03
+    clustering_algorithm = "hdbscan" # "dbscan" or "agglomerative"
+    clustering_min_ratio_of_data = 0.1
     clustering_max_clusters = 3
     clustering_search_beam_width = 15
     clustering_search_alpha = 0.4
