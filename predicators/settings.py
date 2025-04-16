@@ -15,6 +15,7 @@ from predicators.meshcat_visualizer import MeshcatVisualizer
 class GlobalSettings:
     # clustering_invention approach parameters
     clustering_debug = True
+    enable_meshcat = False
     # clustering_translation_constancy_tol = 0.01/10 # 10 hz 0.01 m 
     # clustering_quaternion_constancy_tol = 0.01 # 10 hz 0.01 rad
     # clustering_feature_constancy_tol = 0.01 # 10 hz 0.01 m # default not used!
@@ -46,7 +47,10 @@ class GlobalSettings:
     robo_kitchen_policy_model = "node" # "simple_ds" or "node
     make_test_videos = False
     loglevel = 10
-    visualizer = MeshcatVisualizer()
+    if enable_meshcat:
+        visualizer = MeshcatVisualizer()
+    else:
+        visualizer = None
     option_to_init_pose: Dict[str, List[np.ndarray]] = {}
     option_to_policy = {}
     use_teleop = False

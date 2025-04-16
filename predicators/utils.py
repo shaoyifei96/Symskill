@@ -74,6 +74,29 @@ if "CUDA_VISIBLE_DEVICES" in os.environ:  # pragma: no cover
         os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(cuda_visible_devices)
 
 
+
+def _flatten_and_convert_to_array(vec: List) -> Array:
+    """Flatten any nested arrays in the vector and convert to a numpy array.
+    
+    Args:
+        vec: A list that may contain numpy arrays
+        
+    Returns:
+        A flattened numpy array
+    """
+    if any(isinstance(x, np.ndarray) for x in vec):
+        # Flatten any nested arrays
+        flattened_vec = []
+        for item in vec:
+            if isinstance(item, np.ndarray):
+                flattened_vec.extend(item.flatten())
+            else:
+                flattened_vec.append(item)
+        return np.array(flattened_vec, dtype=np.float32)
+    else:
+        return np.array(vec, dtype=np.float32)
+
+
 def count_positives_for_ops(
     strips_ops: List[STRIPSOperator],
     option_specs: List[OptionSpec],
