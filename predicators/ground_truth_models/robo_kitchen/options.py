@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt
 
 from predicators.settings import CFG
 
-from ds_policy import DSPolicy, load_data
+from ds_policy import DSPolicy, load_data, PositionModelConfig, QuaternionModelConfig, UnifiedModelConfig
 
 from predicators.envs.robo_kitchen import RoboKitchenEnv
 from predicators.ground_truth_models import GroundTruthOptionFactory
@@ -83,29 +83,12 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
 
         def _create_ds_policy(option: str):
             x, x_dot, q, omega, gripper_traj = load_data(CFG.robo_kitchen_task, option, finger=False, transform_to_object_of_interest_frame=True, debug_on=False)
-            model_config = {
-                'pos_model': {
-                    'special_mode': 'none',
-                    # 'load_path': f"ds_policy/models/mlp_width128_depth3_{option}.pt",
-                    # 'width': 256,
-                    # 'depth': 5,
-                    # 'save_path': f"models/mlp_width256_depth5_{option}.pt",
-                    # 'batch_size': 100,
-                    # 'device': "mps",  # Can be "cpu", "cuda", or "mps"
-                    # 'lr_strategy': (1e-3, 1e-4, 1e-5),
-                    # 'epoch_strategy': (50, 50, 50),
-                    # 'length_strategy': (0.4, 0.7, 1),
-                    # 'plot': False,
-                    # 'print_every': 10
-                },
-                'quat_model': {
-                    'special_mode': 'simple',
-                    # 'save_path': f"ds_policy/models/quat_model_{option}.json",
-                    # 'k_init': 10
-                }
-            }
+            unified_config = UnifiedModelConfig(
+                mode="se3_lpvds",
+                k_init=4,
+            )
             demo_traj_probs = np.ones(len(x))
-            ds_policy = DSPolicy(x, x_dot, q, omega, gripper_traj, model_config=model_config, dt=1/60, switch=False, demo_traj_probs=demo_traj_probs)
+            ds_policy = DSPolicy(x, x_dot, q, omega, gripper_traj, unified_config=unified_config, dt=1/60, switch=False, demo_traj_probs=demo_traj_probs)
             return ds_policy
 
         def _create_simple_ds_model():
@@ -211,7 +194,7 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
                         angle_threshold=np.pi/2, lookahead=10
                     )
 
-                    memory["backtrack"] += 10
+                    memory["backtrack"] += 0
                     
                     # Remove processed entry
                     memory["fail_memory"].pop(idx)
@@ -642,7 +625,7 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
                 return False
 
             # Check if distance hasn't changed and gripper is closed
-            distance_unchanged = np.allclose(curr_distance, memory["prev_distance"], atol=1e-3)
+            distance_unchanged = np.allclose(curr_distance, memory["prev_distance"], atol=1e-4)
             # Use the finger objects passed in
             is_closed = RoboKitchenEnv._GripperClosed_holds(state, [left_finger, right_finger])
 
