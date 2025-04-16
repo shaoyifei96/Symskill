@@ -36,10 +36,14 @@ from predicators.envs.robo_kitchen import RoboKitchenEnv
 def _create_grammar(dataset: Dataset, given_predicates: Set[Predicate]) -> _PredicateGrammar:
 
     if CFG.grammar_search_use_trans_quat_features:
-        # trans_grammar: _PredicateGrammar = _TranslationComponentComparisonGrammar(dataset)
-        trans_grammar: _PredicateGrammar = _EuclideanDistanceTranslationGrammar(dataset)
-        rot_grammar: _PredicateGrammar = _RotationComparisonGrammar(dataset)
+        # trans_grammar: _PredicateGrammar = _DirectTransComponentGrammar(dataset)
+        # trans_grammar: _PredicateGrammar = _EuclideanDistanceTranslationGrammar(dataset)
+        # rot_grammar: _PredicateGrammar = _TFRotAngleGrammar(dataset)
+        trans_grammar: _PredicateGrammar = _TFTransComponentGrammar(dataset)
+        rot_grammar: _PredicateGrammar = _TFRotComponentGrammar(dataset)
         grammar = _ChainPredicateGrammar([trans_grammar, rot_grammar], alternate=True)
+        # grammar: _PredicateGrammar = _TFRotAngleGrammar(dataset)
+        # grammar: _PredicateGrammar = _TFRotComponentGrammar(dataset)
 
     else:
         # We start with considering various ways to split either single or
@@ -155,7 +159,7 @@ class _BinaryClassifier(_ProgrammaticClassifier):
 
 
 @dataclass(frozen=True, eq=False, repr=False)
-class _TransComponentCompareClassifier(_BinaryClassifier):
+class _DirectTransComponentClassifier(_BinaryClassifier):
     """Compare individual components of translation vectors between objects."""
 
     object1_index: int
@@ -195,7 +199,62 @@ class _TransComponentCompareClassifier(_BinaryClassifier):
 
 
 @dataclass(frozen=True, eq=False, repr=False)
-class _RotationAlignmentClassifier(_BinaryClassifier):
+class _TFTransComponentClassifier(_BinaryClassifier):
+    """Compare individual components of translation vectors between objects."""
+
+    object1_index: int
+    object1_type: Type
+    object2_index: int
+    object2_type: Type
+    tran_attr_name: str  # "translation"
+    quat_attr_name: str  # "quaternion"
+    component_idx: int  # 0=x, 1=y, 2=z
+    componets: List[str]  # ["x", "y", "z"]
+    constant: float  # in meters
+    constant_idx: int
+    compare: Callable[[float, float], bool]
+    compare_str: str
+
+    def _classify_object(self, s: State, obj1: Object, obj2: Object) -> bool:
+        assert obj1.type == self.object1_type or obj1.type.parent == self.object1_type
+        assert obj2.type == self.object2_type or obj2.type.parent == self.object2_type
+
+        # Get translations and quaternions for both objects
+        trans1 = s.get(obj1, self.tran_attr_name)
+        trans2 = s.get(obj2, self.tran_attr_name)
+        quat1 = s.get(obj1, self.quat_attr_name)
+
+        # Create rotation from quaternion
+        rot1 = Rotation.from_quat(quat1)
+
+        # Calculate obj2's position in obj1's reference frame
+        # 1. Find relative position in world frame
+        rel_pos_world = np.subtract(trans2, trans1)
+        # 2. Transform to obj1's local coordinate frame
+        obj2_pos_in_obj1_frame = rot1.inv().apply(rel_pos_world)
+
+        # Compare the specified component with constant
+        return self.compare(obj2_pos_in_obj1_frame[self.component_idx], self.constant)
+
+    def __str__(self) -> str:
+        component = self.componets[self.component_idx]
+        return (
+            f"(({self.object2_index}:{self.object2_type.name})in_frame({self.object1_index}:{self.object1_type.name}).trans[{component}]"
+            f"{self.compare_str}"
+            f"[idx {self.constant_idx}]{self.constant:.3})"
+        )
+
+    def pretty_str(self) -> Tuple[str, str]:
+        name1 = CFG.grammar_search_classifier_pretty_str_names[self.object1_index]
+        name2 = CFG.grammar_search_classifier_pretty_str_names[self.object2_index]
+        component = self.componets[self.component_idx]
+        vars_str = f"{name1}:{self.object1_type.name}, {name2}:{self.object2_type.name}"
+        body_str = f"({name2}in_frame{name1}.trans[{component}] " f"{self.compare_str} {self.constant:.3})"
+        return vars_str, body_str
+
+
+@dataclass(frozen=True, eq=False, repr=False)
+class _RotAngleClassifier(_BinaryClassifier):
     """Compare rotational alignment between objects using quaternions."""
 
     object1_index: int
@@ -215,7 +274,7 @@ class _RotationAlignmentClassifier(_BinaryClassifier):
         quat2 = s.get(obj2, self.attribute_name)
         rot1 = Rotation.from_quat(quat1)
         rot2 = Rotation.from_quat(quat2)
-        rel_rot = rot1.inv() * rot2
+        rel_rot = rot1.inv() * rot2 # rotation of frame 2 wrt frame 1
         rot_vec = rel_rot.as_rotvec()
         angle = np.linalg.norm(rot_vec)
         return self.compare(angle, self.constant)
@@ -232,6 +291,49 @@ class _RotationAlignmentClassifier(_BinaryClassifier):
         name2 = CFG.grammar_search_classifier_pretty_str_names[self.object2_index]
         vars_str = f"{name1}:{self.object1_type.name}, {name2}:{self.object2_type.name}"
         body_str = f"(angle_diff({name1}.{self.attribute_name}, {name2}.{self.attribute_name}) " f"{self.compare_str} {self.constant:.3})"
+        return vars_str, body_str
+
+
+@dataclass(frozen=True, eq=False, repr=False)
+class _RotComponentClassifier(_BinaryClassifier):
+    """Compare rotational alignment between objects using quaternions."""
+
+    object1_index: int
+    object1_type: Type
+    object2_index: int
+    object2_type: Type
+    attribute_name: str  # "quaternion"
+    component_idx: int  # 0=x, 1=y, 2=z
+    componets: List[str]  # ["x", "y", "z"]
+    constant: float  # in radians
+    constant_idx: int
+    compare: Callable[[float, float], bool]
+    compare_str: str
+
+    def _classify_object(self, s: State, obj1: Object, obj2: Object) -> bool:
+        assert obj1.type == self.object1_type or obj1.type.parent == self.object1_type
+        assert obj2.type == self.object2_type or obj2.type.parent == self.object2_type
+        quat1 = s.get(obj1, self.attribute_name)
+        quat2 = s.get(obj2, self.attribute_name)
+        rot1 = Rotation.from_quat(quat1)
+        rot2 = Rotation.from_quat(quat2)
+        rel_rot = rot1.inv() * rot2  # rotation of frame 2 wrt frame 1
+        rot_vec = rel_rot.as_rotvec()
+        return self.compare(rot_vec[self.component_idx], self.constant)
+
+    def __str__(self) -> str:
+        component = self.componets[self.component_idx]
+        return (
+            f"(({self.object2_index}:{self.object2_type.name})in_frame({self.object1_index}:{self.object1_type.name}).rotvec[{component}]"
+            f"{self.compare_str}"
+            f"[idx {self.constant_idx}]{self.constant:.3})"
+        )
+
+    def pretty_str(self) -> Tuple[str, str]:
+        name1 = CFG.grammar_search_classifier_pretty_str_names[self.object1_index]
+        name2 = CFG.grammar_search_classifier_pretty_str_names[self.object2_index]
+        vars_str = f"{name1}:{self.object1_type.name}, {name2}:{self.object2_type.name}"
+        body_str = f"({name2}in_frame{name1}.rotvec[{self.component_idx}] " f"{self.compare_str} {self.constant:.3})"
         return vars_str, body_str
 
 
@@ -650,7 +752,7 @@ def _halving_constant_generator(lo: float, hi: float, cost: float = 1.0) -> Iter
 
 
 @dataclass(frozen=True, eq=False, repr=False)
-class _TranslationComponentComparisonGrammar(_DataBasedPredicateGrammar):
+class _DirectTransComponentGrammar(_DataBasedPredicateGrammar):
 
     dataset: Dataset
     attribute_name: str = field(default="translation")
@@ -673,7 +775,7 @@ class _TranslationComponentComparisonGrammar(_DataBasedPredicateGrammar):
                     lb, ub = utils.compute_abs_range_given_two_ranges(lb1, ub1, lb2, ub2)
                     k = constant * (ub - lb) + lb
                     comp, comp_str = le, "<="
-                    classifier = _TransComponentCompareClassifier(0, type1, 1, type2, self.attribute_name, i, self.components, k, constant_idx, comp, comp_str)
+                    classifier = _DirectTransComponentClassifier(0, type1, 1, type2, self.attribute_name, i, self.components, k, constant_idx, comp, comp_str)
                     name = str(classifier)
                     types = [type1, type2]
                     pred = Predicate(name, types, classifier)
@@ -699,7 +801,82 @@ class _TranslationComponentComparisonGrammar(_DataBasedPredicateGrammar):
 
 
 @dataclass(frozen=True, eq=False, repr=False)
-class _RotationComparisonGrammar(_DataBasedPredicateGrammar):
+class _TFTransComponentGrammar(_DataBasedPredicateGrammar):
+    """Grammar for generating predicates that compare components of translations in different reference frames."""
+
+    dataset: Dataset
+    trans_attr_name: str = field(default="translation")
+    quat_attr_name: str = field(default="quaternion")
+    components: List[str] = field(default_factory=lambda: ["x", "y", "z"])
+    fixed_constants: List[float] = field(default_factory=lambda: [0.5, 0.25, 0.125])
+
+    def enumerate(self) -> Iterator[Tuple[Predicate, float]]:
+        feature_ranges = self._get_feature_ranges()
+        if not feature_ranges:  # If no ranges found
+            return
+        # constant_generator = _halving_constant_generator(0.0, 1.0)
+        # for constant_idx, (constant, _) in enumerate(constant_generator):
+        for constant_idx, constant in enumerate(self.fixed_constants):
+            for (type1, type2), ranges in feature_ranges.items():
+                if type1 == type2:
+                    continue
+                for i, component in enumerate(self.components):
+                    lb, ub = ranges[component]
+                    if abs(lb - ub) < 1e-6:
+                        continue
+                    k = constant * (ub - lb) + lb
+                    comp, comp_str = le, "<="
+                    classifier = _TFTransComponentClassifier(0, type1, 1, type2, self.trans_attr_name, self.quat_attr_name, i, self.components, k, constant_idx, comp, comp_str)
+                    name = str(classifier)
+                    types = [type1, type2]
+                    pred = Predicate(name, types, classifier)
+                    assert pred.arity == 2
+                    yield (pred, 1) # Assign fixed cost
+
+    def _get_feature_ranges(self) -> Dict[Tuple[Type, Type], Dict[str, Tuple[float, float]]]:
+        """Get the range of transformed coordinates for each type pair in the dataset."""
+        # Use (type1, type2) tuple as key instead of just type
+        feature_ranges: Dict[Tuple[Type, Type], Dict[str, Tuple[float, float]]] = {}
+
+        # Iterate through all trajectories and states
+        for traj in self.dataset.trajectories:
+            for state in traj.states:
+                # First loop: over all potential reference frame objects (type1)
+                for obj1 in state:
+                    # Second loop: over all potential objects to transform (type2)
+                    for obj2 in state:
+                        # Skip self-comparisons
+                        if obj1 == obj2:
+                            continue
+
+                        # Get translations and quaternions
+                        trans1 = state.get(obj1, self.trans_attr_name)
+                        trans2 = state.get(obj2, self.trans_attr_name)
+                        quat1 = state.get(obj1, self.quat_attr_name)
+
+                        # Create rotation from quaternion
+                        rot1 = Rotation.from_quat(quat1)
+
+                        # Calculate obj2's position in obj1's reference frame
+                        rel_pos_world = np.subtract(trans2, trans1)
+                        obj2_in_obj1_frame = rot1.inv().apply(rel_pos_world)
+
+                        # Initialize or update feature ranges for this type pair
+                        type_pair = (obj1.type, obj2.type)
+                        if type_pair not in feature_ranges:
+                            feature_ranges[type_pair] = {}
+                            for i, comp in enumerate(self.components):
+                                feature_ranges[type_pair][comp] = (obj2_in_obj1_frame[i], obj2_in_obj1_frame[i])
+                        else:
+                            for i, comp in enumerate(self.components):
+                                curr_min, curr_max = feature_ranges[type_pair][comp]
+                                feature_ranges[type_pair][comp] = (min(curr_min, obj2_in_obj1_frame[i]), max(curr_max, obj2_in_obj1_frame[i]))
+
+        return feature_ranges
+
+
+@dataclass(frozen=True, eq=False, repr=False)
+class _TFRotAngleGrammar(_DataBasedPredicateGrammar):
 
     dataset: Dataset
     attribute_name: str = field(default="quaternion")
@@ -713,13 +890,40 @@ class _RotationComparisonGrammar(_DataBasedPredicateGrammar):
                 if type1 == type2:
                     continue
                 comp, comp_str = le, "<="
-                classifier = _RotationAlignmentClassifier(0, type1, 1, type2, self.attribute_name, constant, constant_idx, comp, comp_str)
+                classifier = _RotAngleClassifier(0, type1, 1, type2, self.attribute_name, constant, constant_idx, comp, comp_str)
                 name = str(classifier)
                 types = [type1, type2]
                 pred = Predicate(name, types, classifier)
                 assert pred.arity == 2
                 # Assign fixed cost
                 yield (pred, 1)
+
+
+@dataclass(frozen=True, eq=False, repr=False)
+class _TFRotComponentGrammar(_DataBasedPredicateGrammar):
+    """Grammar for generating predicates that compare components of rotation vectors between objects."""
+
+    dataset: Dataset
+    attribute_name: str = field(default="quaternion")
+    components: List[str] = field(default_factory=lambda: ["x", "y", "z"])
+    # Use fixed angle thresholds in radians
+    fixed_angle_thresholds: List[float] = field(default_factory=lambda: [np.radians(10), np.radians(40), np.radians(90)])
+
+    def enumerate(self) -> Iterator[Tuple[Predicate, float]]:
+        # Iterate through fixed thresholds
+        for constant_idx, constant in enumerate(self.fixed_angle_thresholds):
+            for type1, type2 in itertools.combinations_with_replacement(sorted(self.types), 2):
+                if type1 == type2:
+                    continue
+                # Iterate over rotation vector components (x, y, z)
+                for i in range(len(self.components)):
+                    comp, comp_str = le, "<="
+                    classifier = _RotComponentClassifier(0, type1, 1, type2, self.attribute_name, i, self.components, constant, constant_idx, comp, comp_str)
+                    name = str(classifier)
+                    types = [type1, type2]
+                    pred = Predicate(name, types, classifier)
+                    assert pred.arity == 2
+                    yield (pred, 1) # Assign fixed cost
 
 
 @dataclass(frozen=True, eq=False, repr=False)

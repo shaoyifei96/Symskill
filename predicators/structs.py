@@ -443,7 +443,8 @@ class LiftedAtom_VarType(_Atom):
             if isinstance(ent, Variable):
                 assert ent.is_instance(pred_type)
             elif isinstance(ent, Type):
-                assert ent == pred_type
+                assert ent == pred_type or pred_type in ent.get_ancestors()
+                # assert ent == pred_type
             else:
                 raise ValueError(f"Unexpected entity type: {type(ent)}")
             

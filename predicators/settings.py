@@ -35,6 +35,7 @@ class GlobalSettings:
     clustering_search_max_iterations = 30
     clustering_check_plan_length_constraint = True
     clustering_search_constraint_penalty = 10.0
+
     # robo_kitchen env parameters
     robo_kitchen_randomize_init_state = True # not used
     # robo_kitchen_task = "PnPCounterToCab"
@@ -79,8 +80,9 @@ class GlobalSettings:
     test_task_json_dir = None
     # The method to use for segmentation. By default, segment using options.
     # If you are learning options, you should change this via the command line.
-    segmenter = "atom_changes"
-    # segmenter = "contacts"
+    # segmenter = "atom_changes"
+    segmenter = "contacts"
+    # segmenter = "option_changes"
     # The method to use for generating demonstrations: "oracle" or "human".
     demonstrator = "human"
     # DPI for rendering the state. Increase this if video quality is poor.
