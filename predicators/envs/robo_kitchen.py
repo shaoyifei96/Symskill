@@ -503,8 +503,13 @@ class RoboKitchenEnv(BaseEnv):
         gripper_quat = state.get(gripper, "quaternion")
         obj_pos = state.get(obj, "translation")
         obj_quat = state.get(obj, "quaternion")
-        gripper_pos_in_obj, _ = frame_transform(gripper_pos, gripper_quat, obj_pos, R.from_quat(obj_quat).as_matrix())
-        if np.linalg.norm(gripper_pos_in_obj[0]) <= 0.1 and gripper_pos_in_obj[1] > 0:
+        # gripper_pos_in_obj, _ = frame_transform(gripper_pos, gripper_quat, obj_pos, R.from_quat(obj_quat).as_matrix())
+        # if np.linalg.norm(gripper_pos_in_obj[0]) <= 0.1 and gripper_pos_in_obj[1] > 0:
+        #     return True
+        obj_pos_in_gripper, _ = frame_transform(obj_pos, obj_quat, gripper_pos, R.from_quat(gripper_quat).as_matrix())
+        if np.linalg.norm(obj_pos_in_gripper[0]) <= 0.2 and \
+            np.linalg.norm(obj_pos_in_gripper[1]) <= 0.2 and \
+            np.linalg.norm(obj_pos_in_gripper[2]) <= 0.2:
             return True
         return False
 

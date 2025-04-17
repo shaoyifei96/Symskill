@@ -598,7 +598,8 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
             # Update memory
             memory["prev_quat"] = curr_quat
 
-            return quat_unchanged and is_open
+            terminal = quat_unchanged and is_open
+            return terminal
 
         """---------------------------------- GripperOpen_option ends ----------------------------------"""
 
@@ -632,7 +633,8 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
             # Update memory
             memory["prev_distance"] = curr_distance
 
-            return distance_unchanged and is_closed
+            terminal = distance_unchanged and is_closed
+            return terminal
 
         """---------------------------------- GripperClose_option ends ----------------------------------"""
 
