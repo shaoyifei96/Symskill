@@ -67,32 +67,6 @@ class _RelativeFeatureClusterClassifier(_BinaryClassifier):
     _quat_feat_name: str = field(default="quaternion", init=False)
     _pose_feat_name: str = field(default="pose", init=False)
 
-    def _calculate_relative_pose(self, state: State, o1: Object, o2: Object, trans_feat_name: str, quat_feat_name: str) -> Optional[np.ndarray]:
-        """Calculates the relative pose of o2 with respect to o1's frame.
-        
-        Returns a 7D vector [tx, ty, tz, qx, qy, qz, qw] or None if features missing.
-        """
-        try:
-            trans_o1 = state.get(o1, trans_feat_name)
-            trans_o2 = state.get(o2, trans_feat_name)
-            quat_o1 = state.get(o1, quat_feat_name)
-            quat_o2 = state.get(o2, quat_feat_name)
-
-            rot_o1 = Rotation.from_quat(quat_o1)
-            rot_o2 = Rotation.from_quat(quat_o2)
-
-            relative_trans_world = np.subtract(trans_o2, trans_o1)
-            relative_trans_local = rot_o1.inv().apply(relative_trans_world)
-
-            relative_rot = rot_o1.inv() * rot_o2
-            relative_quat = relative_rot.as_quat()
-
-            pose_vec = np.concatenate([relative_trans_local, relative_quat])
-            return pose_vec # 7D vector
-        except KeyError as e:
-            logging.debug(f"Missing feature {e} for relative pose between {o1} and {o2}. Skipping.")
-            return None
-
 
     def _classify_object(self, s: State, obj1: Object, obj2: Object) -> bool:
         assert obj1.is_instance(self.object1_type)
@@ -101,7 +75,7 @@ class _RelativeFeatureClusterClassifier(_BinaryClassifier):
         # Calculate the relevant relative feature
         if self.feature_name == self._pose_feat_name:
             # Calculate the 7D relative pose
-            relative_feature = self._calculate_relative_pose(s, obj1, obj2, 
+            relative_feature = utils.calculate_relative_pose(s, obj1, obj2, 
                                                        self._trans_feat_name, 
                                                        self._quat_feat_name)
             if relative_feature is None:
@@ -325,7 +299,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
 
     def _get_feature_difference_function(self, feat_name: str) -> Callable:
         if feat_name == "pose":
-            return self._calculate_se3_distance
+            return utils.calculate_se3_distance
         else:
             return self._get_feature_difference_function(feat_name)
 
@@ -575,13 +549,13 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                         # Handle type1 == type2 case
                         obj2_list = objs2 if type1 != type2 else [o for o in objs2 if o != o1]
                         for o2 in obj2_list:
-                            rel_pose_t = self._calculate_relative_pose(state_t, o1, o2, trans_feat_name, quat_feat_name)
-                            rel_pose_t1 = self._calculate_relative_pose(state_t1, o1, o2, trans_feat_name, quat_feat_name)
+                            rel_pose_t = utils.calculate_relative_pose(state_t, o1, o2, trans_feat_name, quat_feat_name)
+                            rel_pose_t1 = utils.calculate_relative_pose(state_t1, o1, o2, trans_feat_name, quat_feat_name)
 
                             if rel_pose_t is not None and rel_pose_t1 is not None:
                                 # Calculate change in relative pose (using SE(3) distance concept)
                                 # We need a distance function here, let's define a simple one for constancy check
-                                pose_diff_norm = self._calculate_se3_distance(rel_pose_t, rel_pose_t1, 
+                                pose_diff_norm = utils.calculate_se3_distance(rel_pose_t, rel_pose_t1, 
                                                                                 CFG.clustering_se3_trans_weight, 
                                                                                 CFG.clustering_se3_rot_weight)
                                 
@@ -611,78 +585,6 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
 
         return final_feature_data
 
-    def _calculate_relative_pose(self, state: State, o1: Object, o2: Object, trans_feat_name: str, quat_feat_name: str) -> Optional[np.ndarray]:
-        """Calculates the relative pose of o2 with respect to o1's frame.
-        
-        Returns a 7D vector [tx, ty, tz, qx, qy, qz, qw] or None if features missing.
-        """
-        try:
-            trans_o1 = state.get(o1, trans_feat_name)
-            trans_o2 = state.get(o2, trans_feat_name)
-            quat_o1 = state.get(o1, quat_feat_name)
-            quat_o2 = state.get(o2, quat_feat_name)
-
-            rot_o1 = Rotation.from_quat(quat_o1)
-            rot_o2 = Rotation.from_quat(quat_o2)
-
-            relative_trans_world = np.subtract(trans_o2, trans_o1)
-            relative_trans_local = rot_o1.inv().apply(relative_trans_world)
-
-            relative_rot = rot_o1.inv() * rot_o2
-            relative_quat = relative_rot.as_quat()
-            # Ensure consistent quaternion representation (e.g., w >= 0) - optional
-            # if relative_quat[3] < 0:
-            #     relative_quat *= -1
-
-            pose_vec = np.concatenate([relative_trans_local, relative_quat])
-            return pose_vec # 7D vector
-        except KeyError as e:
-            logging.debug(f"Missing feature {e} for relative pose between {o1} and {o2}. Skipping.")
-            return None
-
-    def _calculate_se3_distance(self, pose_vec1: np.ndarray, pose_vec2: np.ndarray, 
-                                trans_weight: float, rot_weight: float) -> float:
-        """Calculates a weighted SE(3) distance between two 7D pose vectors."""
-        # Assumes pose_vec is [tx, ty, tz, qx, qy, qz, qw]
-        trans1, quat1 = pose_vec1[:3], pose_vec1[3:]
-        trans2, quat2 = pose_vec2[:3], pose_vec2[3:]
-
-        # Translational distance (Euclidean)
-        trans_dist_sq = np.sum((trans1 - trans2)**2)
-
-        # Rotational distance (angle of relative rotation)
-        # Ensure quaternions are valid rotations
-        if np.isclose(norm(quat1), 0) or np.isclose(norm(quat2), 0):
-            # Handle zero quaternions if they occur, maybe return large distance?
-            logging.warning("Encountered near-zero quaternion in SE(3) distance calculation.")
-            rot_dist_sq = np.pi**2 # Max possible squared angle
-        else:
-            try:
-                # Normalize quaternions robustly before creating Rotation objects
-                quat1_norm = quat1 / norm(quat1)
-                quat2_norm = quat2 / norm(quat2)
-                # Handle potential numerical instability if quats are *exactly* opposite
-                # dot_product = np.dot(quat1_norm, quat2_norm)
-                # if np.isclose(dot_product, -1.0):
-                #     rot_dist = np.pi # Angle is pi for opposite rotations
-                # else:
-                rot1 = Rotation.from_quat(quat1_norm)
-                rot2 = Rotation.from_quat(quat2_norm)
-                relative_rot = rot1.inv() * rot2
-                # Use magnitude() which gives the angle in radians
-                rot_dist = relative_rot.magnitude() 
-                rot_dist_sq = rot_dist**2
-            except ValueError as e:
-                 logging.error(f"Error calculating rotation distance: {e}. Quats: {quat1}, {quat2}")
-                 rot_dist_sq = np.pi**2 # Penalize problematic rotations
-
-        # Weighted combination
-        # Using CFG values directly here for simplicity, assuming they are accessible.
-        # Ideally, pass them as args or access via self.CFG if inside the class.
-        # Requires CFG values: clustering_se3_trans_weight, clustering_se3_rot_weight
-        weighted_dist = np.sqrt(CFG.clustering_se3_trans_weight * trans_dist_sq + 
-                                CFG.clustering_se3_rot_weight * rot_dist_sq)
-        return weighted_dist
 
     def _cluster_feature_dataset(self, feature_data: List[np.ndarray], initial_epsilon: float, feature_name: str) -> Tuple[np.ndarray, np.ndarray, Set[int], float]:
         """Performs clustering based on epsilon distance.
@@ -709,7 +611,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         if feature_name == "pose":
             # Use the SE(3) distance function as the metric
             # Define a lambda or wrapper if needed to pass weights, assuming CFG accessible
-            metric = lambda p1, p2: self._calculate_se3_distance(p1, p2, 
+            metric = lambda p1, p2: utils.calculate_se3_distance(p1, p2, 
                                                             CFG.clustering_se3_trans_weight, 
                                                             CFG.clustering_se3_rot_weight)
             # Use a specific epsilon for SE(3) clustering
@@ -1465,7 +1367,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             
             for state in traj.states:
                 # Calculate relative pose in each state
-                rel_pose = self._calculate_relative_pose(state, obj1, obj2, 
+                rel_pose = utils.calculate_relative_pose(state, obj1, obj2, 
                                                        trans_feat_name, 
                                                        quat_feat_name)
                 if rel_pose is not None:

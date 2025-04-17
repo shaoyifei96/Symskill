@@ -61,6 +61,8 @@ from predicators.third_party.fast_downward_translator.translate import \
     main as downward_translate
 from itertools import combinations_with_replacement
 
+from scipy.spatial.transform import Rotation
+from numpy.linalg import norm
 if TYPE_CHECKING:
     from predicators.envs import BaseEnv
 
@@ -74,6 +76,76 @@ if "CUDA_VISIBLE_DEVICES" in os.environ:  # pragma: no cover
         cuda_visible_devices[0] = "0"
         os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(cuda_visible_devices)
 
+def calculate_se3_distance(pose_vec1: np.ndarray, pose_vec2: np.ndarray, 
+                                trans_weight: float, rot_weight: float) -> float:
+    """Calculates a weighted SE(3) distance between two 7D pose vectors."""
+    # Assumes pose_vec is [tx, ty, tz, qx, qy, qz, qw]
+    trans1, quat1 = pose_vec1[:3], pose_vec1[3:]
+    trans2, quat2 = pose_vec2[:3], pose_vec2[3:]
+
+    # Translational distance (Euclidean)
+    trans_dist_sq = np.sum((trans1 - trans2)**2)
+
+    # Rotational distance (angle of relative rotation)
+    # Ensure quaternions are valid rotations
+    if np.isclose(norm(quat1), 0) or np.isclose(norm(quat2), 0):
+        # Handle zero quaternions if they occur, maybe return large distance?
+        logging.warning("Encountered near-zero quaternion in SE(3) distance calculation.")
+        rot_dist_sq = np.pi**2 # Max possible squared angle
+    else:
+        try:
+            # Normalize quaternions robustly before creating Rotation objects
+            quat1_norm = quat1 / norm(quat1)
+            quat2_norm = quat2 / norm(quat2)
+            # Handle potential numerical instability if quats are *exactly* opposite
+            # dot_product = np.dot(quat1_norm, quat2_norm)
+            # if np.isclose(dot_product, -1.0):
+            #     rot_dist = np.pi # Angle is pi for opposite rotations
+            # else:
+            rot1 = Rotation.from_quat(quat1_norm)
+            rot2 = Rotation.from_quat(quat2_norm)
+            relative_rot = rot1.inv() * rot2
+            # Use magnitude() which gives the angle in radians
+            rot_dist = relative_rot.magnitude() 
+            rot_dist_sq = rot_dist**2
+        except ValueError as e:
+                logging.error(f"Error calculating rotation distance: {e}. Quats: {quat1}, {quat2}")
+                rot_dist_sq = np.pi**2 # Penalize problematic rotations
+
+    # Weighted combination
+    # Using CFG values directly here for simplicity, assuming they are accessible.
+    # Ideally, pass them as args or access via self.CFG if inside the class.
+    # Requires CFG values: clustering_se3_trans_weight, clustering_se3_rot_weight
+    weighted_dist = np.sqrt(CFG.clustering_se3_trans_weight * trans_dist_sq + 
+                            CFG.clustering_se3_rot_weight * rot_dist_sq)
+    return weighted_dist
+
+def calculate_relative_pose(state: State, o1: Object, o2: Object, trans_feat_name: str, quat_feat_name: str) -> Optional[np.ndarray]:
+    """Calculates the relative pose of o2 with respect to o1's frame.
+    
+    Returns a 7D vector [tx, ty, tz, qx, qy, qz, qw] or None if features missing.
+    """
+    try:
+        trans_o1 = state.get(o1, trans_feat_name)
+        trans_o2 = state.get(o2, trans_feat_name)
+        quat_o1 = state.get(o1, quat_feat_name)
+        quat_o2 = state.get(o2, quat_feat_name)
+
+        rot_o1 = Rotation.from_quat(quat_o1)
+        rot_o2 = Rotation.from_quat(quat_o2)
+
+        relative_trans_world = np.subtract(trans_o2, trans_o1)
+        relative_trans_local = rot_o1.inv().apply(relative_trans_world)
+
+        relative_rot = rot_o1.inv() * rot_o2
+        relative_quat = relative_rot.as_quat()
+
+        pose_vec = np.concatenate([relative_trans_local, relative_quat])
+        return pose_vec # 7D vector
+    except KeyError as e:
+        logging.debug(f"Missing feature {e} for relative pose between {o1} and {o2}. Skipping.")
+        return None
+    
 def combinations_no_self_pairs(iterable, r):
     return [
         combo for combo in combinations_with_replacement(iterable, r)
