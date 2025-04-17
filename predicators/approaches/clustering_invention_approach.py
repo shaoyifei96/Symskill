@@ -264,7 +264,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
     def learn_from_offline_dataset(self, dataset: Dataset) -> None:
         logging.info("Generating candidate predicates via clustering...")
         # Filter dataset to only keep specific trajectory indices
-        keep_indices = [0, 3, 4,6, 7, 8]
+        keep_indices = [0, 3, 4, 6, 7, 8]
         dataset._trajectories = [dataset._trajectories[i] for i in keep_indices]
 
         logging.info(f"Filtered dataset to trajectories (indices: {keep_indices})")

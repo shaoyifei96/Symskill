@@ -5,7 +5,7 @@ from __future__ import annotations
 import abc
 import copy
 import logging
-from typing import ClassVar, Dict, List, Sequence, Set, Tuple
+from typing import ClassVar, Dict, List, Sequence, Set, Tuple, Any
 
 import numpy as np
 import pybullet as p
@@ -25,6 +25,7 @@ from predicators.structs import Action, Array, Datastore, Object, OptionSpec, \
     VarToObjSub
 from predicators.utils import OptionExecutionFailure
 
+from ds_policy import DSPolicy, UnifiedModelConfig
 
 def create_option_learner(action_space: Box) -> _OptionLearnerBase:
     """Create an option learner given its name."""
@@ -39,6 +40,8 @@ def create_option_learner(action_space: Box) -> _OptionLearnerBase:
     if CFG.option_learner == "direct_bc_nonparameterized":
         return _DirectBehaviorCloningOptionLearner(action_space,
                                                    is_parameterized=False)
+    if CFG.option_learner == "ds_policy":
+        return _DSOptionLearner(action_space)
     raise NotImplementedError(f"Unknown option_learner: {CFG.option_learner}")
 
 
@@ -551,8 +554,10 @@ class _BehaviorCloningOptionLearner(_OptionLearnerBase):
     def _create_regressor(self) -> Regressor:
         raise NotImplementedError("Override me!")
 
-    def learn_option_specs(self, strips_ops: List[STRIPSOperator],
-                           datastores: List[Datastore]) -> List[OptionSpec]:
+    def learn_option_specs(self, 
+                           strips_ops: List[STRIPSOperator], # List of operators to learn options for, each operator has a datastore
+                           datastores: List[Datastore] # List of datastores for each operator, each containing a list of segments
+                           ) -> List[OptionSpec]:
         option_specs: List[Tuple[ParameterizedOption, List[Variable]]] = []
 
         assert len(strips_ops) == len(datastores)
@@ -590,7 +595,7 @@ class _BehaviorCloningOptionLearner(_OptionLearnerBase):
                 if self._is_parameterized:
                     init_state = segment.states[0]
                     final_state = segment.states[-1]
-                    init_param = _create_absolute_option_param(
+                    init_param = _create_absolute_option_param( # this is pose of init_state, only changing_var_to_feat is included
                         init_state, changing_var_to_feat, changing_var_order,
                         var_to_obj)
                     final_param = _create_absolute_option_param(
@@ -722,6 +727,278 @@ class _DirectBehaviorCloningOptionLearner(_BehaviorCloningOptionLearner):
                             train_print_every=CFG.pytorch_train_print_every)
 
 
+class _DSOptionLearner(_BehaviorCloningOptionLearner):
+
+    def __init__(self, action_space: Box, is_parameterized: bool = True) -> None:
+        super().__init__(action_space, is_parameterized)
+
+    def learn_option_specs(self, 
+                           strips_ops: List[STRIPSOperator], # List of operators to learn options for, each operator has a datastore
+                           datastores: List[Datastore] # List of datastores for each operator, each containing a list of segments
+                           ) -> List[OptionSpec]:
+        option_specs: List[Tuple[ParameterizedOption, List[Variable]]] = []
+
+        assert len(strips_ops) == len(datastores)
+
+        for op, datastore in zip(strips_ops, datastores):
+            logging.info(f"\nLearning option for NSRT {op.name}")
+            
+            # The superset of all objects whose states we may include in the
+            # option params is op.parameters. But we only want to include
+            # those objects that have state changes (in at least some data).
+            changing_var_to_feat = self._get_changing_features(datastore)
+            changing_var_order = sorted(changing_var_to_feat,
+                                       key=op.parameters.index)
+            
+            # Process segments to extract trajectories for DSPolicy
+            x = []  # position trajectories
+            x_dot = []  # velocity trajectories
+            quat = []  # quaternion trajectories
+            omega = []  # angular velocity trajectories
+            gripper = []  # gripper state trajectories if available
+            
+            # Process each segment to extract position, orientation and velocity data
+            for segment, var_to_obj in datastore:
+                all_objects_in_operator = [var_to_obj[v] for v in op.parameters]
+                
+                # For each segment, extract trajectory data
+                segment_x = []
+                segment_x_dot = []
+                segment_quat = []
+                segment_omega = []
+                segment_gripper = []
+                
+                # Extract position and orientation from states
+                for state in segment.states:
+                    obj_state = _flatten_and_convert_to_array(state.vec(all_objects_in_operator))
+                    
+                    # Extract position and orientation based on object state
+                    # This assumes a standard format where position is the first 3 elements
+                    # and orientation is represented as a quaternion in the next 4 elements
+                    # Adjust these indices based on your specific state representation
+                    pos = obj_state[:3]
+                    segment_x.append(pos)
+                    
+                    # If quaternion data is available (assumes indices 3-6 are quaternion)
+                    if len(obj_state) >= 7:
+                        quat_data = obj_state[3:7]
+                        segment_quat.append(quat_data)
+                    else:
+                        # Default quaternion if not available
+                        segment_quat.append(np.array([0, 0, 0, 1]))  # Identity quaternion
+                    
+                    # If gripper data is available (assumes last elements)
+                    if len(obj_state) > 7:
+                        segment_gripper.append(obj_state[7:])
+                    else:
+                        segment_gripper.append(np.array([0.0]))  # Default gripper state
+                
+                # Compute velocities from positions (finite differences)
+                for i in range(len(segment_x) - 1):
+                    vel = (segment_x[i+1] - segment_x[i]) / segment.states[i+1].timestep
+                    segment_x_dot.append(vel)
+                
+                # Add zero velocity for last state
+                if segment_x:
+                    segment_x_dot.append(np.zeros_like(segment_x[0]))
+                
+                # Compute angular velocities (simple finite difference approximation)
+                # This is a simplified approach and might need refinement
+                for i in range(len(segment_quat) - 1):
+                    # Simple angular velocity approximation
+                    ang_vel = np.zeros(3)  # Placeholder for angular velocity
+                    segment_omega.append(ang_vel)
+                
+                # Add zero angular velocity for last state
+                if segment_quat:
+                    segment_omega.append(np.zeros(3))
+                
+                # Add segment data to overall dataset
+                x.append(np.array(segment_x))
+                x_dot.append(np.array(segment_x_dot))
+                quat.append(np.array(segment_quat))
+                omega.append(np.array(segment_omega))
+                gripper.append(np.array(segment_gripper))
+                
+                # Store the option parameterization for this segment
+                if self._is_parameterized:
+                    init_state = segment.states[0]
+                    final_state = segment.states[-1]
+                    init_param = _create_absolute_option_param(
+                        init_state, changing_var_to_feat, changing_var_order, var_to_obj)
+                    final_param = _create_absolute_option_param(
+                        final_state, changing_var_to_feat, changing_var_order, var_to_obj)
+                    option_param = final_param - init_param
+                else:
+                    option_param = np.zeros((0, ), dtype=np.float32)
+                
+                # Store the option parameterization for this segment
+                self._segment_to_grounding[segment] = (all_objects_in_operator, option_param)
+            
+            # Create trajectory probabilities (uniform by default)
+            demo_traj_probs = np.ones(len(x))
+            
+            # Configure DS Policy
+            unified_config = UnifiedModelConfig(
+                mode="se3_lpvds",
+                k_init=1,
+                # Add other configuration parameters as needed
+            )
+            
+            # Create DSPolicy
+            ds_policy = DSPolicy(
+                x=x,
+                x_dot=x_dot,
+                quat=quat,
+                omega=omega,
+                gripper=gripper,
+                unified_config=unified_config,
+                dt=0.01,  # Default timestep
+                switch=False,
+                demo_traj_probs=demo_traj_probs
+            )
+            
+            # Create a ParameterizedOption that uses DSPolicy
+            name = f"{op.name}DSOption"
+            parameterized_option = _LearnedDSParameterizedOption(
+                name,
+                op,
+                ds_policy,
+                changing_var_to_feat,
+                changing_var_order,
+                self._action_space,
+                self._action_converter,
+                is_parameterized=self._is_parameterized
+            )
+            
+            option_specs.append((parameterized_option, list(op.parameters)))
+            
+        return option_specs
+
+    def _create_regressor(self) -> Regressor:
+        # Not used in DSOptionLearner as we use DSPolicy instead
+        raise NotImplementedError("DSOptionLearner uses DSPolicy instead of a regressor")
+
+
+class _LearnedDSParameterizedOption(ParameterizedOption):
+    """A parameterized option that uses DSPolicy for action selection.
+    
+    Similar to _LearnedNeuralParameterizedOption but uses DSPolicy instead of a neural regressor.
+    """
+    
+    def __init__(self,
+                 name: str,
+                 operator: STRIPSOperator,
+                 ds_policy: Any,  # DSPolicy object
+                 changing_var_to_feat: Dict[Variable, List[int]],
+                 changing_var_order: List[Variable],
+                 action_space: Box,
+                 action_converter: _ActionConverter,
+                 is_parameterized: bool = True) -> None:
+        assert set(changing_var_to_feat).issubset(set(operator.parameters))
+        types = [v.type for v in operator.parameters]
+        option_param_dim = sum(
+            len(idxs) for idxs in changing_var_to_feat.values())
+        if is_parameterized:
+            params_space = Box(low=-np.inf,
+                               high=np.inf,
+                               shape=(option_param_dim, ),
+                               dtype=np.float32)
+        else:
+            params_space = Box(0, 1, (0, ), dtype=np.float32)
+        self.operator = operator
+        self._ds_policy = ds_policy
+        self._changing_var_to_feat = changing_var_to_feat
+        self._changing_var_order = changing_var_order
+        self._action_space = action_space
+        self._action_converter = action_converter
+        self._is_parameterized = is_parameterized
+        super().__init__(name,
+                         types,
+                         params_space,
+                         policy=self._ds_policy_based_policy,
+                         initiable=self._precondition_based_initiable,
+                         terminal=self._optimized_effect_based_terminal)
+    
+    def _precondition_based_initiable(self, state: State, memory: Dict,
+                                      objects: Sequence[Object],
+                                      params: Array) -> bool:
+        if self._is_parameterized:
+            # The memory here is used to store the absolute params, based on
+            # the relative params and the object states.
+            memory["params"] = params  # store for sanity checking in policy
+            var_to_obj = dict(zip(self.operator.parameters, objects))
+            state_params = _create_absolute_option_param(
+                state, self._changing_var_to_feat, self._changing_var_order,
+                var_to_obj)
+            memory["absolute_params"] = state_params + params
+        # Check if initiable based on preconditions.
+        grounded_op = self.operator.ground(tuple(objects))
+        return all(pre.holds(state) for pre in grounded_op.preconditions)
+    
+    def _ds_policy_based_policy(self, state: State, memory: Dict,
+                              objects: Sequence[Object],
+                              params: Array) -> Action:
+        # Extract the state information to use with DS Policy
+        # This assumes the state contains position, orientation, etc.
+        obj_state = _flatten_and_convert_to_array(state.vec(objects))
+        
+        # Create DS Policy state (position and quaternion)
+        # Adjust these indices based on your specific state representation
+        pos = obj_state[:3]
+        quat = obj_state[3:7] if len(obj_state) >= 7 else np.array([0, 0, 0, 1])
+        ds_state = np.concatenate([pos, quat])
+        
+        # Get action from DS Policy
+        action_arr = self._ds_policy.get_action(
+            ds_state, 
+            clf=True,  # Use Control Lyapunov Function
+            alpha_V=10.0,  # CLF parameter
+            lookahead=5  # Number of steps to look ahead
+        )
+        
+        if np.isnan(action_arr).any():
+            raise OptionExecutionFailure("Option policy returned nan.")
+        
+        # Convert the action back to the original space
+        action_arr = self._action_converter.reduced_to_env(action_arr)
+        
+        # Clip the action
+        if CFG.env == "robo_kitchen":
+            # Clip the action size to the robo_kitchen action space
+            action_arr = action_arr[:len(self._action_space.low)]
+            
+        action_arr = np.clip(action_arr, self._action_space.low,
+                             self._action_space.high)
+        
+        return Action(np.array(action_arr, dtype=np.float32))
+    
+    def _optimized_effect_based_terminal(self, state: State, memory: Dict,
+                                       objects: Sequence[Object],
+                                       params: Array) -> bool:
+        if self._is_parameterized:
+            assert np.allclose(params, memory["params"])
+        terminate = self.effect_based_terminal(state, objects)
+        # Optimization: remember the most recent state and terminate early if
+        # the state is repeated, since this option will never get unstuck.
+        if "last_state" in memory and memory["last_state"].allclose(state):
+            return True
+        if terminate:
+            return True
+        memory["last_state"] = state
+        return False
+    
+    def effect_based_terminal(self, state: State,
+                            objects: Sequence[Object]) -> bool:
+        """Terminate when the option's corresponding operator's effects have
+        been reached."""
+        grounded_op = self.operator.ground(tuple(objects))
+        if all(e.holds(state) for e in grounded_op.add_effects) and \
+           not any(e.holds(state) for e in grounded_op.delete_effects):
+            return True
+        return False
+
+
 class _ImplicitBehaviorCloningOptionLearner(_BehaviorCloningOptionLearner):
     """Use an ImplicitMLPRegressor for regression."""
 
@@ -793,6 +1070,7 @@ def _create_absolute_option_param(state: State,
                                                              List[int]],
                                   var_order: Sequence[Variable],
                                   var_to_obj: VarToObjSub) -> Array:
+    """From state, which includes objects, extract only changing variables according to changing_var_to_feat"""
     vec = []
     for v in var_order:
         obj = var_to_obj[v]
