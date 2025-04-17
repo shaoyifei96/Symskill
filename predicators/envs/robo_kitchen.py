@@ -43,10 +43,10 @@ class RoboKitchenEnv(BaseEnv):
 
     door_open_thresh = 1.3  # rad
     door_half_open_thresh = 0.4  # rad
-    close_distance_thresh = 0.02  # m
+    gripper_close_distance_thresh = 0.1  # m
     gripper_fingers_distance_thresh = 0.08  # m
     offset_inwards_from_handle = 0.10  # m
-    close_distance_thresh = 0.05  # m
+    obj_close_distance_thresh = 0.1  # m
 
     # Types
     object_type = Type("object_type", ["translation", "quaternion"])
@@ -59,7 +59,6 @@ class RoboKitchenEnv(BaseEnv):
     handle_type = Type("handle_type", ["translation", "quaternion"], parent=grab_type)
     surface_type = Type("surface_type", ["translation", "quaternion"], parent=object_type)
     thing_type = Type("thing_type", ["translation", "quaternion"], parent=grab_type)
-    
 
     obj_name_to_type = {
         "handle": handle_type,
@@ -504,7 +503,7 @@ class RoboKitchenEnv(BaseEnv):
         obj_pos = state.get(obj, "translation")
         obj_quat = state.get(obj, "quaternion")
         gripper_pos_in_obj, _ = frame_transform(gripper_pos, gripper_quat, obj_pos, R.from_quat(obj_quat).as_matrix())
-        if np.linalg.norm(gripper_pos_in_obj[0]) <= 0.1 and gripper_pos_in_obj[1] > 0:
+        if np.linalg.norm(gripper_pos_in_obj[0]) <= cls.gripper_close_distance_thresh and gripper_pos_in_obj[1] > 0:
             return True
         return False
 
@@ -622,10 +621,9 @@ class RoboKitchenEnv(BaseEnv):
         obj, surface = objects
         obj_pos = state.get(obj, "translation")
         location_pos = state.get(surface, "translation")
-        near_surface = np.linalg.norm(obj_pos - location_pos) < cls.close_distance_thresh
-        on_top = (obj_pos[2] - location_pos[2]) < cls.close_distance_thresh
+        near_surface = np.linalg.norm(obj_pos - location_pos) < cls.obj_close_distance_thresh
+        on_top = (obj_pos[2] - location_pos[2]) < cls.obj_close_distance_thresh
         return near_surface and on_top
-
 
     def _add_debug_visualization(self):
         """Add debug visualization markers at important locations."""
