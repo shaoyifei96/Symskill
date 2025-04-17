@@ -59,6 +59,7 @@ from predicators.structs import NSRT, Action, Array, DummyOption, \
     _GroundNSRT, _GroundSTRIPSOperator, _Option, _TypedEntity, OptionFailureInfo
 from predicators.third_party.fast_downward_translator.translate import \
     main as downward_translate
+from itertools import combinations_with_replacement
 
 if TYPE_CHECKING:
     from predicators.envs import BaseEnv
@@ -73,6 +74,11 @@ if "CUDA_VISIBLE_DEVICES" in os.environ:  # pragma: no cover
         cuda_visible_devices[0] = "0"
         os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(cuda_visible_devices)
 
+def combinations_no_self_pairs(iterable, r):
+    return [
+        combo for combo in combinations_with_replacement(iterable, r)
+        if len(set(combo)) == r  # ensures no repeated elements
+    ]
 
 def count_positives_for_ops(
     strips_ops: List[STRIPSOperator],

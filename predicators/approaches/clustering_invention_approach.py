@@ -67,6 +67,32 @@ class _RelativeFeatureClusterClassifier(_BinaryClassifier):
     _quat_feat_name: str = field(default="quaternion", init=False)
     _pose_feat_name: str = field(default="pose", init=False)
 
+    def _calculate_relative_pose(self, state: State, o1: Object, o2: Object, trans_feat_name: str, quat_feat_name: str) -> Optional[np.ndarray]:
+        """Calculates the relative pose of o2 with respect to o1's frame.
+        
+        Returns a 7D vector [tx, ty, tz, qx, qy, qz, qw] or None if features missing.
+        """
+        try:
+            trans_o1 = state.get(o1, trans_feat_name)
+            trans_o2 = state.get(o2, trans_feat_name)
+            quat_o1 = state.get(o1, quat_feat_name)
+            quat_o2 = state.get(o2, quat_feat_name)
+
+            rot_o1 = Rotation.from_quat(quat_o1)
+            rot_o2 = Rotation.from_quat(quat_o2)
+
+            relative_trans_world = np.subtract(trans_o2, trans_o1)
+            relative_trans_local = rot_o1.inv().apply(relative_trans_world)
+
+            relative_rot = rot_o1.inv() * rot_o2
+            relative_quat = relative_rot.as_quat()
+
+            pose_vec = np.concatenate([relative_trans_local, relative_quat])
+            return pose_vec # 7D vector
+        except KeyError as e:
+            logging.debug(f"Missing feature {e} for relative pose between {o1} and {o2}. Skipping.")
+            return None
+
 
     def _classify_object(self, s: State, obj1: Object, obj2: Object) -> bool:
         assert obj1.is_instance(self.object1_type)
@@ -75,7 +101,7 @@ class _RelativeFeatureClusterClassifier(_BinaryClassifier):
         # Calculate the relevant relative feature
         if self.feature_name == self._pose_feat_name:
             # Calculate the 7D relative pose
-            relative_feature = _calculate_relative_pose(s, obj1, obj2, 
+            relative_feature = self._calculate_relative_pose(s, obj1, obj2, 
                                                        self._trans_feat_name, 
                                                        self._quat_feat_name)
             if relative_feature is None:
@@ -329,73 +355,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         # Process relative features
         for (type1, type2, feat_name), data in relative_feature_datasets.items():
             logging.debug(f"Clustering relative feature {feat_name} for ({type1.name}, {type2.name}) with {len(data)} points.")
-            
-            # Generate trajectory visualization for this type pair
-            # if feat_name == pose_feature_name:
-            #     # Visualize trajectories for this type pair
-            #     self._plot_relative_trajectories(dataset, type1.name, type2.name)
-            
-            # Skip if we are having gripper type and handle type
-            # if ((type1.name == "left_finger_type" and type2.name == "right_finger_type") or \
-            #    (type1.name == "right_finger_type" and type2.name == "left_finger_type")) and \
-            #    feat_name == quat_feat_name:
-            #     logging.debug(f"Skipping relative feature {feat_name} for ({type1.name}, {type2.name}) due to rand jumping between fingers.")
-            #     continue
-            # # Skip translation features involving fingers with any other object type
-            # # But keep the relationship between left and right fingers
-            # if (type1.name == "left_finger_type" or type2.name == "right_finger_type" or\
-            #     type1.name == "right_finger_type" or type2.name == "left_finger_type") and \
-            #     not (type1.name == "left_finger_type" and type2.name == "right_finger_type" and feat_name == trans_feat_name):
-            #     logging.debug(f"Skipping relative feature {feat_name} for ({type1.name}, {type2.name}):All finger removed except distance between fingers")
-            #     continue
-
-            # Debug mode: Skip everything except specific feature combinations
-            # Only keep:
-            # 1. Cabinet handle quaternion (with cabinet first)
-            # 2. Gripper handle quaternion (with gripper first)
-            # 3. Gripper handle translation (with gripper first)
-            # 4. Finger finger translation (with left_finger first)
-
-            # Check if this is a feature combination we want to keep
-            keep_feature = False
-
-            if (type1.name == "handle_type" and type2.name == "gripper_type") and feat_name == pose_feature_name:
-                keep_feature = True
-                logging.info(f"Keeping handle-gripper quaternion feature")
-
-            # if (type1.name == "handle_type" and type2.name == "gripper_type") and feat_name == trans_feat_name:
-            #     keep_feature = True
-            #     logging.info(f"Keeping handle-gripper translation feature")
-
-            # Cabinet handle quaternion - keep cabinet first
-            if (type1.name == "cabinet_type" and type2.name == "handle_type") and feat_name == pose_feature_name:
-                keep_feature = True
-                logging.info(f"Keeping cabinet-handle pose feature")
-
-            # # Gripper handle quaternion - keep gripper first
-            elif (type1.name == "cabinet_type" and type2.name == "gripper_type") and feat_name == pose_feature_name:
-                keep_feature = True
-                logging.info(f"Keeping gripper-handle pose feature")
-
-            elif (type1.name == "door_type" and type2.name == "gripper_type") and feat_name == pose_feature_name:
-                keep_feature = True
-                logging.info(f"Keeping door-gripper pose feature")
-
-            # # Gripper handle translation - keep gripper first
-            # elif (type1.name == "gripper_type" and type2.name == "door_type") and feat_name == trans_feat_name:
-            #     keep_feature = True
-            #     logging.info(f"Keeping gripper-handle translation feature")
-
-            # # Finger finger translation - keep left_finger first
-            # elif (type1.name == "left_finger_type" and type2.name == "right_finger_type") and feat_name == trans_feat_name:
-            #     keep_feature = True
-            #     logging.info(f"Keeping finger-finger translation feature")
-
-            # # Skip all other feature combinations
-            if not keep_feature:
-                logging.debug(f"Skipping feature {feat_name} for ({type1.name}, {type2.name}) in debug mode")
-                continue
-
+        
             if not data: continue # Skip if no data collected
 
             # Save the feature data for analysis and debugging
@@ -539,35 +499,6 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 candidates[pred] = pred.arity + 1.0
                 predicate_counter += 1
 
-        # Process absolute features
-        # skip absolute features for now since all things are relative
-        # for (type1, feat_name), data in absolute_feature_datasets.items():
-        #     logging.debug(f"Clustering absolute feature {feat_name} for ({type1.name}) with {len(data)} points.")
-        #     # Skip absolute orientation features for fingers as they can be noisy
-        #     if (type1.name == "left_finger_type" or type1.name == "right_finger_type") and feat_name == "quaternion":
-        #         logging.debug(f"Skipping absolute feature {feat_name} for {type1.name} due to noisy finger orientation.")
-        #         continue
-
-        #     if not data: continue
-
-        #     # Select clustering epsilon based on feature type (using defaults if not trans/quat)
-        #     if feat_name == trans_feat_name:
-        #         epsilon = CFG.clustering_translation_epsilon
-        #     elif feat_name == quat_feat_name:
-        #         epsilon = CFG.clustering_quaternion_epsilon
-        #     else:
-        #         epsilon = CFG.clustering_epsilon
-
-        #     logging.debug(f"Using epsilon: {epsilon:.2f} for feature {feat_name}")
-        #     clusters = self._cluster_feature_dataset(data, epsilon)
-        #     for cluster_id, cluster_info in enumerate(clusters):
-        #          logging.debug(f"Cluster {cluster_id} has {len(cluster_info['points'])} points.")
-        #          if len(cluster_info['points']) < CFG.clustering_min_samples_per_cluster:
-        #              continue
-        #          # Use the feature-specific epsilon when creating the predicate
-        #          pred = self._create_predicate_from_absolute_cluster(type1, feat_name, cluster_info, epsilon, predicate_counter)
-        #          candidates[pred] = pred.arity + 1.0
-        #          predicate_counter += 1
 
         # Rename predicates for PDDL compatibility (reuse from grammar search)
         renamed_candidates = self._rename_predicates_to_remove_incompatible_chars(candidates)
@@ -580,27 +511,43 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         feature_data = defaultdict(list)
         feature_changes = defaultdict(list) # Track change magnitudes
 
+
+
+        # Filter types so things other than gripper and are useful are kept!!!
         types = {obj.type for traj in dataset.trajectories for obj in traj.states[0]}
         # Optional: Filter types as before
         filtered_types = set()
         # Example filter (adjust as needed):
-        allowed_type_names = {"handle", "gripper", "cabinet", "door"} # Added door_type based on usage
+        allowed_type_names = {"handle", "cabinet"} # Added door_type based on usage
         for type_obj in types:
             if any(name in type_obj.name for name in allowed_type_names):
                 filtered_types.add(type_obj)
                 logging.info(f"Keeping type for relative features: {type_obj.name}")
             else:
                 logging.debug(f"Filtering out type: {type_obj.name}")
-        types = filtered_types
-        
-        logging.info(f"Filtered to {len(types)} types for relative features: {[t.name for t in types]}")
 
-        # Use combinations to avoid duplicate pairs like (A, B) and (B, A) if order doesn't matter,
-        # or product if A->B relative pose is distinct from B->A relative pose.
-        # Using combinations_with_replacement allows A->A (if needed) and considers (A,B) once.
-        # If B->A frame is also important, use product. Let's stick with combinations for now.
-        # type_pairs = list(combinations_with_replacement(sorted(list(types)), 2))
-        type_pairs = list(product(sorted(list(types)), repeat=2))
+        gripper_type = "gripper"
+        gripper_type_obj = None
+        for type_obj in types:
+            if gripper_type in type_obj.name:
+                gripper_type_obj = type_obj
+                logging.info(f"Keeping gripper type: {type_obj.name}")
+                break
+
+        if gripper_type_obj is None:
+            logging.warning(f"No gripper type found in the dataset. Skipping relative features.")
+            return {}
+        
+
+        type_pairs = list(utils.combinations_no_self_pairs(sorted(list(filtered_types)), 2))
+        # Create type pairs that include combinations with gripper
+        for type_obj in filtered_types:
+            # Add both (gripper, obj) and (obj, gripper) pairs
+            type_pairs.append((type_obj, gripper_type_obj))
+            logging.info(f"Adding gripper pair: ({gripper_type_obj.name}, {type_obj.name}) and ({type_obj.name}, {gripper_type_obj.name})")
+        
+        logging.info(f"Total type pairs for relative features: {len(type_pairs)}")
+        # type_pairs = list(product(sorted(list(types)), repeat=2))
 
         quat_feat_name = "quaternion"
         trans_feat_name = "translation"
@@ -809,7 +756,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             dist_matrix = squareform(dists)
             clustering = AgglomerativeClustering(n_clusters=None,
                                                 affinity="precomputed", # Pass metric
-                                                linkage='average', # Check compatibility with custom metric
+                                                linkage='single', # Check compatibility with custom metric
                                                 distance_threshold=effective_epsilon).fit(dist_matrix)
             # except ValueError as e:
             #      # If the callable metric doesn't work directly with chosen linkage:
@@ -1176,6 +1123,8 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             # Generate successors by adding one predicate to each set in the beam
             for _, current_preds, _ in beam:
                 for cand_pred in candidate_list:
+                    if cand_pred.arity == 2 and cand_pred.types[1].name != "gripper_type":
+                        continue
                     if cand_pred in current_preds or cand_pred in self._initial_predicates:
                         continue
                     next_pred_set = current_preds | {cand_pred}
