@@ -30,7 +30,7 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
                 segment_option_objs = tuple()
 
 
-                    # 1. Identify objects directly involved in effects (moved up to be reused)
+            # 1. Identify objects directly involved in effects (moved up to be reused)
             effect_objects = {o for atom in segment.add_effects | segment.delete_effects for o in atom.objects} | set(segment_option_objs)
             
             # 2. Find initial atoms involving any effect object (moved up to be reused)

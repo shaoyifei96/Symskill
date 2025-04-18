@@ -23,7 +23,7 @@ from predicators.settings import CFG
 from predicators.structs import Action, Array, Datastore, Object, OptionSpec, \
     ParameterizedOption, Segment, State, STRIPSOperator, Variable, \
     VarToObjSub
-from predicators.utils import OptionExecutionFailure
+from predicators.utils import OptionExecutionFailure, calculate_relative_pose
 
 from ds_policy import DSPolicy, UnifiedModelConfig, transform_frame, compute_vel_traj
 from scipy.spatial.transform import Rotation as R
@@ -762,37 +762,53 @@ class _DSOptionLearner(_OptionLearnerBase):
             x_dot = []  # velocity trajectories
             quat = []  # quaternion trajectories
             omega = []  # angular velocity trajectories
-            gripper = []  # gripper state trajectories if available
+            gripper_action = []  # gripper state trajectories if available
             
             # Process each segment to extract position, orientation and velocity data
             for segment, var_to_obj in datastore:
-                # NOTE: we assume the first parameter is the object of interest and the second parameter is the gripper
-                obj_of_interest = var_to_obj[op.parameters[0]]
-                gripper = var_to_obj[op.parameters[1]]
-                
-                OOI_pos_traj = []
-                OOI_quat_traj = []
-                gripper_pos_traj = []
-                gripper_quat_traj = []
+                # NOTE: we assume op's add_effects and delete_effects only have one predicate
+                # and that predicate has gripper type and obj_of_interest type
+                # if we find more than one predicate, we will ignore the segment
+                if len(op.add_effects) + len(op.delete_effects) != 1:
+                    logging.warning(f"NSRT {op.name} has {len(op.add_effects)} + {len(op.delete_effects)} != 1 predicates, ignoring segment")
+                    continue
+                predicate_types = list(op.add_effects)[0].predicate.types if len(op.add_effects) == 1 else list(op.delete_effects)[0].predicate.types
+                assert len(predicate_types) == 2
+
+                OOI_type_name = None
+                for i in range(2):
+                    if predicate_types[i].name == "gripper_type":
+                        OOI_type_name = predicate_types[1-i].name
+                        break
+                if OOI_type_name is None:
+                    logging.warning(f"NSRT {op.name} cannot find OOI or gripper type in predicates, ignoring segment")
+                    continue
+
+                obj_of_interest = None
+                gripper = None
+                for var in op.parameters:
+                    if var.type.name == OOI_type_name:
+                        obj_of_interest = var_to_obj[var]
+                    elif var.type.name == "gripper_type":
+                        gripper = var_to_obj[var]
+                    if obj_of_interest is not None and gripper is not None:
+                        break
+                if obj_of_interest is None or gripper is None:
+                    logging.warning(f"NSRT {op.name} cannot find OOI and gripper from parameters, ignoring segment")
+                    continue
+
+                gripper_pos_traj_OOI_frame = []
+                gripper_quat_traj_OOI_frame = []
                 
                 # Extract position and orientation from states
                 for state in segment.states:
-                    obj_states = state.vec([obj_of_interest, gripper]) # array of shape (4,), each element is an array
+                    gripper_pose_OOI_frame = calculate_relative_pose(state, obj_of_interest, gripper, "translation", "quaternion")
+                    gripper_pos_traj_OOI_frame.append(gripper_pose_OOI_frame[:3])
+                    gripper_quat_traj_OOI_frame.append(gripper_pose_OOI_frame[3:])
 
-                    OOI_pos_traj.append(obj_states[0])
-                    OOI_quat_traj.append(obj_states[1])
-                    gripper_pos_traj.append(obj_states[2])
-                    gripper_quat_traj.append(obj_states[3])
-
-                OOI_pos_traj = np.array(OOI_pos_traj)
-                OOI_quat_traj = np.array(OOI_quat_traj)
-                OOI_rot_traj = np.array([R.from_quat(q).as_matrix() for q in OOI_quat_traj])
-                gripper_pos_traj = np.array(gripper_pos_traj)
-                gripper_quat_traj = np.array(gripper_quat_traj)
-                gripper_rot_traj = np.array([R.from_quat(q).as_matrix() for q in gripper_quat_traj])
-
-                gripper_pos_traj_OOI_frame, gripper_rot_traj_OOI_frame = transform_frame(gripper_pos_traj, gripper_rot_traj, OOI_pos_traj, OOI_rot_traj)
-                gripper_quat_traj_OOI_frame = np.array([R.from_matrix(r).as_quat() for r in gripper_rot_traj_OOI_frame])
+                gripper_pos_traj_OOI_frame = np.array(gripper_pos_traj_OOI_frame)
+                gripper_quat_traj_OOI_frame = np.array(gripper_quat_traj_OOI_frame)
+                gripper_rot_traj_OOI_frame = np.array([R.from_quat(q).as_matrix() for q in gripper_quat_traj_OOI_frame])
                 gripper_vel_traj_OOI_frame, gripper_ang_vel_traj_OOI_frame = compute_vel_traj(gripper_pos_traj_OOI_frame, gripper_rot_traj_OOI_frame, dt)
 
                 # Add segment data to overall dataset
@@ -801,7 +817,12 @@ class _DSOptionLearner(_OptionLearnerBase):
                 quat.append(gripper_quat_traj_OOI_frame)
                 omega.append(gripper_ang_vel_traj_OOI_frame)
 
-            check_DSPolicy_input_data(x, x_dot, quat, omega, gripper)
+            
+            if len(x) == 0:
+                logging.warning(f"NSRT {op.name} has no valid segments, ignoring")
+                continue
+
+            check_DSPolicy_input_data(x, x_dot, quat, omega, gripper_action, save_path=f"trajectory_visualization_{op.name}.png")
             
             # Configure DS Policy
             unified_config = UnifiedModelConfig(
@@ -843,7 +864,7 @@ class _DSOptionLearner(_OptionLearnerBase):
         segment.set_option(option)
 
 
-def check_DSPolicy_input_data(x: List[np.ndarray], x_dot: List[np.ndarray], quat: List[np.ndarray], omega: List[np.ndarray], gripper: List[np.ndarray]) -> bool:
+def check_DSPolicy_input_data(x: List[np.ndarray], x_dot: List[np.ndarray], quat: List[np.ndarray], omega: List[np.ndarray], gripper: List[np.ndarray], save_path: str = None) -> bool:
     assert len(x) == len(x_dot) == len(quat) == len(omega)
     for i in range(len(x)):
         assert x[i].shape[0] == x_dot[i].shape[0] == quat[i].shape[0] == omega[i].shape[0]
@@ -851,6 +872,33 @@ def check_DSPolicy_input_data(x: List[np.ndarray], x_dot: List[np.ndarray], quat
         assert x_dot[i].shape[1] == 3
         assert quat[i].shape[1] == 4
         assert omega[i].shape[1] == 3
+
+    if save_path is not None:
+        import matplotlib.pyplot as plt
+        from mpl_toolkits.mplot3d import Axes3D
+        
+        fig = plt.figure(figsize=(10, 8))
+        ax = fig.add_subplot(111, projection='3d')
+        
+        # Plot each trajectory with a different color
+        for i, trajectory in enumerate(x):
+            ax.plot(trajectory[:, 0], trajectory[:, 1], trajectory[:, 2], 
+                   label=f'Trajectory {i+1}', linewidth=2)
+            
+            # Mark start and end points
+            ax.scatter(trajectory[0, 0], trajectory[0, 1], trajectory[0, 2], 
+                      color='green', s=100, marker='o')
+            ax.scatter(trajectory[-1, 0], trajectory[-1, 1], trajectory[-1, 2], 
+                      color='red', s=100, marker='x')
+        
+        ax.set_xlabel('X')
+        ax.set_ylabel('Y')
+        ax.set_zlabel('Z')
+        ax.set_title('3D Trajectories')
+        ax.legend()
+        plt.tight_layout()
+        # plt.savefig(save_path)
+        plt.show()
     return True
 
 

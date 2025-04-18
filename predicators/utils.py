@@ -66,7 +66,7 @@ from numpy.linalg import norm
 if TYPE_CHECKING:
     from predicators.envs import BaseEnv
 
-matplotlib.use("Agg")
+matplotlib.use("MacOSX")
 
 # Unpickling CUDA models errs out if the device isn't recognized because of
 # an unusual name, including in supercloud, but we can set it manually

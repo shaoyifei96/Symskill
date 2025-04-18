@@ -974,6 +974,8 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 logging.info(f"\033[1;36mIteration {iteration} best score: {best_score:.4f}\033[0m")
                 logging.info(f"\033[1;32mCurrent best operators: {best_operators}\033[0m")
                 logging.info(f"\033[1;33mCurrent best preds: {best_pred_set_added}\033[0m")
+                warnings.warn(f"Not doing beam search!!!!!!!!!!!!!!!!!")
+                break
             current_best_score_in_beam = new_beam[0][0] if new_beam else -np.inf
             if current_best_score_in_beam <= best_score and iteration > 1 : # Allow first iteration to set baseline
                 logging.info("\033[1;35mBeam search converged (no score improvement).\033[0m")
