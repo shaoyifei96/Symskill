@@ -56,8 +56,7 @@ class _RelativeFeatureClusterClassifier(_BinaryClassifier):
     object2_type: Type
     feature_name: str # Will be "pose" for SE(3) clusters
     cluster_center: np.ndarray # Can be 7D for pose
-    inv_covariance_matrix: np.ndarray # Can be 7x7 for pose
-    mahalanobis_threshold: float
+    cluster_radius: float
     # diff_fn might not be needed for 'pose' if calculation is explicit
     diff_fn: Optional[Callable[[Any, Any], Any]] # Made optional
     cluster_id: int
@@ -81,6 +80,10 @@ class _RelativeFeatureClusterClassifier(_BinaryClassifier):
             if relative_feature is None:
                 logging.warning(f"Could not compute relative pose for classification between {obj1}, {obj2}. Returning False.")
                 return False # Cannot classify if pose cannot be computed
+            dist_diff = utils.calculate_se3_distance(relative_feature, self.cluster_center, 
+                                                    CFG.clustering_se3_trans_weight, 
+                                                    CFG.clustering_se3_rot_weight)
+            return dist_diff <= self.cluster_radius
         else:
             # Handle original features (e.g., translation only, rotation only if kept)
             obj1_feat = s.get(obj1, self.feature_name)
@@ -301,7 +304,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         if feat_name == "pose":
             return utils.calculate_se3_distance
         else:
-            return self._get_feature_difference_function(feat_name)
+            raise ValueError(f"Unsupported feature name: {feat_name}")
 
     # --- Candidate Generation Functions ---
     def _generate_candidate_predicates(self, dataset: Dataset) -> Dict[Predicate, float]:
@@ -354,7 +357,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
 
             # logging.debug(f"Using epsilon: {epsilon:.4f} for feature {feat_name}")
             # Perform clustering
-            data_array, labels, unique_labels, effective_epsilon = self._cluster_feature_dataset(data, epsilon, feat_name)
+            data_array, labels, unique_labels = self._cluster_feature_dataset(data, epsilon, feat_name)
             diff_fn = self._get_feature_difference_function(feat_name)
 
             if data_array.size == 0: continue # Skip if clustering returned empty
@@ -372,8 +375,24 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 cluster_size = len(cluster_points)
                 if cluster_size >= min_cluster_size:
                     cluster_center = np.mean(cluster_points, axis=0)
+                    logging.warning(f"INCORRECT MEAN CALCULATION:!!!!!!!!!!!!!!!!!!!")
+                    # normalize the quat
+                    cluster_center[3:7] = cluster_center[3:7] / np.linalg.norm(cluster_center[3:7])
+                    # difference between cluster_center and cluster_points
+                    cluster_center_diff = np.zeros(len(cluster_points))
+                    for i in range(len(cluster_points)):
+                        diff = utils.calculate_se3_distance(cluster_center, cluster_points[i], 
+                                                            CFG.clustering_se3_trans_weight, 
+                                                            CFG.clustering_se3_rot_weight)
+                        cluster_center_diff[i] = diff
+                    
+                    #find 95th percentile of cluster_center_diff
+                    # cluster_center_diff_95 = np.percentile(cluster_center_diff, 95)
+                    # logging.warning(f"95th percentile of cluster_center_diff: {cluster_center_diff_95:.4f}")
+
+                    #
                     # Store basic info first
-                    kept_clusters_info[k] = {'center': cluster_center, 'size': cluster_size, 'points': cluster_points} # Store points for cov calculation
+                    kept_clusters_info[k] = {'center': cluster_center, 'size': cluster_size, 'points': cluster_points, 'cluster_radius': np.max(cluster_center_diff) } # Store points for cov calculation
                 else:
                     discarded_labels.add(k)
                     logging.debug(f"Cluster {k} for {type1.name}-{type2.name}-{feat_name} discarded (size {cluster_size} < {min_cluster_size}).")
@@ -383,66 +402,8 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             for cluster_label in kept_cluster_labels_list: # Iterate over keys
                 cluster_info = kept_clusters_info[cluster_label]
                 cluster_points = cluster_info['points'] # Retrieve stored points
-
-                # Calculate covariance matrix
-                if cluster_points.shape[0] >= 2 and cluster_points.shape[1] > 0: # Need at least 2 points and features
-                    # Use rowvar=False because each row is an observation
-                    covariance_matrix = np.cov(cluster_points, rowvar=False)
-                    # Handle scalar features explicitly (np.cov returns scalar)
-                    if covariance_matrix.ndim == 0:
-                        covariance_matrix = np.array([[covariance_matrix]])
-                    # Add regularization to prevent singular matrix
-                    reg_coeff = 1e-6
-                    covariance_matrix += np.eye(covariance_matrix.shape[0]) * reg_coeff
-
-                    # Calculate inverse covariance matrix
-                    try:
-                        inv_covariance_matrix = inv(covariance_matrix)
-                        # Check if determinant is near zero (optional sanity check)
-                        # _, logdet_cov = np.linalg.slogdet(covariance_matrix)
-                        # if logdet_cov < -1e6: # Very small determinant might indicate issues
-                        #      logging.warning(f"Cluster {cluster_label} cov matrix determinant is very small ({logdet_cov}). Inverse might be unstable.")
-
-                    except LinAlgError:
-                        logging.warning(f"Cluster {cluster_label} for {type1.name}-{type2.name}-{feat_name} has a singular covariance matrix. Skipping predicate creation.")
-                        continue
-                elif cluster_points.shape[0] == 1 and cluster_points.shape[1] > 0:
-                    # Handle single-point cluster: use identity matrix scaled by a small epsilon
-                    logging.debug(f"Cluster {cluster_label} has only 1 point. Using scaled identity for covariance.")
-                    dims = cluster_points.shape[1]
-                    pseudo_variance = 1e-4 # Small variance
-                    inv_covariance_matrix = np.eye(dims) / pseudo_variance
-                else:
-                    logging.warning(f"Cluster {cluster_label} for {type1.name}-{type2.name}-{feat_name} has insufficient points/dims ({cluster_points.shape}) for covariance. Skipping.")
-                    continue
-
-                # Store calculated info back into the main dict for plotting
-                cluster_info['inv_covariance_matrix'] = inv_covariance_matrix
-                cluster_info['covariance_matrix'] = covariance_matrix
-                # Initialize dims and threshold with default values
-                dims = 1
-                base_mahalanobis_threshold = chi2.ppf(CFG.clustering_mahalanobis_confidence, df=dims)
-
-                if data_array.ndim > 1 and data_array.shape[1] > 0: # Case: >= 2D features
-                    dims = data_array.shape[1]
-                    # Use chi-squared distribution ppf (percent point function) for threshold
-                    # Example: 95th percentile -> alpha=0.05
-                    confidence_level = CFG.clustering_mahalanobis_confidence
-                    base_mahalanobis_threshold = chi2.ppf(confidence_level, df=dims)
-                    logging.debug(f"Calculated Mahalanobis threshold: {base_mahalanobis_threshold:.4f} for {dims} dims ({confidence_level*100:.1f}% confidence)")
-                elif data_array.ndim == 1 and data_array.shape[0] > 0: # Case: 1D features
-                    # Handle scalar features or cases where dims can't be determined
-                    dims = 1
-                    confidence_level = CFG.clustering_mahalanobis_confidence
-                    base_mahalanobis_threshold = chi2.ppf(confidence_level, df=dims) # Default for 1D
-                    logging.debug(f"Using 1D Mahalanobis threshold: {base_mahalanobis_threshold:.4f} ({confidence_level*100:.1f}% confidence)")
-                else: # Case: data_array is empty or malformed
-                    logging.warning(f"Could not determine feature dimension for {feat_name}:{type1.name}-{type2.name} (shape: {data_array.shape}). Using default 1D threshold: {base_mahalanobis_threshold:.4f}")
-
-                cluster_info['mahalanobis_threshold'] = base_mahalanobis_threshold # Use pre-calculated threshold
-                # Remove points to save memory if needed, or keep for other analysis
-                # del cluster_info['points']
-
+                # compute the SE(3) covariance matrix
+              
             # Now, optionally visualize clusters if in debug mode, passing the *updated* info
             if CFG.clustering_debug and data_array.size > 0: # Check if there is data to plot
                 # The kept_clusters_info dict now contains cov matrix and threshold for plot
@@ -455,7 +416,8 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
 
             # Sort kept clusters by size (descending) for top_k selection AFTER plotting
             # Filter out any clusters where covariance calculation failed (if needed, though `continue` above handles it)
-            valid_kept_clusters = {k: v for k, v in kept_clusters_info.items() if 'inv_covariance_matrix' in v}
+            # valid_kept_clusters = {k: v for k, v in kept_clusters_info.items() if 'inv_covariance_matrix' in v}
+            valid_kept_clusters = kept_clusters_info
             sorted_valid_kept_clusters = sorted(valid_kept_clusters.items(), key=lambda item: item[1]['size'], reverse=True)
 
             # Create predicates for the top_k *valid* kept clusters
@@ -467,8 +429,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 # Pass inverse covariance and threshold instead of epsilon
                 pred = self._create_predicate_from_relative_cluster(
                     type1, type2, feat_name, cluster_info['center'],
-                    cluster_info['inv_covariance_matrix'],
-                    cluster_info['mahalanobis_threshold'],
+                    cluster_info['cluster_radius'],
                     diff_fn, cluster_label) # Use cluster_label for ID
                 candidates[pred] = pred.arity + 1.0
                 predicate_counter += 1
@@ -586,7 +547,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         return final_feature_data
 
 
-    def _cluster_feature_dataset(self, feature_data: List[np.ndarray], initial_epsilon: float, feature_name: str) -> Tuple[np.ndarray, np.ndarray, Set[int], float]:
+    def _cluster_feature_dataset(self, feature_data: List[np.ndarray], initial_epsilon: float, feature_name: str) -> Tuple[np.ndarray, np.ndarray, Set[int]]:
         """Performs clustering based on epsilon distance.
         Uses SE(3) metric for 'pose' features, Euclidean otherwise.
 
@@ -619,24 +580,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             logging.debug(f"Using SE(3) metric with epsilon: {effective_epsilon:.4f}")
         else:
             raise ValueError(f"Unsupported feature type: {feature_name}")
-            # effective_epsilon = initial_epsilon # Start with provided/feature-specific epsilon
 
-            # # For non-pose features, potentially keep dynamic epsilon logic?
-            # # Or just use the passed initial_epsilon which might be feature-specific
-            # # Let's use the initial_epsilon passed (e.g., translation or quaternion specific)
-            # logging.debug(f"Using Euclidean metric with epsilon: {effective_epsilon:.4f} for {feature_name}")
-            # Optional: Re-enable dynamic epsilon calculation for non-pose Euclidean cases if desired
-            # if CFG.clustering_algorithm != "dbscan": # Only relevant for Agglomerative
-            #     try:
-            #         pairwise_distances = pdist(data_array)
-            #         dynamic_epsilon = np.percentile(pairwise_distances, 95) * CFG.clustering_agglomerative_ratio
-            #         effective_epsilon = dynamic_epsilon
-            #         logging.debug(f"Using Dynamic Agglomerative Epsilon: {effective_epsilon:.4f}")
-            #     except ValueError as e:
-            #         logging.warning(f"Could not calculate dynamic epsilon: {e}")
-
-
-        # --- Perform Clustering ---
         if CFG.clustering_algorithm == "hdbscan":
             min_clust_size = max(3, int(0.06 * len(data_array)))
             logging.debug(f"Running HDBSCAN with min_cluster_size: {min_clust_size}, min_samples: {min_clust_size} and metric: {'SE(3)' if callable(metric) else metric}")
@@ -648,11 +592,6 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                                 ).fit(data_array)
 
         else: # Agglomerative clustering
-            # try:
-                 # Use the effective_epsilon determined earlier (SE3 specific or feature specific)
-                 # Agglomerative needs precomputed distances if metric is not standard Euclidean/etc.
-                 # Or, if metric is callable AND linkage is 'average', 'complete', 'single', it *might* work directly.
-                 # Let's try passing the callable metric directly first.
             logging.debug(f"Running Agglomerative Clustering with distance_threshold: {effective_epsilon:.4f} and metric: {'SE(3)' if callable(metric) else metric}")
             dists = pdist(data_array, metric=metric)
             dist_matrix = squareform(dists)
@@ -660,33 +599,11 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                                                 affinity="precomputed", # Pass metric
                                                 linkage='single', # Check compatibility with custom metric
                                                 distance_threshold=effective_epsilon).fit(dist_matrix)
-            # except ValueError as e:
-            #      # If the callable metric doesn't work directly with chosen linkage:
-            #      if callable(metric) and "Metric 'function' not valid for linkage" in str(e):
-            #           logging.warning(f"Callable metric not directly supported for linkage 'average'. Precomputing distance matrix...")
-            #           try:
-            #                distance_matrix = pdist(data_array, metric=metric)
-            #                # Convert to squareform for AgglomerativeClustering
-            #                distance_matrix_sq = squareform(distance_matrix)
-            #                logging.debug(f"Precomputed distance matrix shape: {distance_matrix_sq.shape}")
-            #                # Use 'precomputed' metric with the distance matrix
-            #                clustering = AgglomerativeClustering(n_clusters=None,
-            #                                                     metric='precomputed', # Use precomputed
-            #                                                     linkage='average', # Linkage works with precomputed
-            #                                                     distance_threshold=effective_epsilon).fit(distance_matrix_sq) # Fit the matrix
-            #           except Exception as precompute_e:
-            #                logging.error(f"Failed to cluster using precomputed SE(3) distances: {precompute_e}")
-            #                raise precompute_e
-            #      else:
-            #          logging.error(f"Agglomerative Clustering failed: {e}")
-            #          logging.error(f"Data shape: {data_array.shape}, Epsilon: {effective_epsilon}, Metric: {'SE(3)' if callable(metric) else metric}")
-            #          logging.error(f"Sample data point: {data_array[0] if len(data_array) > 0 else 'N/A'}")
-            #          raise e
-
+            
         labels = clustering.labels_
         unique_labels = set(labels)
 
-        return data_array, labels, unique_labels, effective_epsilon
+        return data_array, labels, unique_labels
 
     def _plot_cluster_results(self,
                               data_array: np.ndarray,
@@ -966,11 +883,11 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             # Just store the title for later finalization
             self._last_cluster_title = title
 
-    def _create_predicate_from_relative_cluster(self, type1: Type, type2: Type, feature_name: str, cluster_center: np.ndarray, inv_covariance_matrix: np.ndarray, mahalanobis_threshold: float, diff_fn: Optional[Callable], cluster_id: int) -> Predicate:
+    def _create_predicate_from_relative_cluster(self, type1: Type, type2: Type, feature_name: str, cluster_center: np.ndarray, cluster_radius: float, diff_fn: Optional[Callable], cluster_id: int) -> Predicate:
         """Creates a binary predicate from a relative feature cluster (including pose)."""
         classifier = _RelativeFeatureClusterClassifier(type1, type2, feature_name, 
-                                                     cluster_center, inv_covariance_matrix, 
-                                                     mahalanobis_threshold, diff_fn, cluster_id)
+                                                     cluster_center, cluster_radius, 
+                                                     diff_fn, cluster_id)
         name = str(classifier)
         types = [type1, type2]
         pred = Predicate(name, types, classifier)
@@ -1082,6 +999,23 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         # Check plan length constraint first (most expensive)
         # Need operators for the constraint check
         atom_dataset = self._create_atom_dataset(dataset, predicates)
+        if CFG.clustering_debug:
+            for i, (_, atom_seq) in enumerate(atom_dataset):
+                print(f"Traj {i}:")
+                current_atom_count = 0
+                current_atom = atom_seq[0]
+                for atom in atom_seq:
+                    if atom == current_atom:
+                        current_atom_count += 1
+                    else:
+                        print(f"{current_atom} {current_atom_count}")
+                        current_atom = atom
+                        current_atom_count = 1
+
+              # Add debug visualization here
+                
+                # End debug visualization
+
         op_term , operators = self._calculate_operator_complexity_term(predicates, dataset, atom_dataset, train_tasks)
         # Now check constraint
         constraint_value = self._check_plan_length_constraint(predicates, operators, dataset, atom_dataset, train_tasks)
@@ -1578,7 +1512,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         feat_name = "pose"  # This will use the SE(3) metric
         
         # Use _cluster_feature_dataset to perform clustering
-        data_array, labels, unique_labels, effective_epsilon = self._cluster_feature_dataset(
+        data_array, labels, unique_labels = self._cluster_feature_dataset(
             all_data.tolist(), CFG.clustering_se3_epsilon, feat_name)
         
         # Calculate clustering metrics
