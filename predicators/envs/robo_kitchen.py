@@ -43,7 +43,7 @@ class RoboKitchenEnv(BaseEnv):
 
     door_open_thresh = 1.3  # rad
     door_half_open_thresh = 0.4  # rad
-    gripper_close_distance_thresh = 0.1  # m
+    gripper_close_distance_thresh = 0.01  # m
     gripper_fingers_distance_thresh = 0.08  # m
     offset_inwards_from_handle = 0.10  # m
     obj_close_distance_thresh = 0.1  # m
@@ -240,7 +240,7 @@ class RoboKitchenEnv(BaseEnv):
                     "env_name": task_name,
                     "robots": robot_type,
                     "controller_configs": controller_config,
-                    "layout_ids": 2,
+                    "layout_ids": 1,
                     "style_ids": 0,
                     "translucent_robot": True,
                 }
@@ -502,13 +502,17 @@ class RoboKitchenEnv(BaseEnv):
         gripper_quat = state.get(gripper, "quaternion")
         obj_pos = state.get(obj, "translation")
         obj_quat = state.get(obj, "quaternion")
-        # gripper_pos_in_obj, _ = frame_transform(gripper_pos, gripper_quat, obj_pos, R.from_quat(obj_quat).as_matrix())
-        # if np.linalg.norm(gripper_pos_in_obj[0]) <= 0.1 and gripper_pos_in_obj[1] > 0:
+        gripper_pos_in_obj, _ = frame_transform(gripper_pos, gripper_quat, obj_pos, R.from_quat(obj_quat).as_matrix())
+        # if abs(gripper_pos_in_obj[0]) <= cls.gripper_close_distance_thresh and gripper_pos_in_obj[1] > 0:
         #     return True
-        obj_pos_in_gripper, _ = frame_transform(obj_pos, obj_quat, gripper_pos, R.from_quat(gripper_quat).as_matrix())
-        if np.linalg.norm(obj_pos_in_gripper[0]) <= 0.2 and \
-            np.linalg.norm(obj_pos_in_gripper[1]) <= 0.2 and \
-            np.linalg.norm(obj_pos_in_gripper[2]) <= 0.2:
+        # obj_pos_in_gripper, _ = frame_transform(obj_pos, obj_quat, gripper_pos, R.from_quat(gripper_quat).as_matrix())
+        # if np.linalg.norm(obj_pos_in_gripper[0]) <= 0.2 and \
+        #     np.linalg.norm(obj_pos_in_gripper[1]) <= 0.2 and \
+        #     np.linalg.norm(obj_pos_in_gripper[2]) <= 0.2:
+        #     return True
+        # if np.linalg.norm(gripper_pos_in_obj) <= cls.gripper_close_distance_thresh:
+        #     return True
+        if all(0 < abs(x) <= cls.gripper_close_distance_thresh for x in gripper_pos_in_obj):
             return True
         return False
 

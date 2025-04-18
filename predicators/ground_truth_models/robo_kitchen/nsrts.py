@@ -119,7 +119,8 @@ class RoboKitchenGroundTruthNSRTFactory(GroundTruthNSRTFactory):
         # MoveToHandle
         parameters = [gripper, handle, base, left_finger, right_finger]
         preconditions = {LiftedAtom(GripperOpen, [left_finger, right_finger])}
-        maintain_effects = {LiftedAtom(GripperOpen, [left_finger, right_finger])}
+        # maintain_effects = {LiftedAtom(GripperOpen, [left_finger, right_finger])}
+        maintain_effects = set()
         add_effects = {LiftedAtom(ReadyGrabObj, [gripper, handle])}
         delete_effects = set()
         ignore_effects = set()
@@ -145,7 +146,8 @@ class RoboKitchenGroundTruthNSRTFactory(GroundTruthNSRTFactory):
         # MoveToThing
         parameters = [gripper, thing, base, left_finger, right_finger]
         preconditions = {LiftedAtom(GripperOpen, [left_finger, right_finger])}
-        maintain_effects = {LiftedAtom(GripperOpen, [left_finger, right_finger])}
+        # maintain_effects = {LiftedAtom(GripperOpen, [left_finger, right_finger])}
+        maintain_effects = set()
         add_effects = {LiftedAtom(ReadyGrabObj, [gripper, thing])}
         delete_effects = set()
         ignore_effects = set()
