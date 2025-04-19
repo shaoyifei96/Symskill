@@ -41,19 +41,19 @@ class GlobalSettings:
     # robo_kitchen_viz_debug = False # i think the use_gui flag covers this
     robo_kitchen_contact_smoothing_window = 21
     robo_kitchen_load_dataset = False # this has priority, if False, then save flag is considered
-    robo_kitchen_save_dataset = False
+    robo_kitchen_save_dataset = True
     robo_kitchen_save_traj_by_segment = True
     robo_kitchen_policy_model = "node"  # "simple_ds" or "node"
     make_test_videos = False
     loglevel = 10
-    visualizer = MeshcatVisualizer()
+    # visualizer = MeshcatVisualizer()
     option_to_init_pose: Dict[str, List[np.ndarray]] = {}
     option_to_policy = {}
     use_teleop = False
 
     """Unchanging settings."""
     # global parameters
-    num_train_tasks = 10 # in robocasa, either the max demo number or num_train_tasks will be used
+    num_train_tasks = 1 # in robocasa, either the max demo number or num_train_tasks will be used
     num_test_tasks = 5
     # Perform online learning for this many cycles or until this many
     # transitions have been collected, whichever happens first.

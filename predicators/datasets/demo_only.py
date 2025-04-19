@@ -29,6 +29,7 @@ from predicators.settings import CFG
 from predicators.structs import Action, Dataset, LowLevelTrajectory, \
     ParameterizedOption, State, Task
 from robocasa.utils.dataset_registry import get_ds_path
+from PIL import Image
 
 
 def create_demo_data(env: BaseEnv, train_tasks: List[Task],
@@ -327,29 +328,32 @@ def create_demo_data_from_robocasa(env: RoboKitchenEnv, train_tasks: List[Task],
     """
     # Get path to robocasa dataset
     dataset_path = get_ds_path(task_name, ds_type="human_raw")
-    
+
     if not os.path.exists(dataset_path):
         raise ValueError(f"Dataset not found at {dataset_path}")
-        
+
     # Load HDF5 file
     with h5py.File(dataset_path, "r") as f:        
         trajectories = []
-        
+
         # Each demonstration is stored in a group like "demo_0", "demo_1", etc.
         demos = list(f["data"].keys())
-        
+
         for demo_idx, demo_key in enumerate(demos):
             # Show progress
             if demo_idx >= CFG.num_train_tasks:
                 break
             logging.info(f"Processing demo {demo_idx+1} / {min(CFG.num_train_tasks, len(demos))}")
-                
+
             # Get demo data
             demo = f[f"data/{demo_key}"]
-            
+
             # Get states and actions
             # Create list of State objects from state info at each timestep
             states = []
+            frames_center = []
+            frames_left = []
+            frames_right = []
             first_key = next(iter(demo["datagen_info"]))
             actions = demo["actions"][()]  # Get actions array
             raw_robosuite_states = demo["states"][()]
@@ -368,25 +372,25 @@ def create_demo_data_from_robocasa(env: RoboKitchenEnv, train_tasks: List[Task],
             # state_info = {}
             # for key in demo["datagen_info"].keys():
             #     state_info[key] = demo["datagen_info"][key][0]
-            
+
             # Get contact information for initial state
             # contact_set = env.get_object_level_contacts()
-            
+
             # # Create and store initial state
             # state = env.state_info_to_state(state_info, contact_set)
             # states.append(state)
 
-            #since we would like observation at each timestep, let us skip the resetted state, start with t=1
+            # since we would like observation at each timestep, let us skip the resetted state, start with t=1
 
             # Process each timestep by executing actions
 
             # num actions = num states -1
-            # state 0 we reset to initial state, so first state to save is 
-            # states 0 1 2 3 4 5 
+            # state 0 we reset to initial state, so first state to save is
+            # states 0 1 2 3 4 5
             # actions 0 1 2 3 4 5
             # need to remove action 0 and action 5, remove states 0
             # in the dataset, the number of states is longer for some reason, so run actions to the end
-            
+
             for t in range(len(raw_robosuite_states)-1):  # -1 since we skip last action
                 # Execute action in environment
                 obs, _, _, _ = env._env.step(actions[t])
@@ -398,10 +402,17 @@ def create_demo_data_from_robocasa(env: RoboKitchenEnv, train_tasks: List[Task],
 
                 # Get contact information
                 contact_set = env.get_object_level_contacts()
-                
+
                 # Create state object
                 state = RoboKitchenEnv.state_info_to_state(obs, contact_set) # state here is the predicator state
                 states.append(state)
+
+                center_frame = env._env.sim.render(camera_name="robot0_agentview_center", height=512, width=768)
+                left_frame = env._env.sim.render(camera_name="robot0_agentview_left", height=512, width=768)
+                right_frame = env._env.sim.render(camera_name="robot0_agentview_right", height=512, width=768)
+                frames_center.append(Image.fromarray(center_frame[::-1]))
+                frames_left.append(Image.fromarray(left_frame[::-1]))
+                frames_right.append(Image.fromarray(right_frame[::-1]))
 
                 # Optional: Check if execution matches recorded trajectory
                 state_playback = np.array(env._env.sim.get_state().flatten())
@@ -410,19 +421,19 @@ def create_demo_data_from_robocasa(env: RoboKitchenEnv, train_tasks: List[Task],
                     logging.warning(f"Playback diverged by {err} at step {t}")
             # Smooth contact sets using a moving window
             window_size = CFG.robo_kitchen_contact_smoothing_window  # Number of timesteps to look at
-            
+
             # Store original contacts to prevent smoothing from affecting later operations
             original_contacts = [state.items_in_contact.copy() for state in states]
-            
+
             for t in range(len(states)):
                 # Get contact sets from window using original contacts
                 window_contacts = []
-                
+
                 # For points near start, use shifted window that fits
                 if t < window_size//2:
                     window_start = 0
                     window_end = window_size
-                # For points near end, use shifted window that fits 
+                # For points near end, use shifted window that fits
                 elif t >= len(states) - window_size//2:
                     window_start = len(states) - window_size
                     window_end = len(states)
@@ -430,16 +441,16 @@ def create_demo_data_from_robocasa(env: RoboKitchenEnv, train_tasks: List[Task],
                 else:
                     window_start = t - window_size//2
                     window_end = t + window_size//2 + 1
-                
+
                 # Get contacts in window
                 for w in range(window_start, window_end):
                     window_contacts.append(original_contacts[w])
-                
+
                 # For each possible contact pair, use mode over window
                 all_pairs = set()
                 for contact_set in window_contacts:
                     all_pairs.update(contact_set)
-                
+
                 smoothed_contacts = set()
                 for pair in all_pairs:
                     # Count occurrences of this pair in window
@@ -467,5 +478,12 @@ def create_demo_data_from_robocasa(env: RoboKitchenEnv, train_tasks: List[Task],
                 _ep_meta=demo.attrs.get("ep_meta", None)
             )
             trajectories.append(traj)
-            
+
+            center_video_save_name = f"robokitchen__{task_name}__{demo_idx}__center.mp4"
+            left_video_save_name = f"robokitchen__{task_name}__{demo_idx}__left.mp4"
+            right_video_save_name = f"robokitchen__{task_name}__{demo_idx}__right.mp4"
+            utils.save_video(center_video_save_name, frames_center)
+            utils.save_video(left_video_save_name, frames_left)
+            utils.save_video(right_video_save_name, frames_right)
+
     return Dataset(trajectories)
