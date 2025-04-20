@@ -483,6 +483,7 @@ class RoboKitchenEnv(BaseEnv):
         state = utils.create_state_from_dict(state_dict)
         state.simulator_state = {}
         state.items_in_contact = contact_set  # when defaults, it means Not populated, when empty means no contact
+        cls._current_state = state
         return state
 
     @classmethod

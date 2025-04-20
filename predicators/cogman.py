@@ -253,12 +253,19 @@ def run_episode_and_get_observations(
                     monitor_observed = True
 
                 if env._env_raw is not None:
-                    # NSRT: {current_nsrt.name}\n \
                     env._env_raw.viewer.mjprint(
                         f" \
                         Option: {curr_option.name}\n \
                         ", auto_clean=True
                         )
+                    gripper_obj = env._current_state.get_objects(env.gripper_type)[0]
+                    gripper_pos = env._current_state.get(gripper_obj, "translation")
+                    gripper_quat = env._current_state.get(gripper_obj, "quaternion")
+                    grap_obj = env._current_state.get_objects(env.grab_type)[0]
+                    grab_pos = env._current_state.get(grap_obj, "translation")
+                    grab_quat = env._current_state.get(grap_obj, "quaternion")
+                    env._env_raw.viewer.mjshowframe(gripper_pos, gripper_quat,  name="gripper")
+                    env._env_raw.viewer.mjshowframe(grab_pos, grab_quat,  name="target")
 
                 obs = env.step(act)
                 actions.append(act)

@@ -199,8 +199,9 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
                         "ref_point", penalty=0.8, traj_threshold=0.2, radius=0.02,
                         angle_threshold=np.pi/2, lookahead=10
                     )
-                    CFG.visualizer.update_demo_traj_colors(memory["ds_policy"].demo_traj_probs)
-                    
+                    if CFG.visualizer:
+                        CFG.visualizer.update_demo_traj_colors(memory["ds_policy"].demo_traj_probs)
+
                     # Remove processed entry
                     memory["fail_memory"].pop(idx)
 
@@ -226,7 +227,7 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
                 CFG.visualizer.set_demo_trajs(memory["ds_policy"].x, memory["ds_policy"].demo_traj_probs)
 
             return True
-        
+
         def _DS_general_move_dynamic_option_initiable(option:str, state: State, memory: Dict, objects: Sequence[Object], params: Array) -> bool:
             if option not in CFG.option_to_init_pose:
                 memory["object_of_interest_pos"], memory["object_of_interest_rot"] = _init_object_of_interest_transform(state, objects, offset_handle_frame=np.array([0.0, 0.0, 0.0]))
@@ -319,7 +320,7 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
                     ref_quat_in_visualizer_xyzw = R.from_matrix(ref_rot @ rel_gripper_visualizer_rot).as_quat()
                     ref_quat_in_visualizer_wxyz = np.array([ref_quat_in_visualizer_xyzw[3], ref_quat_in_visualizer_xyzw[0], ref_quat_in_visualizer_xyzw[1], ref_quat_in_visualizer_xyzw[2]])
                     CFG.visualizer.update_ref_point(ds_policy.x[ds_policy.ref_traj_idx][ds_policy.ref_point_idx_lookahead], ref_quat_in_visualizer_wxyz)
-                    
+
                 x_dot_object_of_interest = vel[:3]
                 r_dot_object_of_interest = vel[3:]
                 x_dot_world = object_of_interest_rot @ x_dot_object_of_interest
@@ -358,7 +359,7 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
             action._arr[6] = 1.0
 
             return action
-        
+
         def _DS_general_move_option_terminal(state: State, memory: Dict, objects: Sequence[Object], params: Array) -> bool:
             # handle_pos = memory["handle_pos"]
             gripper, _, base = objects
@@ -367,7 +368,7 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
             if _is_robot_stuck(memory, gripper_pos):
                 return True
             return False
-                
+
         """---------------------------------- general move option ends ----------------------------------"""
 
         """---------------------------------- DS_OpenSingleDoor_MoveTowards_option starts ----------------------------------"""
@@ -380,7 +381,7 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
 
         # DS_move_option - always initiable, empty policy, never terminates
         def _DS_OpenSingleDoor_MoveTowards_option_initiable_node(state: State, memory: Dict, objects: Sequence[Object], params: Array) -> bool:
-            return _DS_general_move_static_option_initiable(option="move_towards", state=state, memory=memory, objects=objects, params=params)
+            return _DS_general_move_static_option_initiable(option="OpenSingleDoor_MoveTowards_option", state=state, memory=memory, objects=objects, params=params)
 
         def _DS_OpenSingleDoor_MoveTowards_option_terminal(state: State, memory: Dict, objects: Sequence[Object], params: Array) -> bool:
             general_terminal = _DS_general_move_option_terminal(state, memory, objects, params)
@@ -416,7 +417,7 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
             return True
 
         def _DS_OpenSingleDoor_MoveAway_option_initiable_node(state: State, memory: Dict, objects: Sequence[Object], params: Array) -> bool:
-            return _DS_general_move_dynamic_option_initiable(option="move_away", state=state, memory=memory, objects=objects, params=params)
+            return _DS_general_move_dynamic_option_initiable(option="OpenSingleDoor_MoveAway_option", state=state, memory=memory, objects=objects, params=params)
 
         def _DS_OpenSingleDoor_MoveAway_option_terminal(state: State, memory: Dict, objects: Sequence[Object], params: Array) -> bool:
             return _DS_general_move_option_terminal(state, memory, objects, params)
@@ -537,7 +538,7 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
 
         def _DS_PnPCounterToCab_Pick_option_initiable(state: State, memory: Dict, objects: Sequence[Object], params: Array) -> bool:
             return _DS_general_move_static_option_initiable(option="PnPCounterToCab_Pick_option", state=state, memory=memory, objects=objects, params=params)
-        
+
         def _DS_PnPCounterToCab_Pick_option_terminal(state: State, memory: Dict, objects: Sequence[Object], params: Array) -> bool:
             general_terminal = _DS_general_move_option_terminal(state, memory, objects, params)
             if general_terminal:
@@ -557,7 +558,7 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
                 return True
 
             return False
-    
+
         """---------------------------------- DS_PnPCounterToCab_Pick_option ends ----------------------------------"""
 
         """---------------------------------- DS_PnPCounterToCab_Place_option starts ----------------------------------"""
