@@ -906,7 +906,6 @@ class _TFRotComponentGrammar(_DataBasedPredicateGrammar):
     dataset: Dataset
     attribute_name: str = field(default="quaternion")
     components: List[str] = field(default_factory=lambda: ["x", "y", "z"])
-    # Use fixed angle thresholds in radians
     fixed_angle_thresholds: List[float] = field(default_factory=lambda: [np.radians(10), np.radians(40), np.radians(90)])
 
     def enumerate(self) -> Iterator[Tuple[Predicate, float]]:
