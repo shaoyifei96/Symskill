@@ -54,8 +54,10 @@ class NSRTLearningApproach(BilevelPlanningApproach):
                                        if dataset.has_annotations else None))
 
     def _learn_nsrts(self, trajectories: List[LowLevelTrajectory],
+                     ground_atom_dataset: Optional[List[GroundAtomTrajectory]],
                      online_learning_cycle: Optional[int],
-                     annotations: Optional[List[Any]]) -> None:
+                     annotations: Optional[List[Any]],
+                     passed_in_predicates: Optional[Set[Predicate]] = None) -> None:
         dataset_fname, _ = utils.create_dataset_filename_str(
             saving_ground_atoms=True,
             online_learning_cycle=online_learning_cycle)
@@ -65,7 +67,6 @@ class NSRTLearningApproach(BilevelPlanningApproach):
         # doing so requires called abstract on all states, including states
         # that might ultimately just be in the middle of segments. When
         # options take many steps, this makes a big time/space difference.
-        ground_atom_dataset: Optional[List[GroundAtomTrajectory]] = None
         if CFG.load_atoms:
             ground_atom_dataset = utils.load_ground_atom_dataset(
                 dataset_fname, trajectories)
@@ -103,7 +104,7 @@ class NSRTLearningApproach(BilevelPlanningApproach):
         self._nsrts, self._segmented_trajs, self._seg_to_nsrt = \
             learn_nsrts_from_data(trajectories,
                                   self._train_tasks,
-                                  self._get_current_predicates(),
+                                  passed_in_predicates if passed_in_predicates else self._get_current_predicates(),
                                   self._initial_options,
                                   self._action_space,
                                   ground_atom_dataset,

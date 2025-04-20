@@ -117,7 +117,7 @@ class RoboKitchenEnv(BaseEnv):
     def get_objects_of_interest(self, task_name: str) -> List[Object]:
         """Get the object of interest for the task."""
         if task_name == "OpenSingleDoor":
-            return [self.object_name_to_object("handle"), self.object_name_to_object("door")]
+            return [self.object_name_to_object("handle")]
         # by default, there are robot and gripper objects
         else:
             raise ValueError(f"Task {task_name} not supported")
@@ -408,6 +408,10 @@ class RoboKitchenEnv(BaseEnv):
         elif goal_desc == "CloseSingleDoor":
             goal_preds = {self._pred_name_to_pred["HingeClosed"]}
         return goal_preds
+    @property
+    def inContact_predicate(self) -> Set[Predicate]:
+        """Get the subset of self.predicates that are used in goals."""
+        return set([self._pred_name_to_pred["InContact"]])
 
     @property
     def predicates(self) -> Set[Predicate]:

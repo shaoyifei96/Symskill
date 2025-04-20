@@ -2941,8 +2941,19 @@ def create_ground_atom_dataset(
     """Apply all predicates to all trajectories in the dataset."""
     ground_atom_dataset = []
     for traj in trajectories:
-        atoms = [abstract(s, predicates) for s in traj.states]
-        ground_atom_dataset.append((traj, atoms))
+        traj_atoms = [abstract(s, predicates) for s in traj.states]
+        # Filter atoms to ensure InContact predicates only have gripper as the second element
+        for i, time_atom_set in enumerate(traj_atoms):
+            filtered_time_atom_set = set()
+            for atom in time_atom_set:
+                # Keep the atom if it's not an InContact predicate or if it has gripper as the second element
+                if atom.predicate.name == "InContact":
+                    if atom.objects[1].name == "gripper":
+                        filtered_time_atom_set.add(atom)
+                else:
+                    filtered_time_atom_set.add(atom)
+            traj_atoms[i] = filtered_time_atom_set
+        ground_atom_dataset.append((traj, traj_atoms))
     return ground_atom_dataset
 
 
