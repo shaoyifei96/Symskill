@@ -42,6 +42,8 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 from matplotlib.patches import Ellipse # For 2D ellipses
 import numpy.linalg # For eigh
+import matplotlib.cm as cm # Import cm for colormaps
+import matplotlib.colors as mcolors # Import colors for normalization
 ################################################################################
 #                          Programmatic classifiers                            #
 ################################################################################
@@ -287,10 +289,10 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         annotations = None # Or derive from atom_dataset if needed by _learn_nsrts
 
         # Segment the trajectories using the final predicates and atom dataset
-        segmented_trajs_final = [
-            segment_trajectory(ll_traj, final_predicates, atom_seq=atom_seq)
-            for ll_traj, atom_seq in atom_dataset_final
-        ]
+        # segmented_trajs_final = [
+        #     segment_trajectory(ll_traj, final_predicates, atom_seq=atom_seq)
+        #     for ll_traj, atom_seq in atom_dataset_final
+        # ]
 
         # Call learn_nsrts with segmented trajectories
         self._learn_nsrts(
@@ -374,10 +376,33 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 cluster_points = data_array[labels == k]
                 cluster_size = len(cluster_points)
                 if cluster_size >= min_cluster_size:
-                    cluster_center = np.mean(cluster_points, axis=0)
-                    logging.warning(f"INCORRECT MEAN CALCULATION:!!!!!!!!!!!!!!!!!!!")
-                    # normalize the quat
-                    cluster_center[3:7] = cluster_center[3:7] / np.linalg.norm(cluster_center[3:7])
+                    # Calculate the mean SE(3) pose for the cluster
+                    translations = cluster_points[:, :3]
+                    quaternions = cluster_points[:, 3:]
+                    
+                    # Mean translation is straightforward
+                    mean_translation = np.mean(translations, axis=0)
+                    
+                    # Mean rotation requires specialized handling
+                    # try:
+                        # Ensure quaternions are valid (non-zero norm) before conversion
+                    valid_quats_mask = np.linalg.norm(quaternions, axis=1) > 1e-6
+                    if not np.all(valid_quats_mask):
+                        raise ValueError("At least one quaternion in cluster is near zero. Skipping this cluster.")
+
+                    # Convert to Rotation objects
+                    rotations = Rotation.from_quat(quaternions)
+                    # Calculate the mean rotation
+                    mean_rotation = rotations.mean()
+                    # Convert back to quaternion [qx, qy, qz, qw]
+                    mean_quaternion = mean_rotation.as_quat()
+
+                    # Combine mean translation and mean quaternion
+                    cluster_center = np.concatenate((mean_translation, mean_quaternion))
+                    
+                    # logging.warning(f"INCORRECT MEAN CALCULATION:!!!!!!!!!!!!!!!!!!!") # Remove this warning
+                    # normalize the quat -- No longer needed as Rotation.mean handles it
+                    # cluster_center[3:7] = cluster_center[3:7] / np.linalg.norm(cluster_center[3:7])
                     # difference between cluster_center and cluster_points
                     cluster_center_diff = np.zeros(len(cluster_points))
                     for i in range(len(cluster_points)):
@@ -387,12 +412,17 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                         cluster_center_diff[i] = diff
                     
                     #find 95th percentile of cluster_center_diff
+                    # cluster_center_diff_90 = np.percentile(cluster_center_diff, 90)
+                    # # logging.warning(f"90th percentile of cluster_center_diff: {cluster_center_diff_90:.4f}")
                     # cluster_center_diff_95 = np.percentile(cluster_center_diff, 95)
-                    # logging.warning(f"95th percentile of cluster_center_diff: {cluster_center_diff_95:.4f}")
+                    # # logging.warning(f"95th percentile of cluster_center_diff: {cluster_center_diff_95:.4f}")
+                    # cluster_center_diff_99 = np.percentile(cluster_center_diff, 99)
+                    # logging.warning(f"99th percentile of cluster_center_diff: {cluster_center_diff_99:.4f}")
 
-                    #
                     # Store basic info first
                     kept_clusters_info[k] = {'center': cluster_center, 'size': cluster_size, 'points': cluster_points, 'cluster_radius': np.max(cluster_center_diff) } # Store points for cov calculation
+                    logging.warning(f"Cluster {k} for {type1.name}-{type2.name}-{feat_name} kept (size {cluster_size} >= {min_cluster_size}).")
+                    logging.warning(f"Cluster radius: {np.max(cluster_center_diff)}, Cluster center: {cluster_center}")
                 else:
                     discarded_labels.add(k)
                     logging.debug(f"Cluster {k} for {type1.name}-{type2.name}-{feat_name} discarded (size {cluster_size} < {min_cluster_size}).")
@@ -532,10 +562,9 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         for feature_key, data_points in feature_data.items():
             changes = np.array(feature_changes[feature_key])
             if len(changes) > 1: # Need at least 2 points to compute percentile
-                # Use a threshold relative to the feature type maybe?
-                # Using percentile seems reasonable for now.
-                # Consider CFG.clustering_feature_constancy_percentile ?
-                constancy_threshold = np.percentile(changes, CFG.clustering_feature_constancy_percentile) # Default 30?
+                # get moving average of changes first 
+                changes_ma = np.convolve(changes, np.ones(CFG.clustering_moving_average_window) / CFG.clustering_moving_average_window, mode='valid')
+                constancy_threshold = np.percentile(changes_ma, CFG.clustering_feature_constancy_percentile) # Default 30?
                 logging.debug(f"Constancy threshold for {feature_key}: {constancy_threshold:.4f} ({CFG.clustering_feature_constancy_percentile}th percentile)")
                 mask = changes <= constancy_threshold
                 final_feature_data[feature_key] = [pt for pt, keep in zip(data_points, mask) if keep]
@@ -711,6 +740,67 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             is_3d = True
 
 
+        # --- Plot Noise and Discarded First ---
+        noise_indices = np.where(labels == -1)[0]
+        discarded_indices = np.where(~np.isin(labels, kept_labels + [-1]))[0]
+
+        if ax is not None:
+            if feat_name == "pose" and is_3d:
+                # Plot noise
+                if len(noise_indices) > 0:
+                    ax.scatter(data_array[noise_indices, 0], data_array[noise_indices, 1], data_array[noise_indices, 2], c='black', alpha=0.3, s=20, label='Noise Pts')
+                # Plot discarded
+                if len(discarded_indices) > 0:
+                    ax.scatter(data_array[discarded_indices, 0], data_array[discarded_indices, 1], data_array[discarded_indices, 2], c='lightgrey', alpha=0.3, s=20, marker='x', label='Discarded Cluster Pts')
+                # Plot origin
+                # ax.scatter([0], [0], [0], c='blue', s=100, marker='x', label='Origin (Frame 1)')
+            # Add similar plotting logic for 1D/2D/other 3D cases if needed
+            # ... (omitted for brevity, focus is on pose) ...
+
+        # --- Plot Kept Clusters with Color Gradient for Distance ---
+        # Choose a colormap for distance visualization
+        dist_cmap = cm.get_cmap('viridis') # Or 'plasma', 'coolwarm', etc.
+        colorbar_added = False # Ensure colorbar is added only once
+
+        # --- Setup Plot Axes --- (Moved down to plot kept clusters individually)
+        # if feat_name == "pose":
+        #     # For pose (7D), plot the translational part (first 3 dims)
+        #     if num_dims >= 3:
+        #         ax = fig.add_subplot(111, projection='3d')
+        #         # Scatter plot using only the first 3 dimensions (translation)
+        #         ax.scatter(data_array[:, 0], data_array[:, 1], data_array[:, 2], c=colors, alpha=0.5, s=30, label='Feature Points')
+        #         ax.set_xlabel('Relative Tx')
+        #         ax.set_ylabel('Relative Ty')
+        #         ax.set_zlabel('Relative Tz')
+        #         is_3d = True
+        #         # Optionally add origin marker for relative pose
+        #         ax.scatter([0], [0], [0], c='blue', s=100, marker='x', label='Origin (Frame 1)')
+        #
+        #         # Store axis reference for trajectory overlay
+        #         self._last_cluster_ax = ax
+        #     else:
+        #          logging.warning(f"Pose feature has fewer than 3 dimensions ({num_dims}), cannot plot 3D translation.")
+        #          # Fallback to 2D or 1D plot if desired? For now, just skip plotting.
+        #          plt.close(fig)
+        #          return
+        # elif num_dims == 1:
+        #     ax = fig.add_subplot(111)
+        #     ax.scatter(data_array[:, 0], np.zeros_like(data_array[:, 0]), c=colors, alpha=0.7)
+        #     ax.set_xlabel(f'{feat_name} dim 1')
+        # elif num_dims == 2:
+        #     ax = fig.add_subplot(111)
+        #     ax.scatter(data_array[:, 0], data_array[:, 1], c=colors, alpha=0.7)
+        #     ax.set_xlabel(f'{feat_name} dim 1')
+        #     ax.set_ylabel(f'{feat_name} dim 2')
+        #     ax.set_aspect('equal', adjustable='box') # Keep aspect ratio for 2D
+        # elif num_dims >= 3: # Non-pose 3D+ features
+        #     ax = fig.add_subplot(111, projection='3d')
+        #     ax.scatter(data_array[:, 0], data_array[:, 1], data_array[:, 2], c=colors, alpha=0.7)
+        #     ax.set_xlabel(f'{feat_name} dim 1')
+        #     ax.set_ylabel(f'{feat_name} dim 2')
+        #     ax.set_zlabel(f'{feat_name} dim 3')
+        #     is_3d = True
+
         # --- Plot Centroids and Boundaries/Frames ---
         centroids_plotted = False
         boundaries_plotted = False
@@ -718,17 +808,128 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
 
         if ax is not None: 
             cluster_counts = defaultdict(int)
+            all_centroids = {} # Store centroids for all clusters (kept and discarded)
             for label in labels:
                 cluster_counts[label] += 1
 
+            # --- Calculate All Centroids --- 
+            discarded_centroids_plotted = False # For legend
+            for k in unique_labels:
+                if k == -1: continue # Skip noise
+                
+                cluster_indices = np.where(labels == k)[0]
+                if len(cluster_indices) == 0: continue # Skip empty clusters if they somehow occur
+                
+                cluster_points = data_array[cluster_indices]
+                
+                # Calculate centroid (handle potential errors for small clusters)
+                try:
+                    if feat_name == "pose":
+                        translations = cluster_points[:, :3]
+                        quaternions = cluster_points[:, 3:]
+                        # Check for valid quaternions before processing
+                        valid_quats_mask = np.linalg.norm(quaternions, axis=1) > 1e-6
+                        if not np.any(valid_quats_mask): # If no valid quats, use mean translation only
+                            mean_translation = np.mean(translations, axis=0)
+                            # Use a default orientation (e.g., identity quaternion)
+                            mean_quaternion = np.array([0.0, 0.0, 0.0, 1.0]) 
+                        else:
+                            # Filter to only valid quaternions for mean calculation
+                            valid_quats = quaternions[valid_quats_mask]
+                            valid_rots = Rotation.from_quat(valid_quats)
+                            mean_rotation = valid_rots.mean()
+                            mean_quaternion = mean_rotation.as_quat()
+                            mean_translation = np.mean(translations, axis=0) # Mean of all translations
+                            
+                        centroid = np.concatenate((mean_translation, mean_quaternion))
+                    else: # For non-pose features
+                        centroid = np.mean(cluster_points, axis=0)
+                    
+                    all_centroids[k] = centroid # Store calculated centroid
+
+                    # --- Plot Discarded Centroids --- 
+                    if k not in kept_clusters_info:
+                        marker_kwargs_discarded = {'color': 'grey', 's': 50, 'marker': 'o', 'alpha': 0.7}
+                        if not discarded_centroids_plotted:
+                            marker_kwargs_discarded['label'] = 'Discarded Centroids'
+                        
+                        if feat_name == "pose" and is_3d:
+                            ax.scatter(centroid[0], centroid[1], centroid[2], **marker_kwargs_discarded)
+                        # Add plotting for other dimensions/features if needed
+                        # ...
+                        discarded_centroids_plotted = True
+
+                except (ValueError, LinAlgError) as e:
+                    logging.warning(f"Could not calculate or plot centroid for cluster {k} (size {len(cluster_indices)}): {e}")
+            # --- End Centroid Calculation and Discarded Plotting ---
+
+            # --- Loop through KEPТ clusters for detailed plotting ---
             for label, info in kept_clusters_info.items():
+                # cluster_color = kept_color_map[label] # Color now defined by distance map
+                # centroid = info['center'] # Use pre-calculated from kept_clusters_info
+                # Get the centroid calculated above to ensure consistency if calculation differs slightly
+                if label not in all_centroids:
+                    logging.warning(f"Centroid for kept cluster {label} was not calculated? Skipping.")
+                    continue
+                centroid = all_centroids[label]
                 cluster_color = kept_color_map[label] # Get the assigned color for this kept cluster
-                centroid = info['center']
                 count = cluster_counts.get(label, 0)
                 label_text = f"Cluster {label}: {count} pts"
 
+                # --- Calculate Distances and Colors for Points in this Kept Cluster ---
+                cluster_indices = np.where(labels == label)[0]
+                cluster_points_all_dims = data_array[cluster_indices]
+                cluster_points_trans = cluster_points_all_dims[:, :3] # For plotting
+                cluster_radius = info.get('cluster_radius', 0) # Get radius if available
+
+                point_distances = []
+                max_dist = -1.0
+                max_dist_idx = -1
+                if cluster_radius > 1e-6: # Avoid division by zero
+                    for idx, point in enumerate(cluster_points_all_dims):
+                        dist = utils.calculate_se3_distance(point, centroid,
+                                                            CFG.clustering_se3_trans_weight,
+                                                            CFG.clustering_se3_rot_weight)
+                        point_distances.append(dist)
+                        if dist > max_dist:
+                            max_dist = dist
+                            max_dist_idx = idx # Store index relative to cluster_points_all_dims
+                    # Normalize distances for coloring (0 to 1)
+                    normalized_distances = np.array(point_distances) / cluster_radius
+                    # Clip values just in case due to float precision
+                    normalized_distances = np.clip(normalized_distances, 0.0, 1.0)
+                    point_colors = dist_cmap(normalized_distances)
+                else:
+                    # If radius is near zero, color all points with the base color
+                    point_colors = [cluster_color] * len(cluster_indices)
+                    normalized_distances = np.zeros(len(cluster_indices)) # For scatter c value
+
+                # --- Plot Kept Cluster Points with Distance Coloring ---
+                if ax is not None and feat_name == "pose" and is_3d:
+                    scatter_plot = ax.scatter(cluster_points_trans[:, 0], cluster_points_trans[:, 1], cluster_points_trans[:, 2],
+                                            c=normalized_distances, cmap=dist_cmap, vmin=0.0, vmax=1.0, # Use normalized distances and colormap
+                                            alpha=0.7, s=30)
+                    # Add colorbar only once
+                    if not colorbar_added:
+                        cbar = fig.colorbar(scatter_plot, ax=ax, shrink=0.6, aspect=20)
+                        cbar.set_label('Normalized SE(3) Distance to Centroid')
+                        colorbar_added = True
+
+                    # --- Plot Furthest Point Marker ---
+                    furthest_plotted = False
+                    if max_dist_idx != -1:
+                        furthest_point_trans = cluster_points_trans[max_dist_idx]
+                        logging.info(f"Cluster {label}: Furthest point distance = {max_dist:.4f}")
+                        ax.scatter(furthest_point_trans[0], furthest_point_trans[1], furthest_point_trans[2],
+                                   c='red', marker='v', s=100, edgecolor='black',
+                                   label='Furthest Point' if not furthest_plotted else None)
+                        furthest_plotted = True
+
+                # Add similar scatter plot logic for 1D/2D/other 3D cases if needed
+                # ... (omitted for brevity) ...
+
                 # --- Plot Centroid Marker ---
-                marker_kwargs = {'color': cluster_color, 's': 150, 'marker': '*'} # Use color argument
+                marker_kwargs = {'color': 'magenta', 's': 150, 'marker': '*'} # Use color argument
                 # Only add the label once for the first centroid plotted
                 if not centroids_plotted:
                      marker_kwargs['label'] = 'Kept Centroids'
@@ -778,56 +979,30 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                                 rot_mat[0, 2], rot_mat[1, 2], rot_mat[2, 2], 
                                 color='b', **q_args, label='Centroid Frame Z' if not frames_plotted else None)
                     frames_plotted = True
-                    # except Exception as e:
-                    #      logging.warning(f"Could not plot coordinate frame for cluster {label}: {e}")
 
-                elif 'covariance_matrix' in info and 'mahalanobis_threshold' in info:
-                     # Plot ellipsoidal boundary (original logic for non-pose features)
-                     # ... (keep original ellipsoid plotting logic here) ...
-                     # Ensure you set boundaries_plotted = True if ellipsoid is drawn
-                     # (Code omitted for brevity, but it's the same as before)
-                     cov_matrix = info['covariance_matrix']
-                     maha_thresh = info['mahalanobis_threshold']
-                     legend_label = 'Ellipsoid Boundary' if not boundaries_plotted else ""
-                     boundary_color = cluster_color # Use cluster color for boundary
-                     logging.debug(f"Plotting ellipsoid for Cluster {label}: Centroid={centroid}, MahaThresh={maha_thresh:.4f}")
-                     try:
-                         # --- Ellipsoid Plotting Logic (copied from original) ---
-                         if num_dims == 1:
-                             variance = max(cov_matrix[0, 0], 1e-9)
-                             std_dev = np.sqrt(variance)
-                             radius = std_dev * np.sqrt(maha_thresh)
-                             ax.plot([centroid[0] - radius, centroid[0] + radius], [0, 0], color=boundary_color, linestyle='--', alpha=0.6, label=legend_label)
-                         elif num_dims == 2:
-                             eigenvalues, eigenvectors = np.linalg.eigh(cov_matrix)
-                             eigenvalues = np.maximum(eigenvalues, 1e-9)
-                             order = eigenvalues.argsort()[::-1]
-                             eigenvalues, eigenvectors = eigenvalues[order], eigenvectors[:, order]
-                             width, height = 2 * np.sqrt(maha_thresh * eigenvalues)
-                             angle = np.degrees(np.arctan2(*eigenvectors[:, 0][::-1]))
-                             ellipse = Ellipse(xy=centroid, width=width, height=height, angle=angle,
-                                               edgecolor=boundary_color, fc='None', ls='--', alpha=0.6, label=legend_label)
-                             ax.add_patch(ellipse)
-                         elif num_dims >= 3 and is_3d: # Non-pose 3D
-                             cov_3d = cov_matrix[:3, :3]
-                             centroid_3d = centroid[:3]
-                             eigenvalues, eigenvectors = np.linalg.eigh(cov_3d)
-                             eigenvalues = np.maximum(eigenvalues, 1e-9)
-                             radii = np.sqrt(maha_thresh * eigenvalues)
-                             u = np.linspace(0.0, 2.0 * np.pi, 100)
-                             v = np.linspace(0.0, np.pi, 50)
-                             x = np.outer(np.cos(u), np.sin(v))
-                             y = np.outer(np.sin(u), np.sin(v))
-                             z = np.outer(np.ones_like(u), np.cos(v))
-                             points = np.stack((x.flatten(), y.flatten(), z.flatten()))
-                             scaled_rotated_points = eigenvectors @ np.diag(radii) @ points
-                             translated_points = scaled_rotated_points + centroid_3d[:, np.newaxis]
-                             x_ell, y_ell, z_ell = translated_points.reshape(3, *x.shape)
-                             ax.plot_wireframe(x_ell, y_ell, z_ell, color=boundary_color, alpha=0.2, rstride=4, cstride=4, label=legend_label)
-                         # --- End Ellipsoid Plotting Logic ---
-                         boundaries_plotted = True
-                     except ValueError as e:
-                         logging.warning(f"Could not plot ellipsoid for cluster {label}: Value error ({e}). Check eigenvalues/vectors.")
+                    # --- Plot Cluster Radius Sphere ---
+                    if 'cluster_radius' in info:
+                        # Original SE(3) radius
+                        se3_radius = info['cluster_radius']
+                        # Calculate equivalent translation radius for visualization
+                        # Avoid division by zero if weight is somehow zero
+                        trans_weight = CFG.clustering_se3_trans_weight
+                        if np.isclose(trans_weight, 0):
+                            logging.warning("Translation weight is close to zero, cannot calculate equivalent radius for plot.")
+                            radius_for_plot = 0.0 # Or some default / skip plotting
+                        else:
+                            radius_for_plot = np.sqrt(se3_radius*se3_radius / trans_weight) # Equivalent translation radius
+
+                        sphere_label = 'Equiv. Trans. Radius (Max Dist)' if not boundaries_plotted else "" # Add legend only once
+                        u_s = np.linspace(0, 2 * np.pi, 50) # Azimuthal angle
+                        v_s = np.linspace(0, np.pi, 25) # Polar angle
+                        x_s = centroid_trans[0] + radius_for_plot * np.outer(np.cos(u_s), np.sin(v_s))
+                        y_s = centroid_trans[1] + radius_for_plot * np.outer(np.sin(u_s), np.sin(v_s))
+                        z_s = centroid_trans[2] + radius_for_plot * np.outer(np.ones(np.size(u_s)), np.cos(v_s))
+                        ax.plot_wireframe(x_s, y_s, z_s, color=cluster_color, alpha=0.15, rstride=4, cstride=4, label=sphere_label)
+                        boundaries_plotted = True # Mark that a boundary (sphere) was plotted
+                    # --- End Sphere Plotting ---
+
                 else:
                      logging.debug(f"Skipping boundary/frame plot for cluster {label}: Missing info.")
 
@@ -849,15 +1024,18 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             # Create legend handles
             handles = []
             # Create a single handle for all kept points using a generic marker
-            handles.append(plt.Line2D([0], [0], marker='o', color='w', label='Kept Cluster Pts', markersize=10, markerfacecolor='gray'))
+            # handles.append(plt.Line2D([0], [0], marker='o', color='w', label='Kept Cluster Pts', markersize=10, markerfacecolor='gray'))
             # Handle for discarded points (updated color)
-            handles.append(plt.Line2D([0], [0], marker='o', color='w', label='Discarded Cluster Pts', markersize=10, markerfacecolor='lightgrey'))
+            if len(discarded_indices) > 0:
+                handles.append(plt.Line2D([0], [0], marker='x', color='w', label='Discarded Cluster Pts', markersize=10, markerfacecolor='lightgrey', linestyle='None')) # Use marker='x'
 
-            if -1 in unique_labels:
+            if len(noise_indices) > 0:
                 handles.append(plt.Line2D([0], [0], marker='o', color='w', label='Noise Pts', markersize=10, markerfacecolor='black'))
             # Handle for centroids (generic marker)
             if centroids_plotted:
-                handles.append(plt.Line2D([0], [0], marker='*', color='w', label='Kept Centroids', markersize=10, markerfacecolor='purple', linestyle='None'))
+                handles.append(plt.Line2D([0], [0], marker='*', color='w', label='Kept Centroids', markersize=10, markerfacecolor='magenta', linestyle='None'))
+            if discarded_centroids_plotted:
+                handles.append(plt.Line2D([0], [0], marker='o', color='w', label='Discarded Centroids', markersize=8, markerfacecolor='grey', alpha=0.7, linestyle='None'))
             # Handle for boundaries (generic color)
             if boundaries_plotted: # Ellipsoid legend
                 handles.append(plt.Line2D([0], [0], linestyle='--', color='gray', label='Ellipsoid Boundary (Maha. Thresh.)'))
@@ -865,8 +1043,13 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                  handles.append(plt.Line2D([0],[0], color='r', lw=2, label='Centroid Frame X'))
                  handles.append(plt.Line2D([0],[0], color='g', lw=2, label='Centroid Frame Y'))
                  handles.append(plt.Line2D([0],[0], color='b', lw=2, label='Centroid Frame Z'))
-            if feat_name == "pose" and is_3d: # Origin marker for pose
-                 handles.append(plt.Line2D([0], [0], marker='x', color='w', label='Origin (Frame 1)', markersize=10, markerfacecolor='blue', linestyle='None'))
+            if boundaries_plotted and feat_name == "pose": # Add legend for pose cluster radius sphere
+                handles.append(plt.Line2D([0], [0], linestyle='-', color='gray', alpha=0.3, label='Equiv. Trans. Radius (Max Dist)'))
+            # Add legend for furthest point if plotted
+            if furthest_plotted:
+                handles.append(plt.Line2D([0], [0], marker='v', color='w', label='Furthest Point', markersize=8, markerfacecolor='red', markeredgecolor='black', linestyle='None'))
+            # if feat_name == "pose" and is_3d: # Origin marker for pose - REMOVED
+            #      handles.append(plt.Line2D([0], [0], marker='x', color='w', label='Origin (Frame 1)', markersize=10, markerfacecolor='blue', linestyle='None'))
 
             ax.legend(handles=handles)
             # No longer setting axis limits or view init here as it's done above
@@ -1377,6 +1560,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         # Save the visualization
         os.makedirs("feature_data", exist_ok=True)
         plt.tight_layout()
+        plt.show()
         plt.savefig(f"feature_data/{fname}")
         logging.info(f"Saved {'combined cluster and' if is_overlay else ''} relative trajectory visualization to feature_data/{fname}")
         plt.close(fig)

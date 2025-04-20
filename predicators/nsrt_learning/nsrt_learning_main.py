@@ -62,7 +62,7 @@ def learn_nsrts_from_data(
         #         procedure only uses the predicates.
         if ground_atom_dataset is None:
             segmented_trajs = [
-                segment_trajectory(traj, predicates) for traj in trajectories
+                segment_trajectory(traj, predicates, low_speed_only=False, low_speed_threshold=0.001) for traj in trajectories
             ]
         else:
             segmented_trajs = [

@@ -1,7 +1,8 @@
 """Methods for segmenting low-level trajectories into segments."""
 
-from typing import Callable, List, Optional, Set
+from typing import Callable, List, Optional, Set, Tuple
 
+import numpy as np
 from predicators import utils
 from predicators.envs import get_or_create_env
 from predicators.ground_truth_models import get_gt_nsrts, get_gt_options
@@ -14,7 +15,9 @@ from predicators.envs.robo_kitchen import RoboKitchenEnv
 def segment_trajectory(
         ll_traj: LowLevelTrajectory,
         predicates: Set[Predicate],
-        atom_seq: Optional[List[Set[GroundAtom]]] = None) -> List[Segment]:
+        atom_seq: Optional[List[Set[GroundAtom]]] = None, 
+        low_speed_only: bool = False, 
+        low_speed_threshold: float = 0.001) -> List[Segment]:
     """Segment a ground atom trajectory."""
     # Start with the segmenters that don't need atom_seq. Still pass it in
     # because if it was provided, it can be used to avoid calling abstract.
@@ -27,7 +30,11 @@ def segment_trajectory(
     if atom_seq is None:
         atom_seq = [utils.abstract(s, predicates) for s in ll_traj.states]
     if CFG.segmenter == "atom_changes":
-        return _segment_with_atom_changes(ll_traj, predicates, atom_seq)
+        return _segment_with_atom_changes(ll_traj, predicates, atom_seq, low_speed_only, low_speed_threshold)
+    if CFG.segmenter == "atom_changes_low_speed_check":
+         # The new segmenter inherently uses low speed checks.
+         # Pass the threshold.
+        return _segment_with_atom_changes_low_speed_check(ll_traj, predicates, atom_seq, low_speed_threshold)
     if CFG.segmenter == "oracle":
         return _segment_with_oracle(ll_traj, predicates, atom_seq)
     if CFG.segmenter == "contacts":
@@ -37,14 +44,21 @@ def segment_trajectory(
 
 def _segment_with_atom_changes(
         ll_traj: LowLevelTrajectory, predicates: Set[Predicate],
-        atom_seq: List[Set[GroundAtom]]) -> List[Segment]:
+        atom_seq: List[Set[GroundAtom]], low_speed_only: bool = False, low_speed_threshold: float = 0.001) -> List[Segment]:
     """Segment a trajectory whenever the abstract state changes."""
-
     def _switch_fn(t: int) -> bool:
-        return atom_seq[t] != atom_seq[t + 1]
+            return atom_seq[t] != atom_seq[t + 1]
+    if low_speed_only:
+        def switch_fn_with_goal(t: int) -> Tuple[bool, bool]:
+            return atom_seq[t] != atom_seq[t + 1], list(predicates)[-1] in atom_seq[t]
+        
+        return _segment_with_switch_function(ll_traj, predicates, atom_seq,
+                                         switch_fn_with_goal, low_speed_only, low_speed_threshold)
+    else:
+        
+        return _segment_with_switch_function(ll_traj, predicates, atom_seq,
+                                         _switch_fn, low_speed_only, low_speed_threshold)
 
-    return _segment_with_switch_function(ll_traj, predicates, atom_seq,
-                                         _switch_fn)
 
 
 def _segment_with_contact_changes(
@@ -176,6 +190,8 @@ def _segment_with_switch_function(
         ll_traj: LowLevelTrajectory, predicates: Set[Predicate],
         atom_seq: Optional[List[Set[GroundAtom]]],
         switch_fn: Callable[[int], bool],
+        low_speed_only: bool = False,
+        low_speed_threshold: float = 0.001,
         include_last_segment: bool = False) -> List[Segment]:
     """Helper for other segmentation methods.
 
@@ -197,7 +213,23 @@ def _segment_with_switch_function(
     for t in range(len(ll_traj.actions)):
         current_segment_states.append(ll_traj.states[t])
         current_segment_actions.append(ll_traj.actions[t])
-        if switch_fn(t):
+        if low_speed_only:
+            switch_fn_result, goal_reached = switch_fn(t)
+        else:
+            switch_fn_result = switch_fn(t)
+        if switch_fn_result:
+            if low_speed_only:
+                # gripper_obj = list(ll_traj.states[0].get_objects(gripper))
+                if t > 0:
+                    gripper = RoboKitchenEnv.gripper_type
+                    gripper_obj = list(ll_traj.states[t-1].get_objects(gripper))[0]
+                    # gripper_obj_prev = list(ll_traj.states[t].get_objects(gripper))
+                    gripper_obj_prev = ll_traj.states[t-1].get(gripper_obj, "translation")
+                    gripper_obj_curr = ll_traj.states[t].get(gripper_obj, "translation")
+                    # get distance between gripper_obj and gripper_obj_prev
+                    dist = np.linalg.norm(gripper_obj_curr - gripper_obj_prev)
+                    if dist > low_speed_threshold and not goal_reached: # 1cm /sec since 10 Hz
+                        continue
             # Include the final state as the end of this segment.
             t_last_switch = t
             current_segment_states.append(ll_traj.states[t + 1])
@@ -241,4 +273,105 @@ def _segment_with_switch_function(
                                   current_final_atoms))
     # Don't include the last segment because it didn't result in a switch.
     # E.g., with option_changes, the option may not have terminated.
+    return segments
+
+
+def _segment_with_atom_changes_low_speed_check(
+        ll_traj: LowLevelTrajectory,
+        predicates: Set[Predicate], # Keep predicates for potential future use/consistency?
+        atom_seq: List[Set[GroundAtom]],
+        low_speed_threshold: float) -> List[Segment]:
+    """Segment a trajectory based on atom changes checked only when gripper
+    speed is low compared to the previous timestep.
+
+    Specifically, segment at time t if:
+    1. speed(t) <= low_speed_threshold
+    2. atom_seq[t+1] != atom_seq[start_of_segment]
+    """
+    segments = []
+    assert len(ll_traj.states) > 0
+    assert len(ll_traj.states) == len(atom_seq)
+
+    current_segment_states: List[State] = []
+    current_segment_actions: List[Action] = []
+    current_segment_init_atoms = atom_seq[0]
+    # This currently assumes RoboKitchenEnv for gripper checks.
+    try:
+        gripper = RoboKitchenEnv.gripper_type
+    except AttributeError:
+        raise NotImplementedError("Low speed segmentation currently only supports RoboKitchenEnv")
+
+    debug = False
+    have_segmented = False
+    have_ended = False
+    for t in range(len(ll_traj.actions)):
+        current_segment_states.append(ll_traj.states[t])
+        current_segment_actions.append(ll_traj.actions[t])
+
+        should_segment = False
+        # Check speed only if we have previous state (t > 0)
+        if t > 0:
+            if debug:
+                if not have_segmented and t > 140:
+                    have_segmented = True
+                    should_segment = True
+                if not have_ended and t == len(ll_traj.actions) - 1:
+                    have_ended = True
+                    should_segment = True
+            else:
+                try:
+                    # Get gripper object - assumes one gripper object exists
+                    gripper_objs_prev = list(ll_traj.states[t-1].get_objects(gripper))
+                    gripper_objs_curr = list(ll_traj.states[t].get_objects(gripper))
+
+                    if not gripper_objs_prev or not gripper_objs_curr:
+                        raise ValueError("Gripper object not found.")
+
+                    gripper_obj_prev = gripper_objs_prev[0]
+                    gripper_obj_curr = gripper_objs_curr[0] # Use current state's gripper object ref
+
+                    gripper_pos_prev = ll_traj.states[t-1].get(gripper_obj_prev, "translation")
+                    gripper_pos_curr = ll_traj.states[t].get(gripper_obj_curr, "translation")
+                    dist = np.linalg.norm(gripper_pos_curr - gripper_pos_prev)
+
+                    if dist <= low_speed_threshold:
+                        # Speed is low, now check if atoms changed since segment start
+                        next_atoms = atom_seq[t + 1]
+                        if next_atoms != current_segment_init_atoms:
+                            should_segment = True
+                except (IndexError, KeyError, ValueError) as e:
+                    # Handle cases where gripper object or its translation might not be found
+                    print(f"Warning: Gripper speed check failed at timestep {t}: {e}")
+                    pass # Don't segment if speed check fails
+
+
+        if should_segment:
+            # Include the final state as the end of this segment.
+            current_segment_states.append(ll_traj.states[t + 1])
+            current_segment_traj = LowLevelTrajectory(current_segment_states,
+                                                      current_segment_actions)
+            # Use the atoms from t+1 as the final atoms for this segment
+            current_segment_final_atoms = atom_seq[t + 1]
+
+            if ll_traj.actions[t].has_option():
+                 # This case might be less relevant if options aren't used with this segmenter,
+                 # but handle it for completeness.
+                 segment = Segment(current_segment_traj,
+                                   current_segment_init_atoms,
+                                   current_segment_final_atoms,
+                                   ll_traj.actions[t].get_option())
+            else:
+                 segment = Segment(current_segment_traj,
+                                   current_segment_init_atoms,
+                                   current_segment_final_atoms)
+
+            segments.append(segment)
+            # Reset for next segment
+            current_segment_states = []
+            current_segment_actions = []
+            current_segment_init_atoms = current_segment_final_atoms
+
+    # Note: Unlike _segment_with_switch_function, trajectories ending without
+    # a low-speed atom change don't create a final segment.
+
     return segments

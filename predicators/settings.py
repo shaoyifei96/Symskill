@@ -14,12 +14,13 @@ from predicators.meshcat_visualizer import MeshcatVisualizer
 
 class GlobalSettings:
     # clustering_invention approach parameters
+    clustering_moving_average_window = 5
     clustering_debug = True
     enable_meshcat = False
     clustering_se3_trans_weight = 10 # 0.05 m # 10 times differnece
-    clustering_se3_rot_weight = 1 # 30 deg = 0.5236 rad
-    clustering_feature_constancy_percentile = 15 # of total number of data points = 13782
-    clustering_se3_epsilon = 0.707
+    clustering_se3_rot_weight = 0.0 # 30 deg = 0.5236 rad
+    clustering_feature_constancy_percentile = 10 # of total number of data points = 13782
+    clustering_se3_epsilon = 0.3#0.707
     clustering_visualization_frame_axis_length = 0.05
     # clustering_translation_constancy_tol = 0.01/10 # 10 hz 0.01 m 
     # clustering_quaternion_constancy_tol = 0.01 # 10 hz 0.01 rad
@@ -90,7 +91,8 @@ class GlobalSettings:
     test_task_json_dir = None
     # The method to use for segmentation. By default, segment using options.
     # If you are learning options, you should change this via the command line.
-    segmenter = "atom_changes"
+    segmenter = "atom_changes_low_speed_check"
+    # segmenter = "atom_changes"
     # segmenter = "contacts"
     # The method to use for generating demonstrations: "oracle" or "human".
     demonstrator = "human"

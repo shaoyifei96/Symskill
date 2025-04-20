@@ -822,7 +822,7 @@ class _DSOptionLearner(_OptionLearnerBase):
                 logging.warning(f"NSRT {op.name} has no valid segments, ignoring")
                 continue
 
-            check_DSPolicy_input_data(x, x_dot, quat, omega, gripper_action, save_path=f"trajectory_visualization_{op.name}.png")
+            check_DSPolicy_input_data(x, x_dot, quat, omega, gripper_action, save_path=f"./feature_data/trajectory_visualization_{op.name}.png")
             
             # Configure DS Policy
             unified_config = UnifiedModelConfig(
