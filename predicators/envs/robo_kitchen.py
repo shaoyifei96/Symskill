@@ -117,7 +117,7 @@ class RoboKitchenEnv(BaseEnv):
     def get_objects_of_interest(self, task_name: str) -> List[Object]:
         """Get the object of interest for the task."""
         if task_name == "OpenSingleDoor":
-            return [self.object_name_to_object("handle")]
+            return [self.object_name_to_object("handle"), self.object_name_to_object("door")]
         # by default, there are robot and gripper objects
         else:
             raise ValueError(f"Task {task_name} not supported")

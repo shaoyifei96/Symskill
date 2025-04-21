@@ -217,8 +217,11 @@ def _learn_pnad_samplers(pnads: List[PNAD], sampler_learner: str) -> None:
         strips_ops.append(pnad.op)
         datastores.append(pnad.datastore)
         option_specs.append(pnad.option_spec)
-    samplers = learn_samplers(strips_ops, datastores, option_specs,
-                              sampler_learner)
+    if CFG.option_learner == "ds_policy":
+        samplers = [None] * len(strips_ops)
+    else:
+        samplers = learn_samplers(strips_ops, datastores, option_specs,
+                                sampler_learner)
     assert len(samplers) == len(strips_ops)
     # Replace the samplers in the PNADs.
     for pnad, sampler in zip(pnads, samplers):

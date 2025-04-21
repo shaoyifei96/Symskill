@@ -393,7 +393,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         elif CFG.predicate_candidates_method == "contact_clustering":
             logging.info("Generating candidate predicates via contact clustering method...")
             ground_atom_dataset, candidates, initial_monitor_preds = self._generate_candidate_predicates_contact_goal_clustering(dataset)
-            self._learned_predicates = set(candidates.keys())
+            self._learned_predicates = set(candidates.keys()) | initial_monitor_preds
             
             # self._learned_predicates = self._select_predicates_by_beam_search(candidates, dataset, self._train_tasks)
 
@@ -424,7 +424,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             ground_atom_dataset,
             annotations=annotations,
             online_learning_cycle=None,
-            passed_in_predicates= self._learned_predicates | initial_monitor_preds
+            passed_in_predicates= self._learned_predicates
         )
 
 

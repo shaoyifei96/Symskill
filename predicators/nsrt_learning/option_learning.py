@@ -22,7 +22,7 @@ from predicators.pybullet_helpers.robots import \
 from predicators.settings import CFG
 from predicators.structs import Action, Array, Datastore, Object, OptionSpec, \
     ParameterizedOption, Segment, State, STRIPSOperator, Variable, \
-    VarToObjSub
+    VarToObjSub, DummyParameterizedOption
 from predicators.utils import OptionExecutionFailure, calculate_relative_pose
 
 from ds_policy import DSPolicy, UnifiedModelConfig, transform_frame, compute_vel_traj
@@ -358,6 +358,7 @@ def create_action_converter() -> _ActionConverter:
     if name == "kinematic":
         return _KinematicActionConverter()
     raise NotImplementedError(f"Unknown action space converter: {name}")
+
 
 
 class _LearnedNeuralParameterizedOption(ParameterizedOption):
@@ -754,49 +755,32 @@ class _DSOptionLearner(_OptionLearnerBase):
 
         dt = 1 / 60
 
-        for op, datastore in zip(strips_ops, datastores):
+        for i in range(len(strips_ops)):
+            op, datastore = strips_ops[i], datastores[i]
             logging.info(f"\nLearning option for NSRT {op.name}")
-            
+
             # Process segments to extract trajectories for DSPolicy
             x = []  # position trajectories
             x_dot = []  # velocity trajectories
             quat = []  # quaternion trajectories
             omega = []  # angular velocity trajectories
             gripper_action = []  # gripper state trajectories if available
+
+            OOI_type_name, success = find_OOI_name(op) # extract OOI type name from predicates
+            if not success:
+                for var in op.parameters:
+                    if var.type.name != "gripper_type":
+                        OOI_type_name = var.type.name
+                        break
+                logging.warning(f"NSRT {op.name} cannot find OOI type in predicates, using {OOI_type_name} in parameters as OOI")
             
             # Process each segment to extract position, orientation and velocity data
             for segment, var_to_obj in datastore:
-                # NOTE: we assume op's add_effects and delete_effects only have one predicate
-                # and that predicate has gripper type and obj_of_interest type
-                # if we find more than one predicate, we will ignore the segment
-                if len(op.add_effects) + len(op.delete_effects) != 1:
-                    logging.warning(f"NSRT {op.name} has {len(op.add_effects)} + {len(op.delete_effects)} != 1 predicates, ignoring segment")
+                obj_of_interest, gripper, success = find_OOI_and_gripper_obj(var_to_obj, OOI_type_name) # extract exact objects from var_to_obj according to names extracted from predicates
+                if not success:
+                    logging.warning(f"NSRT {op.name} cannot find OOI and gripper from var_to_obj, ignoring segment")
                     continue
-                predicate_types = list(op.add_effects)[0].predicate.types if len(op.add_effects) == 1 else list(op.delete_effects)[0].predicate.types
-                assert len(predicate_types) == 2
-
-                OOI_type_name = None
-                for i in range(2):
-                    if predicate_types[i].name == "gripper_type":
-                        OOI_type_name = predicate_types[1-i].name
-                        break
-                if OOI_type_name is None:
-                    logging.warning(f"NSRT {op.name} cannot find OOI or gripper type in predicates, ignoring segment")
-                    continue
-
-                obj_of_interest = None
-                gripper = None
-                for var in op.parameters:
-                    if var.type.name == OOI_type_name:
-                        obj_of_interest = var_to_obj[var]
-                    elif var.type.name == "gripper_type":
-                        gripper = var_to_obj[var]
-                    if obj_of_interest is not None and gripper is not None:
-                        break
-                if obj_of_interest is None or gripper is None:
-                    logging.warning(f"NSRT {op.name} cannot find OOI and gripper from parameters, ignoring segment")
-                    continue
-
+                
                 gripper_pos_traj_OOI_frame = []
                 gripper_quat_traj_OOI_frame = []
                 
@@ -816,13 +800,12 @@ class _DSOptionLearner(_OptionLearnerBase):
                 x_dot.append(gripper_vel_traj_OOI_frame)
                 quat.append(gripper_quat_traj_OOI_frame)
                 omega.append(gripper_ang_vel_traj_OOI_frame)
-
             
             if len(x) == 0:
                 logging.warning(f"NSRT {op.name} has no valid segments, ignoring")
                 continue
 
-            check_DSPolicy_input_data(x, x_dot, quat, omega, gripper_action, save_path=f"./feature_data/trajectory_visualization_{op.name}.png")
+            check_DSPolicy_input_data(x, x_dot, quat, omega, gripper_action, visualize=True, save_path=f"./feature_data/trajectory_visualization_{op.name}.png")
             
             # Configure DS Policy
             unified_config = UnifiedModelConfig(
@@ -841,7 +824,7 @@ class _DSOptionLearner(_OptionLearnerBase):
                 dt=dt,
                 switch=False
             )
-            
+            ds_policy.plot_position_vector_field(save_path=f"./feature_data/vector_field_visualization_{op.name}.png")
             # Create a ParameterizedOption that uses DSPolicy
             name = f"{op.name}DSOption"
             parameterized_option = _LearnedDSParameterizedOption(
@@ -857,14 +840,60 @@ class _DSOptionLearner(_OptionLearnerBase):
     
     def update_segment_from_option_spec(self, segment: Segment,
                                         option_spec: OptionSpec) -> None:
-        objects, params = self._segment_to_grounding[segment]
-        param_opt, opt_vars = option_spec
-        assert all(o.type == v.type for o, v in zip(objects, opt_vars))
-        option = param_opt.ground(objects, params)
-        segment.set_option(option)
+        pass
 
 
-def check_DSPolicy_input_data(x: List[np.ndarray], x_dot: List[np.ndarray], quat: List[np.ndarray], omega: List[np.ndarray], gripper: List[np.ndarray], save_path: str = None) -> bool:
+def find_OOI_name(op: STRIPSOperator) -> Tuple[str, bool]:
+    """Extract the object of interest name from operator parameters.
+    
+    Args:
+        op: The STRIPS operator
+        
+    Returns:
+        Tuple of (object_of_interest_type_name, success_flag)
+    """
+    # Check if operator has exactly one predicate in add_effects + delete_effects
+    if len(op.add_effects) + len(op.delete_effects) != 1:
+        logging.warning(f"NSRT {op.name} has {len(op.add_effects)} + {len(op.delete_effects)} != 1 predicates, ignoring segment")
+        return None, False
+    
+    # Get predicate types
+    if op.add_effects:
+        predicate_type1 = list(op.add_effects)[0].entities[0].type
+        predicate_type2 = list(op.add_effects)[0].entities[1].type
+    else:
+        predicate_type1 = list(op.delete_effects)[0].entities[0].type
+        predicate_type2 = list(op.delete_effects)[0].entities[1].type
+    
+    predicate_types = [predicate_type1, predicate_type2]
+    assert len(predicate_types) == 2
+
+    # Find OOI type name
+    OOI_type_name = None
+    for i in range(2):
+        if predicate_types[i].name == "gripper_type":
+            OOI_type_name = predicate_types[1-i].name
+            break
+    if OOI_type_name is None:
+        return None, False
+    
+    return OOI_type_name, True
+
+def find_OOI_and_gripper_obj(var_to_obj: VarToObjSub, OOI_type_name: str) -> Tuple[Object, Object, bool]:
+    obj_of_interest, gripper = None, None
+    for var in var_to_obj.keys():
+        if var.type.name == OOI_type_name:
+            obj_of_interest = var_to_obj[var]
+        elif var.type.name == "gripper_type":
+            gripper = var_to_obj[var]
+        if obj_of_interest is not None and gripper is not None:
+            break
+    if obj_of_interest is None or gripper is None:
+        return None, None, False
+    return obj_of_interest, gripper, True
+
+
+def check_DSPolicy_input_data(x: List[np.ndarray], x_dot: List[np.ndarray], quat: List[np.ndarray], omega: List[np.ndarray], gripper: List[np.ndarray], visualize: bool = False, save_path: str = None) -> bool:
     assert len(x) == len(x_dot) == len(quat) == len(omega)
     for i in range(len(x)):
         assert x[i].shape[0] == x_dot[i].shape[0] == quat[i].shape[0] == omega[i].shape[0]
@@ -873,7 +902,7 @@ def check_DSPolicy_input_data(x: List[np.ndarray], x_dot: List[np.ndarray], quat
         assert quat[i].shape[1] == 4
         assert omega[i].shape[1] == 3
 
-    if save_path is not None:
+    if visualize:
         import matplotlib.pyplot as plt
         from mpl_toolkits.mplot3d import Axes3D
         
@@ -897,8 +926,10 @@ def check_DSPolicy_input_data(x: List[np.ndarray], x_dot: List[np.ndarray], quat
         ax.set_title('3D Trajectories')
         ax.legend()
         plt.tight_layout()
-        # plt.savefig(save_path)
-        plt.show()
+        if save_path is not None:
+            plt.savefig(save_path)
+        else:
+            plt.show()
     return True
 
 
@@ -1005,7 +1036,6 @@ class _LearnedDSParameterizedOption(ParameterizedOption):
            not any(e.holds(state) for e in grounded_op.delete_effects):
             return True
         return False
-
 
 class _ImplicitBehaviorCloningOptionLearner(_BehaviorCloningOptionLearner):
     """Use an ImplicitMLPRegressor for regression."""

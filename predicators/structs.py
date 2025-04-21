@@ -741,11 +741,12 @@ class _Option:
         return action
 
 
-DummyOption: _Option = ParameterizedOption(
+DummyParameterizedOption: _Option = ParameterizedOption(
     "DummyOption", [], Box(0, 1,
                            (1, )), lambda s, m, o, p: Action(np.array([0.0])),
-    lambda s, m, o, p: False, lambda s, m, o, p: True).ground([],
-                                                              np.array([0.0]))
+    lambda s, m, o, p: False, lambda s, m, o, p: True)
+
+DummyOption = DummyParameterizedOption.ground([], np.array([0.0]))
 DummyOption.parent.params_space.seed(0)  # for reproducibility
 
 
@@ -1187,7 +1188,10 @@ class _GroundNSRT:
         """
         # Note that the sampler takes in ALL self.objects, not just the subset
         # self.option_objs of objects that are passed into the option.
-        params = self._sampler(state, goal, rng, self.objects)
+        if CFG.option_learner == "ds_policy":
+            params = np.random.uniform(self.option.params_space.low, self.option.params_space.high)
+        else:
+            params = self._sampler(state, goal, rng, self.objects)
         # Clip the params into the params_space of self.option, for safety.
         low = self.option.params_space.low
         high = self.option.params_space.high
@@ -1516,7 +1520,8 @@ class PNAD:
 
     def make_nsrt(self) -> NSRT:
         """Make an NSRT from this PNAD."""
-        assert self.sampler is not None
+        if CFG.option_learner != "ds_policy":
+            assert self.sampler is not None
         param_option, option_vars = self.option_spec
         return self.op.make_nsrt(param_option, option_vars, self.sampler)
 
