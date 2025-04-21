@@ -831,6 +831,7 @@ class _DSOptionLearner(_OptionLearnerBase):
                 name,
                 op,
                 ds_policy,
+                OOI_type_name,
                 is_parameterized=self._is_parameterized
             )
             
@@ -947,11 +948,13 @@ class _LearnedDSParameterizedOption(ParameterizedOption):
                  name: str,
                  operator: STRIPSOperator,
                  ds_policy: DSPolicy,  # DSPolicy object
+                 ooi_type_name: str,
                  is_parameterized: bool = True) -> None:
         types = [v.type for v in operator.parameters]
         self.operator = operator
         self._ds_policy = ds_policy
         self._is_parameterized = is_parameterized
+        self._ooi_type = ooi_type_name
         super().__init__(name,
                          types,
                          params_space=Box(0, 1, (0, ), dtype=np.float32),
@@ -972,20 +975,21 @@ class _LearnedDSParameterizedOption(ParameterizedOption):
         # NOTE: assume objects contains gripper and obj_of_interest. We can find base from state
         # use the first base in state as base
         base = None
+        obj_of_interest = None
+        gripper = None
         for obj in state.data:
             if obj.type.name == "base_type":
                 base = obj
-                break
-        assert base is not None
-
-        assert len(objects) == 2
-        for i, obj in enumerate(objects):
+                # break
+            if obj.type.name == self._ooi_type:
+                obj_of_interest = obj
+                # break
             if obj.type.name == "gripper_type":
                 gripper = obj
-                obj_of_interest = objects[1-i]
+                # break
+            if base and obj_of_interest and gripper:
                 break
-            
-        assert gripper is not None and obj_of_interest is not None
+        assert base and obj_of_interest and gripper
 
         gripper_pose_OOI_frame = calculate_relative_pose(state, obj_of_interest, gripper, "translation", "quaternion")
         gripper_pos_OOI_frame = gripper_pose_OOI_frame[:3]
