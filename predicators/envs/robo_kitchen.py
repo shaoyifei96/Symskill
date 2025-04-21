@@ -61,7 +61,6 @@ class RoboKitchenEnv(BaseEnv):
     handle_type = Type("handle_type", ["translation", "quaternion"], parent=grab_type)
     surface_type = Type("surface_type", ["translation", "quaternion"], parent=object_type)
     thing_type = Type("thing_type", ["translation", "quaternion"], parent=grab_type)
-    
 
     obj_name_to_type = {
         "handle": handle_type,
@@ -349,17 +348,26 @@ class RoboKitchenEnv(BaseEnv):
         Convert 7D predicators action [dx, dy, dz, droll, dpitch, dyaw, gripper]
         to 12D robocasa action [right_pose(6), right_gripper(1), base(3), torso(1), extra(1)]
         """
+        
+        # Debugging: show frames of gripper, target and surface
+        gripper_obj = self._current_state.get_objects(self.gripper_type)[0]
+        gripper_pos = self._current_state.get(gripper_obj, "translation")
+        gripper_quat = self._current_state.get(gripper_obj, "quaternion")
+        self.mjshowframe(gripper_pos, gripper_quat, name="gripper")
+        grap_obj = self._current_state.get_objects(self.grab_type)[0]
+        grab_pos = self._current_state.get(grap_obj, "translation")
+        grab_quat = self._current_state.get(grap_obj, "quaternion")
+        self.mjshowframe(grab_pos, grab_quat, name="target")
+        surface_obj = self._current_state.get_objects(self.surface_type)[0]
+        surface_pos = self._current_state.get(surface_obj, "translation")
+        surface_quat = self._current_state.get(surface_obj, "quaternion")
+        self.mjshowframe(surface_pos, surface_quat, name="surface")
+
         if CFG.use_teleop:
             input_ac_dict = self.device.input2action(mirror_actions=True)
             # print(f"input_ac_dict: {input_ac_dict}")
             # action_keyboard = self._env.robots[0].create_action_vector(input_ac_dict)
 
-        # Debug print
-        # print("\n" + "="*50)
-        # print("STEP DEBUG INFO:")
-        # print(f"Door state: {self._env_raw.door_fxtr.get_door_state(env=self._env_raw)}")
-        # print(f"Action: {action.arr}")
-        # print("="*50 + "\n")
         # Scale the action
         pos_delta = action.arr[:3] * MAX_CARTESIAN_DISPLACEMENT
         rot_delta = action.arr[3:6] * MAX_ROTATION_DISPLACEMENT
@@ -403,6 +411,16 @@ class RoboKitchenEnv(BaseEnv):
     def render(self, action: Optional[Action] = None, caption: Optional[str] = None) -> Video:  # this renders the robot observation, not the viewer??
         """Render current state."""
         return self._env.render()
+
+    def mjprint(self, text, auto_clean=False):
+        """Print text in the viewer."""
+        if self._env_raw is not None:
+            self._env_raw.viewer.mjprint(text, auto_clean=auto_clean)
+
+    def mjshowframe(self, xyz, quat=(1,0,0,0), size=0.1, name=None, keep=False):
+        """Show frame in the viewer."""
+        if self._env_raw is not None:
+            self._env_raw.viewer.mjshowframe(xyz, quat=quat, size=size, name=name, keep=keep)
 
     @property
     def action_space(self) -> Box:
@@ -628,41 +646,3 @@ class RoboKitchenEnv(BaseEnv):
         near_surface = np.linalg.norm(obj_pos - location_pos) < cls.close_distance_thresh
         on_top = (obj_pos[2] - location_pos[2]) < cls.close_distance_thresh
         return near_surface and on_top
-
-
-    def _add_debug_visualization(self):
-        """Add debug visualization markers at important locations."""
-        # Get the viewer from the simulation
-        viewer = self._env.viewer
-        if viewer is None:
-            return
-
-        # Clear existing visualizations
-        viewer.user_scn.ngeom = 0
-        geom_count = 0
-
-        # Add visualization for each object's important sites/geoms
-        for obj_name, obj in self.objects.items():
-            # Get object position and orientation
-            obj_pos = sim.data.body_xpos[self.obj_body_id[obj_name]]
-
-            # Create a sphere at object position
-            mujoco.mjv_initGeom(
-                viewer.user_scn.geoms[geom_count], type=mujoco.mjtGeom.mjGEOM_SPHERE, size=[0.02, 0, 0], pos=obj_pos, mat=np.eye(3).flatten(), rgba=[1, 0, 0, 0.5]  # Small sphere  # Semi-transparent red
-            )
-            geom_count += 1
-
-            # Add more visualizations for specific object types
-            if obj_name in ["microwave", "cabinet", "drawer"]:
-                # Add handle visualization
-                handle_site_id = sim.model.site_name2id(f"{obj_name}_handle")
-                if handle_site_id >= 0:
-                    handle_pos = sim.data.site_xpos[handle_site_id]
-                    mujoco.mjv_initGeom(
-                        viewer.user_scn.geoms[geom_count], type=mujoco.mjtGeom.mjGEOM_SPHERE, size=[0.015, 0, 0], pos=handle_pos, mat=np.eye(3).flatten(), rgba=[0, 1, 0, 0.5]  # Semi-transparent green
-                    )
-                    geom_count += 1
-
-        # Update the number of visualization geoms
-        viewer.user_scn.ngeom = geom_count
-        viewer.sync()
