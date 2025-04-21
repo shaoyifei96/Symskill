@@ -965,6 +965,8 @@ class _LearnedDSParameterizedOption(ParameterizedOption):
     def _precondition_based_initiable(self, state: State, memory: Dict,
                                       objects: Sequence[Object],
                                       params: Array) -> bool:
+        
+        return True
         # Check if initiable based on preconditions.
         grounded_op = self.operator.ground(tuple(objects))
         return all(pre.holds(state) for pre in grounded_op.preconditions)

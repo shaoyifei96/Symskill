@@ -94,8 +94,8 @@ class GlobalSettings:
     test_task_json_dir = None
     # The method to use for segmentation. By default, segment using options.
     # If you are learning options, you should change this via the command line.
-    segmenter = "atom_changes_low_speed_check"
-    # segmenter = "atom_changes"
+    # segmenter = "atom_changes_low_speed_check"
+    segmenter = "atom_changes"
     # segmenter = "contacts"
     # The method to use for generating demonstrations: "oracle" or "human".
     demonstrator = "human"

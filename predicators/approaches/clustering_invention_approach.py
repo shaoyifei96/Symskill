@@ -1333,9 +1333,10 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
 
         logging.info("Extracting relative poses at contact initiation...")
         
-        for ll_traj, atom_seq in ground_atom_dataset:
+        for i, (ll_traj, atom_seq) in enumerate(ground_atom_dataset):
             if not ll_traj.states: continue # Skip empty trajectories
             gripper_obj_init = ll_traj.states[0].get_objects(gripper_type)[0]
+            logging.info(f"Processing trajectory {i} of {len(ground_atom_dataset)}")
 
             for t in range(1, len(atom_seq)): # Start from 1 to compare with t-1
                 state_t = ll_traj.states[t]
@@ -1348,6 +1349,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 if not positive_change: continue # Skip if no change
 
                 for atom in positive_change:
+                    logging.info(f"Processing atom {atom} at time {t}")
                     # Check if the added atom is the InContact predicate we care about
                     if atom.predicate == in_contact_pred or atom.predicate in env.goal_predicates:
                         # Ensure the atom involves the gripper type
