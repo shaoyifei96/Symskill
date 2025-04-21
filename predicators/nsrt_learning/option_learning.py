@@ -22,7 +22,7 @@ from predicators.pybullet_helpers.robots import \
 from predicators.settings import CFG
 from predicators.structs import Action, Array, Datastore, Object, OptionSpec, \
     ParameterizedOption, Segment, State, STRIPSOperator, Variable, \
-    VarToObjSub, DummyParameterizedOption
+    VarToObjSub, DummyParameterizedOption, Type
 from predicators.utils import OptionExecutionFailure, calculate_relative_pose
 
 from ds_policy import DSPolicy, UnifiedModelConfig, transform_frame, compute_vel_traj
@@ -840,6 +840,11 @@ class _DSOptionLearner(_OptionLearnerBase):
     
     def update_segment_from_option_spec(self, segment: Segment,
                                         option_spec: OptionSpec) -> None:
+        # objects, params = self._segment_to_grounding[segment]
+        # param_opt, opt_vars = option_spec
+        # assert all(o.type == v.type for o, v in zip(objects, opt_vars))
+        # option = param_opt.ground(objects, params)
+        # segment.set_option(option)
         pass
 
 
@@ -964,32 +969,39 @@ class _LearnedDSParameterizedOption(ParameterizedOption):
     def _DS_based_policy(self, state: State, memory: Dict,
                               objects: Sequence[Object],
                               params: Array) -> Action:
-        # NOTE: assume we have 3 objects: obj_of_interest, gripper, base
-        obj_of_interest = objects[0]
-        gripper = objects[1]
-        base = objects[2]
+        # NOTE: assume objects contains gripper and obj_of_interest. We can find base from state
+        # use the first base in state as base
+        base = None
+        for obj in state.data:
+            if obj.type.name == "base_type":
+                base = obj
+                break
+        assert base is not None
 
-        OOI_pos = state.get(obj_of_interest, "translation")
-        OOI_quat = state.get(obj_of_interest, "quaternion")
-        OOI_rot = R.from_quat(OOI_quat).as_matrix()
-        gripper_pos = state.get(gripper, "translation")
-        gripper_quat = state.get(gripper, "quaternion")
-        base_pos = state.get(base, "translation")
-        base_quat = state.get(base, "quaternion")
-        base_rot = R.from_quat(base_quat).as_matrix()
-        gripper_pos_OOI_frame, gripper_rot_OOI_frame = transform_frame(gripper_pos, gripper_quat, OOI_pos, OOI_rot)
-        gripper_quat_OOI_frame = R.from_matrix(gripper_rot_OOI_frame).as_quat()
+        assert len(objects) == 2
+        for i, obj in enumerate(objects):
+            if obj.type.name == "gripper_type":
+                gripper = obj
+                obj_of_interest = objects[1-i]
+                break
+            
+        assert gripper is not None and obj_of_interest is not None
+
+        gripper_pose_OOI_frame = calculate_relative_pose(state, obj_of_interest, gripper, "translation", "quaternion")
+        gripper_pos_OOI_frame = gripper_pose_OOI_frame[:3]
+        gripper_quat_OOI_frame = gripper_pose_OOI_frame[3:]
         
-        
-        # Get action from DS Policy
+         # Get action from DS Policy
         action = self._ds_policy.get_action(
             np.concatenate([gripper_pos_OOI_frame, gripper_quat_OOI_frame]), 
             clf=True,  # Use Control Lyapunov Function
             alpha_V=10.0,  # CLF parameter
             lookahead=5  # Number of steps to look ahead
         )
+        OOI_rot = R.from_quat(state.get(obj_of_interest, "quaternion")).as_matrix()
+        base_rot = R.from_quat(state.get(base, "quaternion")).as_matrix()
         pos_vel_OOI_frame = action[:3]
-        ang_vel_OOI_frame = action[3:]
+        ang_vel_OOI_frame = action[3:6]
         pos_vel_world_frame = OOI_rot @ pos_vel_OOI_frame
         pos_vel_base_frame = base_rot.T @ pos_vel_world_frame
         ang_vel_world_frame = OOI_rot @ ang_vel_OOI_frame
@@ -1014,8 +1026,6 @@ class _LearnedDSParameterizedOption(ParameterizedOption):
                                        objects: Sequence[Object],
                                        params: Array) -> bool:
         # NOTE: based on optimized_effect_based_terminal in _LearnedNeuralParameterizedOption
-        if self._is_parameterized:
-            assert np.allclose(params, memory["params"])
         terminate = self.effect_based_terminal(state, objects)
         # Optimization: remember the most recent state and terminate early if
         # the state is repeated, since this option will never get unstuck.
