@@ -765,7 +765,7 @@ class _DSOptionLearner(_OptionLearnerBase):
             quat = []  # quaternion trajectories
             omega = []  # angular velocity trajectories
             gripper_action = []  # gripper state trajectories if available
-
+            
             OOI_type_name, success = find_OOI_name(op) # extract OOI type name from predicates
             if not success:
                 for var in op.parameters:
@@ -775,6 +775,7 @@ class _DSOptionLearner(_OptionLearnerBase):
                 logging.warning(f"NSRT {op.name} cannot find OOI type in predicates, using {OOI_type_name} in parameters as OOI")
             
             # Process each segment to extract position, orientation and velocity data
+            option_gripper_action = []
             for segment, var_to_obj in datastore:
                 obj_of_interest, gripper, success = find_OOI_and_gripper_obj(var_to_obj, OOI_type_name) # extract exact objects from var_to_obj according to names extracted from predicates
                 if not success:
@@ -785,10 +786,12 @@ class _DSOptionLearner(_OptionLearnerBase):
                 gripper_quat_traj_OOI_frame = []
                 
                 # Extract position and orientation from states
-                for state in segment.states:
+                for state , action in zip(segment.states, segment.actions):
                     gripper_pose_OOI_frame = calculate_relative_pose(state, obj_of_interest, gripper, "translation", "quaternion")
                     gripper_pos_traj_OOI_frame.append(gripper_pose_OOI_frame[:3])
                     gripper_quat_traj_OOI_frame.append(gripper_pose_OOI_frame[3:])
+                    option_gripper_action.append(action.arr[6])
+                
 
                 gripper_pos_traj_OOI_frame = np.array(gripper_pos_traj_OOI_frame)
                 gripper_quat_traj_OOI_frame = np.array(gripper_quat_traj_OOI_frame)
@@ -832,6 +835,7 @@ class _DSOptionLearner(_OptionLearnerBase):
                 op,
                 ds_policy,
                 OOI_type_name,
+                gripper_action = 1.0 if np.mean(option_gripper_action) > 0.0 else -1.0,
                 is_parameterized=self._is_parameterized
             )
             
@@ -949,12 +953,14 @@ class _LearnedDSParameterizedOption(ParameterizedOption):
                  operator: STRIPSOperator,
                  ds_policy: DSPolicy,  # DSPolicy object
                  ooi_type_name: str,
+                 gripper_action: float,
                  is_parameterized: bool = True) -> None:
         types = [v.type for v in operator.parameters]
         self.operator = operator
         self._ds_policy = ds_policy
         self._is_parameterized = is_parameterized
         self._ooi_type = ooi_type_name
+        self._gripper_action = gripper_action
         super().__init__(name,
                          types,
                          params_space=Box(0, 1, (0, ), dtype=np.float32),
@@ -965,6 +971,7 @@ class _LearnedDSParameterizedOption(ParameterizedOption):
     def _precondition_based_initiable(self, state: State, memory: Dict,
                                       objects: Sequence[Object],
                                       params: Array) -> bool:
+        memory["time_step"] = 0
         
         return True
         # Check if initiable based on preconditions.
@@ -976,24 +983,30 @@ class _LearnedDSParameterizedOption(ParameterizedOption):
                               params: Array) -> Action:
         # NOTE: assume objects contains gripper and obj_of_interest. We can find base from state
         # use the first base in state as base
+        memory["time_step"] += 1
         base = None
         obj_of_interest = None
         gripper = None
+        left_finger = None
+        right_finger = None
         for obj in state.data:
             if obj.type.name == "base_type":
                 base = obj
-                # break
             if obj.type.name == self._ooi_type:
                 obj_of_interest = obj
-                # break
             if obj.type.name == "gripper_type":
                 gripper = obj
-                # break
-            if base and obj_of_interest and gripper:
+            if obj.type.name == "left_finger_type":
+                left_finger = obj
+            if obj.type.name == "right_finger_type":
+                right_finger = obj  
+            if base and obj_of_interest and gripper and left_finger and right_finger:
                 break
-        assert base and obj_of_interest and gripper
+        assert base and obj_of_interest and gripper and left_finger and right_finger
 
         gripper_pose_OOI_frame = calculate_relative_pose(state, obj_of_interest, gripper, "translation", "quaternion")
+        left_right_finger_dist = calculate_relative_pose(state, left_finger, right_finger, "translation", "quaternion")
+        left_right_finger_dist = np.linalg.norm(left_right_finger_dist[:3])
         gripper_pos_OOI_frame = gripper_pose_OOI_frame[:3]
         gripper_quat_OOI_frame = gripper_pose_OOI_frame[3:]
         
@@ -1020,10 +1033,20 @@ class _LearnedDSParameterizedOption(ParameterizedOption):
         action_arr = np.zeros(7, dtype=np.float32)
         action_arr[:3] = pos_vel_base_frame
         action_arr[3:6] = ang_vel_base_frame
-        action_arr[6] = 0.0 # gripper
+        action_arr[6] = self._gripper_action
         
-        action_low = np.array([-1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0], dtype=np.float32)
-        action_high = np.array([1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0], dtype=np.float32)
+        # print(f"left_right_finger_dist: {left_right_finger_dist}")
+        if left_right_finger_dist > 0.1:
+            gripper_state = -1.0
+        else:
+            gripper_state = 1.0
+        
+        if np.abs(gripper_state - self._gripper_action) < 0.1:
+            action_low = np.array([-1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0], dtype=np.float32)
+            action_high = np.array([1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0], dtype=np.float32)
+        else:
+            action_low = np.array([0,0,0,0,0,0,-1.0], dtype=np.float32)
+            action_high = np.array([0,0,0,0,0,0,1.0], dtype=np.float32)
         action_arr = np.clip(action_arr, action_low, action_high)
         
         return Action(action_arr)
@@ -1035,8 +1058,21 @@ class _LearnedDSParameterizedOption(ParameterizedOption):
         terminate = self.effect_based_terminal(state, objects)
         # Optimization: remember the most recent state and terminate early if
         # the state is repeated, since this option will never get unstuck.
-        if "last_state" in memory and memory["last_state"].allclose(state):
-            return True
+        # Keep track of states in memory
+        if "state_history" not in memory:
+            memory["state_history"] = []
+        
+        # Add current state to history
+        memory["state_history"].append(state)
+        
+        # Keep only the last 10 states
+        if len(memory["state_history"]) > 10:
+            memory["state_history"].pop(0)
+            
+        # Check if state has not changed for 10 steps
+        if len(memory["state_history"]) == 10:
+            if all(memory["state_history"][0].allclose(s) for s in memory["state_history"][1:]):
+                return True
         if terminate:
             return True
         memory["last_state"] = state
