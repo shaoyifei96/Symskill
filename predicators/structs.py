@@ -775,7 +775,10 @@ class STRIPSOperator:
         additional fields."""
         return NSRT(self.name, self.parameters, self.preconditions,
                     self.add_effects, self.delete_effects, self.ignore_effects,
-                    option, option_vars, sampler)
+                    option, option_vars, sampler, 
+                    # NOTE: we're using the preconditions as maintain effects. may not be correct for tasks that involve losing contact
+                    maintain_effects=self.preconditions
+                    ) 
 
     @lru_cache(maxsize=None)
     def ground(self, objects: Tuple[Object]) -> _GroundSTRIPSOperator:

@@ -26,7 +26,7 @@
         "request": "launch",
         "program": "${workspaceFolder}/predicators_robocasa/predicators/main.py",
         // "args": ["--env", "robo_kitchen", "--use_gui", "--approach", "clustering_invention", "--seed", "0", "--bilevel_plan_without_sim", "True","--debug", "--excluded_predicates", "all", "--option_learner", "direct_bc"],
-        "args": ["--use_gui", "--env", "robo_kitchen", "--approach", "clustering_invention", "--seed", "0", "--bilevel_plan_without_sim", "True","--debug", "--excluded_predicates", "all", "--option_learner", "direct_bc"],
+        "args": ["--env", "robo_kitchen", "--use_gui", "--approach", "clustering_invention", "--seed", "0", "--bilevel_plan_without_sim", "True","--debug", "--excluded_predicates", "all_goal", "--option_learner", "ds_policy", "--execution_monitor", "expected_atoms_robocasa"],
         // change segmenter to atom
         // "args": ["--env", "robo_kitchen", "--use_gui", "--approach", "grammar_search_invention", "--seed", "0", "--bilevel_plan_without_sim", "True","--debug", "--excluded_predicates", "all", "--option_learner", "direct_bc"],
         // change segmenter to contact

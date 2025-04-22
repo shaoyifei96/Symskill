@@ -99,14 +99,15 @@ class ExpectedAtomsRobocasaExecutionMonitor(BaseExecutionMonitor):
 
     def _check_maintain_effects(self, state: State, maintain_effects: Set[GroundAtom]) -> Set[GroundAtom]:
         """Check which maintain effects are unsatisfied in current state."""
-        unsat_maintain_effects = {
-            atom
-            for atom in maintain_effects
-            if not atom.holds(state)
-        }
-        if unsat_maintain_effects:
-            return unsat_maintain_effects
-        return set()
+        # unsat_maintain_effects = {
+        #     atom
+        #     for atom in maintain_effects
+        #     if not atom.holds(state)
+        # }
+        # if unsat_maintain_effects:
+        #     return unsat_maintain_effects
+        # return set()
+        return self._check_predicates(state, maintain_effects)
 
     def _validate_approach(self) -> bool:
         """Validate that we're using a supported planning approach."""
@@ -160,11 +161,11 @@ class ExpectedAtomsRobocasaExecutionMonitor(BaseExecutionMonitor):
         for atom in next_expected_atoms - next_expected_vlm_atoms:
             if (atom.predicate.name, atom.entities[0].type.name, atom.entities[1].type.name) in CFG.dict_contact_predicate_to_rel_pose_predicates:
                 rel_pose_preds = CFG.dict_contact_predicate_to_rel_pose_predicates[(atom.predicate.name, atom.entities[0].type.name, atom.entities[1].type.name)]
-                atom_holds = True
+                atom_holds = False
                 for rel_pose_pred in rel_pose_preds:
                     rel_pose_pred_atom = GroundAtom(rel_pose_pred, atom.entities)
-                    if not rel_pose_pred_atom.holds(state):
-                        atom_holds = False
+                    if rel_pose_pred_atom.holds(state):
+                        atom_holds = True
                         break
                 if not atom_holds:
                     non_vlm_unsat_atoms.add(atom)

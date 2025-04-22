@@ -677,26 +677,26 @@ class _DSOptionLearner(_OptionLearnerBase):
                         break
                 logging.warning(f"NSRT {op.name} cannot find OOI type in predicates, using {OOI_type_name} in parameters as OOI")
 
-            # Process each segment to extract position, orientation and velocity data
-            gripper = None
-            obj_of_interest = None
-            option_gripper_action = []
-            for obj in list(datastore[0][0].states[0].data.keys()):
-                if obj.name == "gripper":
-                    gripper = obj
-                if obj.name == OOI_type_name:
-                    obj_of_interest = obj
-                if gripper is not None and obj_of_interest is not None:
-                    break
-            if gripper is None or obj_of_interest is None:
-                logging.warning(f"NSRT {op.name} cannot find OOI and gripper from var_to_obj, ignoring segment")
-                continue
+            for i, (segment, var_to_obj) in enumerate(datastore):
 
                 gripper_pos_traj_OOI_frame = []
                 gripper_quat_traj_OOI_frame = []
+                option_gripper_action = []
 
                 # Extract position and orientation from states
                 for state, action in zip(segment.states, segment.actions):
+                    gripper = None
+                    obj_of_interest = None
+                    for obj in list(state.data.keys()):
+                        if obj.type.name == "gripper_type":
+                            gripper = obj
+                        if obj.type.name == OOI_type_name:
+                            obj_of_interest = obj
+                        if gripper is not None and obj_of_interest is not None:
+                            break
+                    if gripper is None or obj_of_interest is None:
+                        logging.warning(f"NSRT {op.name} cannot find OOI and gripper from var_to_obj, ignoring current state")
+                        continue
                     gripper_pose_OOI_frame = calculate_relative_pose(state, obj_of_interest, gripper, "translation", "quaternion")
                     gripper_pos_traj_OOI_frame.append(gripper_pose_OOI_frame[:3])
                     gripper_quat_traj_OOI_frame.append(gripper_pose_OOI_frame[3:])
