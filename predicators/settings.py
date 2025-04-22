@@ -14,41 +14,39 @@ from predicators.meshcat_visualizer import MeshcatVisualizer
 
 class GlobalSettings:
 
-
-    dict_contact_predicate_to_rel_pose_predicates = {} # key: contact predicate, value: set of rel_pose predicates
+    dict_contact_predicate_to_rel_pose_predicates = {}  # key: contact predicate, value: set of rel_pose predicates
     # clustering_invention approach parameters
-    predicate_candidates_method = "contact_clustering" # "low_speed" or "contact_clustering"
-    clustering_inv_cov_reg = 1e-7
+    predicate_candidates_method = "contact_clustering"  # "low_speed" or "contact_clustering"
+    clustering_inv_cov_reg = 1e-3
     clustering_change_only = False
-
 
     clustering_moving_average_window = 5
     clustering_debug = True
     enable_meshcat = False
-    clustering_se3_trans_weight = 10 # 0.05 m # 10 times differnece
-    clustering_se3_rot_weight = 0.0 # 30 deg = 0.5236 rad
-    clustering_feature_constancy_percentile = 10 # of total number of data points = 13782
-    clustering_se3_epsilon = 0.3#0.707
+    clustering_se3_trans_weight = 10  # 0.05 m # 10 times differnece
+    clustering_se3_rot_weight = 0.0  # 30 deg = 0.5236 rad
+    clustering_feature_constancy_percentile = 10  # of total number of data points = 13782
+    clustering_se3_epsilon = 0.3  # 0.707
     clustering_visualization_frame_axis_length = 0.05
-    # clustering_translation_constancy_tol = 0.01/10 # 10 hz 0.01 m 
+    # clustering_translation_constancy_tol = 0.01/10 # 10 hz 0.01 m
     # clustering_quaternion_constancy_tol = 0.01 # 10 hz 0.01 rad
     # clustering_feature_constancy_tol = 0.01 # 10 hz 0.01 m # default not used!
-    
+
     # HDBSCAN testing parameters
     testing_hdbscan = False  # Set to True to run the HDBSCAN test with synthetic data
     test_num_clusters = 2  # Number of clusters to generate for testing
     test_points_per_cluster = 50  # Points per cluster for HDBSCAN testing
     test_noise_level = 0.05  # Noise standard deviation for clusters
     test_cluster_separation = 0.1  # Distance between cluster centers
-    
+
     clustering_mahalanobis_confidence = 0.90
-    clustering_translation_epsilon = 0.3 # set dbscane to be different
-    clustering_quaternion_epsilon = 0.7 
-    clustering_dbscan_ratio = 0.1 # dbscan is 10 times smaller than this
-    clustering_agglomerative_ratio = 0.3 # what ratio of data range
-    clustering_epsilon = 0.3# default not used!
-    
-    clustering_algorithm = "agglomerative" # "hdbscan" or "agglomerative"
+    clustering_translation_epsilon = 0.3  # set dbscane to be different
+    clustering_quaternion_epsilon = 0.7
+    clustering_dbscan_ratio = 0.1  # dbscan is 10 times smaller than this
+    clustering_agglomerative_ratio = 0.3  # what ratio of data range
+    clustering_epsilon = 0.3  # default not used!
+
+    clustering_algorithm = "agglomerative"  # "hdbscan" or "agglomerative"
     clustering_min_ratio_of_data = 0.1  # 10% of the contact points 2068 * 0.1 = 206
     clustering_max_clusters = 3
     clustering_search_beam_width = 15
@@ -63,8 +61,8 @@ class GlobalSettings:
     robo_kitchen_task = "OpenSingleDoor"
     # robo_kitchen_viz_debug = False # i think the use_gui flag covers this
     robo_kitchen_contact_smoothing_window = 21
-    robo_kitchen_load_dataset = True  # this has priority, if False, then save flag is considered
-    robo_kitchen_save_dataset = False
+    robo_kitchen_load_dataset = False  # this has priority, if False, then save flag is considered
+    robo_kitchen_save_dataset = not robo_kitchen_load_dataset
     robo_kitchen_save_traj_by_segment = True
     robo_kitchen_policy_model = "node"  # "simple_ds" or "node"
     make_test_videos = False

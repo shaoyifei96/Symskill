@@ -359,6 +359,10 @@ class RoboKitchenEnv(BaseEnv):
         surface_pos = self._current_state.get(surface_obj, "translation")
         surface_quat = self._current_state.get(surface_obj, "quaternion")
         self.mjshowframe(surface_pos, surface_quat, name="surface")
+        cabinet_obj = self._current_state.get_objects(self.cabinet_type)[0]
+        cabinet_obj_pos = self._current_state.get(cabinet_obj, "translation")
+        cabinet_obj_quat = self._current_state.get(cabinet_obj, "quaternion")
+        self.mjshowframe(cabinet_obj_pos, cabinet_obj_quat, name="cabinet")
 
         if CFG.use_teleop:
             input_ac_dict = self.device.input2action(mirror_actions=True)

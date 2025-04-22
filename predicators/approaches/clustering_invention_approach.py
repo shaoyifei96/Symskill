@@ -340,8 +340,8 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         logging.info("Generating candidate predicates via clustering...")
         # Filter dataset to only keep specific trajectory indices
         if CFG.robo_kitchen_task == "OpenSingleDoor":
-            keep_indices = [0, 3, 4, 6, 7, 8]
-            dataset._trajectories = [dataset._trajectories[i] for i in keep_indices]
+            keep_indices = [0, 2, 3, 4, 6, 7, 8, 9, 10, 12, 14, 15, 16, 17, 19, 21, 25, 32, 33, 35, 36, 38, 39, 40, 42, 44, 45, 47, 48, 49]
+            dataset._trajectories = [dataset._trajectories[i] for i in keep_indices if i < len(dataset._trajectories)]
 
         # logging.info(f"Filtered dataset to trajectories (indices: {keep_indices})")
         # Clear caches before starting learning
