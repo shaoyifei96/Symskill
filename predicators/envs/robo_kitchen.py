@@ -639,7 +639,9 @@ class RoboKitchenEnv(BaseEnv):
         surface_pos = state.get(surface, "translation")
         surface_quat = state.get(surface, "quaternion")
         obj_pos_in_surface, _ = frame_transform(obj_pos, obj_quat, surface_pos, R.from_quat(surface_quat).as_matrix())
-        return abs(obj_pos_in_surface[2]) <= cls.place_close_distance_thresh
+        near_surface = obj_pos_in_surface[2] <= cls.place_close_distance_thresh
+        in_surface = abs(obj_pos_in_surface[0]) <= 0.1 and abs(obj_pos_in_surface[1]) <= 0.1
+        return near_surface and in_surface
 
 
 def frame_transform(pos_in_init: np.ndarray, quat_in_init: np.ndarray, target_pos: np.ndarray, target_rot: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
