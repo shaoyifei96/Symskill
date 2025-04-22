@@ -1,6 +1,7 @@
 """Methods for segmenting low-level trajectories into segments."""
 
 from typing import Callable, List, Optional, Set, Tuple
+import time
 
 import numpy as np
 from predicators import utils
@@ -21,6 +22,7 @@ def segment_trajectory(
     """Segment a ground atom trajectory."""
     # Start with the segmenters that don't need atom_seq. Still pass it in
     # because if it was provided, it can be used to avoid calling abstract.
+    start_time = time.time()
     if CFG.segmenter == "option_changes":
         return _segment_with_option_changes(ll_traj, predicates, atom_seq)
     if CFG.segmenter == "every_step":
@@ -39,6 +41,7 @@ def segment_trajectory(
         return _segment_with_oracle(ll_traj, predicates, atom_seq)
     if CFG.segmenter == "contacts":
         return _segment_with_contact_changes(ll_traj, predicates, atom_seq)
+    print(f"Segmentation took {time.time() - start_time:.2f} seconds.")
     raise NotImplementedError(f"Unrecognized segmenter: {CFG.segmenter}.")
 
 
@@ -98,6 +101,7 @@ def _segment_with_contact_changes(
     all_keep_atoms = []
     for state in ll_traj.states:
         all_keep_atoms.append(utils.abstract(state, keep_preds))
+        # print(state.items_in_contact)
 
     def _switch_fn(t: int) -> bool:
         return all_keep_atoms[t] != all_keep_atoms[t + 1]

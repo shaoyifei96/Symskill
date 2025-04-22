@@ -355,7 +355,7 @@ class _LearnedSampler:
             assert len(goal_atom.objects) == 1
             goal_obj = goal_atom.objects[0]
             x_lst.extend(state[goal_obj])  # add goal state
-        x = np.array(x_lst)
+        x = utils._flatten_and_convert_to_array(x_lst)
         num_rejections = 0
         if CFG.sampler_disable_classifier:
             params = np.array(self._regressor.predict_sample(x, rng),

@@ -41,21 +41,26 @@ MAX_ROTATION_DISPLACEMENT = 1.0
 class RoboKitchenEnv(BaseEnv):
     """Kitchen environment using robosuite."""
 
-    hinge_open_thresh = 1.3  # rad
+    door_open_thresh = 1.3  # rad
     door_half_open_thresh = 0.4  # rad
     close_distance_thresh = 0.02  # m
-    gripper_fingers_distance_thresh = 0.1  # m
+    gripper_fingers_distance_thresh = 0.08  # m
+    gripper_fingers_distance_thresh = 0.08  # m
     offset_inwards_from_handle = 0.10  # m
+    close_distance_thresh = 0.05  # m
+    close_distance_thresh = 0.05  # m
 
     # Types
     object_type = Type("object_type", ["translation", "quaternion"])
+    grab_type = Type("grab_type", ["translation", "quaternion"], parent=object_type)
     base_type = Type("base_type", ["translation", "quaternion"], parent=object_type)
     gripper_type = Type("gripper_type", ["translation", "quaternion"], parent=object_type)
     left_finger_type = Type("left_finger_type", ["translation", "quaternion"], parent=object_type)
     right_finger_type = Type("right_finger_type", ["translation", "quaternion"], parent=object_type)
     cabinet_type = Type("cabinet_type", ["translation", "quaternion"], parent=object_type)
-    door_type = Type("door_type", ["translation", "quaternion"], parent=object_type)
-    handle_type = Type("handle_type", ["translation", "quaternion"], parent=object_type)
+    handle_type = Type("handle_type", ["translation", "quaternion"], parent=grab_type)
+    surface_type = Type("surface_type", ["translation", "quaternion"], parent=object_type)
+    thing_type = Type("thing_type", ["translation", "quaternion"], parent=grab_type)
 
     obj_name_to_type = {
         "handle": handle_type,
@@ -63,36 +68,37 @@ class RoboKitchenEnv(BaseEnv):
         "left_finger": left_finger_type,
         "right_finger": right_finger_type,
         "cabinet": cabinet_type,
-        "door": door_type,
         "robot0_base": base_type,
+        "obj": thing_type,
+        "bottom": surface_type,
     }
 
-    # tasks_extended = ['Lift', 'Stack', 'NutAssembly', 'NutAssemblySingle', 'NutAssemblySquare', 'NutAssemblyRound',
-    #                    'PickPlace', 'PickPlaceSingle', 'PickPlaceMilk', 'PickPlaceBread', 'PickPlaceCereal', 'PickPlaceCan',
-    #                    'Door', 'Wipe', 'ToolHang', 'TwoArmLift', 'TwoArmPegInHole', 'TwoArmHandover', 'TwoArmTransport', 'Kitchen',
-    #                      'KitchenDemo', 'CupcakeCleanup', 'OrganizeBakingIngredients', 'PastryDisplay', 'FillKettle', 'HeatMultipleWater',
-    #                        'VeggieBoil', 'ArrangeTea', 'KettleBoiling', 'PrepareCoffee', 'ArrangeVegetables', 'BreadSetupSlicing',
-    #                        'ClearingTheCuttingBoard', 'MeatTransfer', 'OrganizeVegetables', 'BowlAndCup', 'CandleCleanup',
-    #                        'ClearingCleaningReceptacles', 'CondimentCollection', 'DessertAssembly', 'DrinkwareConsolidation',
-    #                        'FoodCleanup', 'DefrostByCategory', 'MicrowaveThawing', 'QuickThaw', 'ThawInSink', 'AssembleCookingArray',
-    #                        'FryingPanAdjustment', 'MealPrepStaging', 'SearingMeat', 'SetupFrying', 'BreadSelection', 'CheesyBread',
-    #                        'PrepareToast', 'SweetSavoryToastSetup', 'PrepForTenderizing', 'PrepMarinatingMeat', 'ColorfulSalsa',
-    #                        'SetupJuicing', 'SpicyMarinade', 'HeatMug', 'MakeLoadedPotato', 'SimmeringSauce', 'WaffleReheat',
-    #                        'WarmCroissant', 'BeverageSorting', 'RestockBowls', 'RestockPantry', 'StockingBreakfastFoods',
-    #                        'CleanMicrowave', 'CountertopCleanup', 'PrepForSanitizing', 'PushUtensilsToSink', 'DessertUpgrade',
-    #                          'PanTransfer', 'PlaceFoodInBowls', 'PrepareSoupServing', 'ServeSteak', 'WineServingPrep',
-    #                          'ArrangeBreadBasket', 'BeverageOrganization', 'DateNight', 'SeasoningSpiceSetup',
-    #                          'SetBowlsForSoup', 'SizeSorting', 'BreadAndCheese', 'CerealAndBowl', 'MakeFruitBowl',
-    #                          'VeggieDipPrep', 'YogurtDelightPrep', 'MultistepSteaming', 'SteamInMicrowave', 'SteamVegetables',
-    #                          'ManipulateDrawer', 'OpenDrawer', 'CloseDrawer', 'DrawerUtensilSort', 'OrganizeCleaningSupplies',
-    #                          'PantryMishap', 'ShakerShuffle', 'SnackSorting', 'DryDishes', 'DryDrinkware', 'PreSoakPan', 'SortingCleanup',
-    #                          'StackBowlsInSink', 'AfterwashSorting', 'ClearClutter', 'DrainVeggies', 'PrewashFoodAssembly', 'PnPCoffee',
-    #                          'CoffeeSetupMug', 'CoffeeServeMug', 'CoffeePressButton', 'ManipulateDoor', 'OpenDoor', 'OpenSingleDoor',
-    #                          'OpenDoubleDoor', 'CloseDoor', 'CloseSingleDoor', 'CloseDoubleDoor', 'MicrowavePressButton', 'TurnOnMicrowave',
-    #                            'TurnOffMicrowave', 'NavigateKitchen', 'PnP', 'PnPCounterToCab', 'PnPCabToCounter', 'PnPCounterToSink',
-    #                            'PnPSinkToCounter', 'PnPCounterToMicrowave', 'PnPMicrowaveToCounter', 'PnPCounterToStove', 'PnPStoveToCounter',
-    #                            'ManipulateSinkFaucet', 'TurnOnSinkFaucet', 'TurnOffSinkFaucet', 'TurnSinkSpout', 'ManipulateStoveKnob',
-    #                              'TurnOnStove', 'TurnOffStove']
+    tasks_extended = ['Lift', 'Stack', 'NutAssembly', 'NutAssemblySingle', 'NutAssemblySquare', 'NutAssemblyRound',
+                       'PickPlace', 'PickPlaceSingle', 'PickPlaceMilk', 'PickPlaceBread', 'PickPlaceCereal', 'PickPlaceCan',
+                       'Door', 'Wipe', 'ToolHang', 'TwoArmLift', 'TwoArmPegInHole', 'TwoArmHandover', 'TwoArmTransport', 'Kitchen',
+                         'KitchenDemo', 'CupcakeCleanup', 'OrganizeBakingIngredients', 'PastryDisplay', 'FillKettle', 'HeatMultipleWater',
+                           'VeggieBoil', 'ArrangeTea', 'KettleBoiling', 'PrepareCoffee', 'ArrangeVegetables', 'BreadSetupSlicing',
+                           'ClearingTheCuttingBoard', 'MeatTransfer', 'OrganizeVegetables', 'BowlAndCup', 'CandleCleanup',
+                           'ClearingCleaningReceptacles', 'CondimentCollection', 'DessertAssembly', 'DrinkwareConsolidation',
+                           'FoodCleanup', 'DefrostByCategory', 'MicrowaveThawing', 'QuickThaw', 'ThawInSink', 'AssembleCookingArray',
+                           'FryingPanAdjustment', 'MealPrepStaging', 'SearingMeat', 'SetupFrying', 'BreadSelection', 'CheesyBread',
+                           'PrepareToast', 'SweetSavoryToastSetup', 'PrepForTenderizing', 'PrepMarinatingMeat', 'ColorfulSalsa',
+                           'SetupJuicing', 'SpicyMarinade', 'HeatMug', 'MakeLoadedPotato', 'SimmeringSauce', 'WaffleReheat',
+                           'WarmCroissant', 'BeverageSorting', 'RestockBowls', 'RestockPantry', 'StockingBreakfastFoods',
+                           'CleanMicrowave', 'CountertopCleanup', 'PrepForSanitizing', 'PushUtensilsToSink', 'DessertUpgrade',
+                             'PanTransfer', 'PlaceFoodInBowls', 'PrepareSoupServing', 'ServeSteak', 'WineServingPrep',
+                             'ArrangeBreadBasket', 'BeverageOrganization', 'DateNight', 'SeasoningSpiceSetup',
+                             'SetBowlsForSoup', 'SizeSorting', 'BreadAndCheese', 'CerealAndBowl', 'MakeFruitBowl',
+                             'VeggieDipPrep', 'YogurtDelightPrep', 'MultistepSteaming', 'SteamInMicrowave', 'SteamVegetables',
+                             'ManipulateDrawer', 'OpenDrawer', 'CloseDrawer', 'DrawerUtensilSort', 'OrganizeCleaningSupplies',
+                             'PantryMishap', 'ShakerShuffle', 'SnackSorting', 'DryDishes', 'DryDrinkware', 'PreSoakPan', 'SortingCleanup',
+                             'StackBowlsInSink', 'AfterwashSorting', 'ClearClutter', 'DrainVeggies', 'PrewashFoodAssembly', 'PnPCoffee',
+                             'CoffeeSetupMug', 'CoffeeServeMug', 'CoffeePressButton', 'ManipulateDoor', 'OpenDoor', 'OpenSingleDoor',
+                             'OpenDoubleDoor', 'CloseDoor', 'CloseSingleDoor', 'CloseDoubleDoor', 'MicrowavePressButton', 'TurnOnMicrowave',
+                               'TurnOffMicrowave', 'NavigateKitchen', 'PnP', 'PnPCounterToCab', 'PnPCabToCounter', 'PnPCounterToSink',
+                               'PnPSinkToCounter', 'PnPCounterToMicrowave', 'PnPMicrowaveToCounter', 'PnPCounterToStove', 'PnPStoveToCounter',
+                               'ManipulateSinkFaucet', 'TurnOnSinkFaucet', 'TurnOffSinkFaucet', 'TurnSinkSpout', 'ManipulateStoveKnob',
+                                 'TurnOnStove', 'TurnOffStove']
 
     def __init__(self, use_gui: bool = True) -> None:
         super().__init__(use_gui)
@@ -108,7 +114,7 @@ class RoboKitchenEnv(BaseEnv):
         self._env = None  # Will be created in reset
         self._env_raw = None
         self.task_selected = CFG.robo_kitchen_task
-        if self.task_selected not in ALL_KITCHEN_ENVIRONMENTS:
+        if self.task_selected not in self.tasks_extended:
             raise ValueError(f"Task {self.task_selected} not supported")
         print(colored(f"Selected task: {self.task_selected}", "green"))
 
@@ -117,8 +123,11 @@ class RoboKitchenEnv(BaseEnv):
     def get_objects_of_interest(self, task_name: str) -> List[Object]:
         """Get the object of interest for the task."""
         if task_name == "OpenSingleDoor":
-            return [self.object_name_to_object("handle"), self.object_name_to_object("door")]
+            return [self.object_name_to_object("handle")]
         # by default, there are robot and gripper objects
+        elif task_name == "PnPCounterToCab":
+            # warnings.warn("\033[91mPnPCounterToCab is not supported, only using handle as object of interest as a dummy\033[0m")
+            return [self.object_name_to_object("obj")] 
         else:
             raise ValueError(f"Task {task_name} not supported")
 
@@ -212,9 +221,9 @@ class RoboKitchenEnv(BaseEnv):
         goal_desc = self.task_selected
 
         if goal_desc == "OpenSingleDoor":
-            door = self.object_name_to_object("door")
+            handle = self.object_name_to_object("handle")
             cabinet = self.object_name_to_object("cabinet")
-            if self._HingeOpen_holds(state, [door, cabinet]):
+            if self._DoorOpen_holds(state, [handle, cabinet]):
                 return True
         else:
             return False
@@ -235,7 +244,7 @@ class RoboKitchenEnv(BaseEnv):
                     "controller_configs": controller_config,
                     "layout_ids": 2,
                     "style_ids": 0,
-                    "translucent_robot": False,
+                    "translucent_robot": True,
                 }
 
                 print(colored(f"Initializing environment for task: {task_name}", "yellow"))
@@ -316,13 +325,14 @@ class RoboKitchenEnv(BaseEnv):
     def create_predicates(cls) -> Dict[str, Predicate]:
         """Exposed for perceiver."""
         preds = {
-            Predicate("ReadyGrabHandle", [cls.gripper_type, cls.handle_type], cls._ReadyGrabHandle_holds),
+            Predicate("ReadyGrabObj", [cls.gripper_type, cls.object_type], cls._ReadyGrabObj_holds),
             Predicate("GripperOpen", [cls.left_finger_type, cls.right_finger_type], cls._GripperOpen_holds),
             Predicate("GripperClosed", [cls.left_finger_type, cls.right_finger_type], cls._GripperClosed_holds),
-            Predicate("HingeOpen", [cls.door_type, cls.cabinet_type], cls._HingeOpen_holds),
-            Predicate("HingeClosed", [cls.door_type, cls.cabinet_type], cls._HingeClosed_holds),
+            Predicate("DoorOpen", [cls.handle_type, cls.cabinet_type], cls._DoorOpen_holds),
+            Predicate("DoorClosed", [cls.handle_type, cls.cabinet_type], cls._DoorClosed_holds),
             Predicate("InContact", [cls.object_type, cls.object_type], cls._InContact_holds),
-            Predicate("DoorHalfOpen", [cls.door_type, cls.cabinet_type], cls._DoorHalfOpen_holds),
+            Predicate("OnSurface", [cls.object_type, cls.surface_type], cls._OnSurface_holds),
+            Predicate("DoorHalfOpen", [cls.handle_type, cls.cabinet_type], cls._DoorHalfOpen_holds),
         }
 
         return {p.name: p for p in preds}
@@ -338,17 +348,26 @@ class RoboKitchenEnv(BaseEnv):
         Convert 7D predicators action [dx, dy, dz, droll, dpitch, dyaw, gripper]
         to 12D robocasa action [right_pose(6), right_gripper(1), base(3), torso(1), extra(1)]
         """
+        
+        # Debugging: show frames of gripper, target and surface
+        gripper_obj = self._current_state.get_objects(self.gripper_type)[0]
+        gripper_pos = self._current_state.get(gripper_obj, "translation")
+        gripper_quat = self._current_state.get(gripper_obj, "quaternion")
+        self.mjshowframe(gripper_pos, gripper_quat, name="gripper")
+        grap_obj = self._current_state.get_objects(self.grab_type)[0]
+        grab_pos = self._current_state.get(grap_obj, "translation")
+        grab_quat = self._current_state.get(grap_obj, "quaternion")
+        self.mjshowframe(grab_pos, grab_quat, name="target")
+        surface_obj = self._current_state.get_objects(self.surface_type)[0]
+        surface_pos = self._current_state.get(surface_obj, "translation")
+        surface_quat = self._current_state.get(surface_obj, "quaternion")
+        self.mjshowframe(surface_pos, surface_quat, name="surface")
+
         if CFG.use_teleop:
             input_ac_dict = self.device.input2action(mirror_actions=True)
             # print(f"input_ac_dict: {input_ac_dict}")
             # action_keyboard = self._env.robots[0].create_action_vector(input_ac_dict)
 
-        # Debug print
-        # print("\n" + "="*50)
-        # print("STEP DEBUG INFO:")
-        # print(f"Door state: {self._env_raw.door_fxtr.get_door_state(env=self._env_raw)}")
-        # print(f"Action: {action.arr}")
-        # print("="*50 + "\n")
         # Scale the action
         pos_delta = action.arr[:3] * MAX_CARTESIAN_DISPLACEMENT
         rot_delta = action.arr[3:6] * MAX_ROTATION_DISPLACEMENT
@@ -393,6 +412,16 @@ class RoboKitchenEnv(BaseEnv):
         """Render current state."""
         return self._env.render()
 
+    def mjprint(self, text, auto_clean=False):
+        """Print text in the viewer."""
+        if self._env_raw is not None:
+            self._env_raw.viewer.mjprint(text, auto_clean=auto_clean)
+
+    def mjshowframe(self, xyz, quat=(1,0,0,0), size=0.1, name=None, keep=False):
+        """Show frame in the viewer."""
+        if self._env_raw is not None:
+            self._env_raw.viewer.mjshowframe(xyz, quat=quat, size=size, name=name, keep=keep)
+
     @property
     def action_space(self) -> Box:
         """7D action space: [dx, dy, dz, droll, dpitch, dyaw, gripper]"""
@@ -404,9 +433,9 @@ class RoboKitchenEnv(BaseEnv):
         goal_desc = self.task_selected
         goal_preds = set()
         if goal_desc == "OpenSingleDoor":
-            goal_preds = {self._pred_name_to_pred["HingeOpen"]}
-        elif goal_desc == "CloseSingleDoor":
-            goal_preds = {self._pred_name_to_pred["HingeClosed"]}
+            goal_preds = {self._pred_name_to_pred["DoorOpen"]}
+        elif goal_desc == "PnPCounterToCab":
+            goal_preds = {self._pred_name_to_pred["OnSurface"]}
         return goal_preds
     @property
     def inContact_predicate(self) -> Set[Predicate]:
@@ -430,8 +459,10 @@ class RoboKitchenEnv(BaseEnv):
             self.left_finger_type,
             self.right_finger_type,
             self.cabinet_type,
-            self.door_type,
             self.handle_type,
+            self.surface_type,
+            self.thing_type,
+            self.grab_type,
         }
 
     def get_observation(self) -> Observation:
@@ -450,7 +481,8 @@ class RoboKitchenEnv(BaseEnv):
         if obj_name in cls.obj_name_to_type:
             return Object(obj_name, cls.obj_name_to_type[obj_name])
         else:
-            return Object(obj_name, cls.object_type)
+            return None
+            raise ValueError(f"Object {obj_name} not found in obj_name_to_type")
 
     @classmethod
     def state_info_to_state(cls, state_info: Dict[str, Any], contact_set: set[Tuple[Object, Object]] = None) -> State:
@@ -469,33 +501,35 @@ class RoboKitchenEnv(BaseEnv):
                 translation = np.array(state_info[key[:-5] + "_pos"])
                 quaternion = np.array(val)
                 obj = cls.object_name_to_object(obj_name)
-                state_dict[obj] = {"translation": translation, "quaternion": quaternion}
+                if obj is not None:
+                    state_dict[obj] = {"translation": translation, "quaternion": quaternion}
 
         state = utils.create_state_from_dict(state_dict)
         state.simulator_state = {}
         state.items_in_contact = contact_set  # when defaults, it means Not populated, when empty means no contact
+        cls._current_state = state
         return state
 
     @classmethod
-    def _ReadyGrabHandle_holds(cls, state: State, objects: Sequence[Object]) -> bool:
+    def _ReadyGrabObj_holds(cls, state: State, objects: Sequence[Object]) -> bool:
         """Check if gripper is ready to grip handle."""
         def frame_transform(pos_in_init: np.ndarray, quat_in_init: np.ndarray, target_pos: np.ndarray, target_rot: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:                
             rot_in_init = R.from_quat(quat_in_init).as_matrix()
-            
+
             rel_pos_init = pos_in_init - target_pos
-            
+
             pos_in_target = target_rot.T @ rel_pos_init
             rot_in_target = target_rot.T @ rot_in_init
-            
+
             return pos_in_target, rot_in_target
-        gripper, handle = objects
+        gripper, obj = objects
         # Check if position of gripper is close to handle
         gripper_pos = state.get(gripper, "translation")
         gripper_quat = state.get(gripper, "quaternion")
-        handle_pos = state.get(handle, "translation")
-        handle_quat = state.get(handle, "quaternion")
-        gripper_pos_in_handle, _ = frame_transform(gripper_pos, gripper_quat, handle_pos, R.from_quat(handle_quat).as_matrix())
-        if np.linalg.norm(gripper_pos_in_handle[0]) <= 0.1 and gripper_pos_in_handle[1] > 0:
+        obj_pos = state.get(obj, "translation")
+        obj_quat = state.get(obj, "quaternion")
+        gripper_pos_in_obj, _ = frame_transform(gripper_pos, gripper_quat, obj_pos, R.from_quat(obj_quat).as_matrix())
+        if np.linalg.norm(gripper_pos_in_obj[0]) <= 0.1 and gripper_pos_in_obj[1] > 0:
             return True
         return False
 
@@ -530,7 +564,7 @@ class RoboKitchenEnv(BaseEnv):
         return distance <= cls.gripper_fingers_distance_thresh
 
     @classmethod
-    def _HingeOpen_holds(cls, state: State, objects: Sequence[Object]) -> bool:
+    def _DoorOpen_holds(cls, state: State, objects: Sequence[Object]) -> bool:
         """Check if door is open by comparing rotation between door and cabinet."""
         door, cabinet = objects
 
@@ -551,10 +585,10 @@ class RoboKitchenEnv(BaseEnv):
         rot_vec = rel_rot.as_rotvec()
         rotation_value = np.linalg.norm(rot_vec)  # Total rotation angle in radians
 
-        return rotation_value > cls.hinge_open_thresh
+        return rotation_value > cls.door_open_thresh
 
     @classmethod
-    def _HingeClosed_holds(cls, state: State, objects: Sequence[Object]) -> bool:
+    def _DoorClosed_holds(cls, state: State, objects: Sequence[Object]) -> bool:
         """Check if door is closed by comparing rotation between door and cabinet."""
         door, cabinet = objects
 
@@ -575,8 +609,8 @@ class RoboKitchenEnv(BaseEnv):
         rot_vec = rel_rot.as_rotvec()
         rotation_value = np.linalg.norm(rot_vec)  # Total rotation angle in radians
 
-        return rotation_value <= cls.hinge_open_thresh
-    
+        return rotation_value <= cls.door_open_thresh
+
     @classmethod
     def _DoorHalfOpen_holds(cls, state: State, objects: Sequence[Object]) -> bool:
         """Check if door is open by comparing rotation between door and cabinet."""
@@ -607,49 +641,12 @@ class RoboKitchenEnv(BaseEnv):
         obj1, obj2 = objects
         return (obj1, obj2) in state.items_in_contact or (obj2, obj1) in state.items_in_contact
 
-    def _add_debug_visualization(self):
-        """Add debug visualization markers at important locations."""
-        # Get the viewer from the simulation
-        viewer = self._env.viewer
-        if viewer is None:
-            return
-
-        # Clear existing visualizations
-        viewer.user_scn.ngeom = 0
-        geom_count = 0
-
-        # Add visualization for each object's important sites/geoms
-        for obj_name, obj in self.objects.items():
-            # Get object position and orientation
-            obj_pos = sim.data.body_xpos[self.obj_body_id[obj_name]]
-
-            # Create a sphere at object position
-            mujoco.mjv_initGeom(
-                viewer.user_scn.geoms[geom_count],
-                type=mujoco.mjtGeom.mjGEOM_SPHERE,
-                size=[0.02, 0, 0],  # Small sphere
-                pos=obj_pos,
-                mat=np.eye(3).flatten(),
-                rgba=[1, 0, 0, 0.5]  # Semi-transparent red
-            )
-            geom_count += 1
-
-            # Add more visualizations for specific object types
-            if obj_name in ["microwave", "cabinet", "drawer"]:
-                # Add handle visualization
-                handle_site_id = sim.model.site_name2id(f"{obj_name}_handle")
-                if handle_site_id >= 0:
-                    handle_pos = sim.data.site_xpos[handle_site_id]
-                    mujoco.mjv_initGeom(
-                        viewer.user_scn.geoms[geom_count],
-                        type=mujoco.mjtGeom.mjGEOM_SPHERE,
-                        size=[0.015, 0, 0],
-                        pos=handle_pos,
-                        mat=np.eye(3).flatten(),
-                        rgba=[0, 1, 0, 0.5]  # Semi-transparent green
-                    )
-                    geom_count += 1
-
-        # Update the number of visualization geoms
-        viewer.user_scn.ngeom = geom_count
-        viewer.sync()
+    @classmethod
+    def _OnSurface_holds(cls, state: State, objects: Sequence[Object]) -> bool:
+        """Check if object is at location."""
+        obj, surface = objects
+        obj_pos = state.get(obj, "translation")
+        location_pos = state.get(surface, "translation")
+        near_surface = np.linalg.norm(obj_pos - location_pos) < cls.close_distance_thresh
+        on_top = (obj_pos[2] - location_pos[2]) < cls.close_distance_thresh
+        return near_surface and on_top

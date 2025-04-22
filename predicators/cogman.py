@@ -252,14 +252,12 @@ def run_episode_and_get_observations(
                     monitor.observe(obs, act)
                     monitor_observed = True
 
-                if env._env_raw is not None:
-                    # NSRT: {current_nsrt.name}\n \
-                    env._env_raw.viewer.mjprint(
-                        f" \
-                        Option: {curr_option.name}\n \
-                        ", auto_clean=True
-                        )
-
+                env.mjprint(
+                    f" \
+                    Option: {curr_option.name}\n \
+                    ", auto_clean=True
+                    )
+                    
                 obs = env.step(act)
                 actions.append(act)
                 observations.append(obs)

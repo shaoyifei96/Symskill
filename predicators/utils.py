@@ -152,6 +152,29 @@ def combinations_no_self_pairs(iterable, r):
         if len(set(combo)) == r  # ensures no repeated elements
     ]
 
+
+def _flatten_and_convert_to_array(vec: List) -> Array:
+    """Flatten any nested arrays in the vector and convert to a numpy array.
+    
+    Args:
+        vec: A list that may contain numpy arrays
+        
+    Returns:
+        A flattened numpy array
+    """
+    if any(isinstance(x, np.ndarray) for x in vec):
+        # Flatten any nested arrays
+        flattened_vec = []
+        for item in vec:
+            if isinstance(item, np.ndarray):
+                flattened_vec.extend(item.flatten())
+            else:
+                flattened_vec.append(item)
+        return np.array(flattened_vec, dtype=np.float32)
+    else:
+        return np.array(vec, dtype=np.float32)
+
+
 def count_positives_for_ops(
     strips_ops: List[STRIPSOperator],
     option_specs: List[OptionSpec],
@@ -2595,6 +2618,7 @@ def abstract(state: State,
     for pred in preds:
         if pred not in vlm_preds:
             for choice in get_object_combinations(list(state), pred.types):
+                # print(choice)
                 if pred.holds(state, choice):
                     atoms.add(GroundAtom(pred, choice))
     if len(vlm_preds) > 0:

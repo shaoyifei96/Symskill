@@ -469,6 +469,7 @@ class _LearnedNeuralParameterizedOption(ParameterizedOption):
         else:
             relative_goal_vec = []
         x = np.hstack(([1.0], state.vec(objects), relative_goal_vec))
+        x = _flatten_and_convert_to_array(x)
         action_arr = self._regressor.predict(x)
         if np.isnan(action_arr).any():
             raise OptionExecutionFailure("Option policy returned nan.")
@@ -1174,23 +1175,3 @@ def _create_absolute_option_param(state: State,
     return np.array(vec, dtype=np.float32)
 
 
-def _flatten_and_convert_to_array(vec: List) -> Array:
-    """Flatten any nested arrays in the vector and convert to a numpy array.
-    
-    Args:
-        vec: A list that may contain numpy arrays
-        
-    Returns:
-        A flattened numpy array
-    """
-    if any(isinstance(x, np.ndarray) for x in vec):
-        # Flatten any nested arrays
-        flattened_vec = []
-        for item in vec:
-            if isinstance(item, np.ndarray):
-                flattened_vec.extend(item.flatten())
-            else:
-                flattened_vec.append(item)
-        return np.array(flattened_vec, dtype=np.float32)
-    else:
-        return np.array(vec, dtype=np.float32)

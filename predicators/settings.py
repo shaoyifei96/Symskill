@@ -56,17 +56,23 @@ class GlobalSettings:
     clustering_search_max_iterations = 30
     clustering_check_plan_length_constraint = True
     clustering_search_constraint_penalty = 10.0
+
     # robo_kitchen env parameters
-    robo_kitchen_randomize_init_state = True # not used
+    robo_kitchen_randomize_init_state = True  # not used
+    # robo_kitchen_task = "PnPCounterToCab"
     robo_kitchen_task = "OpenSingleDoor"
     # robo_kitchen_viz_debug = False # i think the use_gui flag covers this
     robo_kitchen_contact_smoothing_window = 21
-    robo_kitchen_load_dataset = True # this has priority, if False, then save flag is considered
+    robo_kitchen_load_dataset = True  # this has priority, if False, then save flag is considered
     robo_kitchen_save_dataset = False
-    robo_kitchen_save_traj_by_segment = False
-    robo_kitchen_policy_model = "node" # "simple_ds" or "node
+    robo_kitchen_save_traj_by_segment = True
+    robo_kitchen_policy_model = "node"  # "simple_ds" or "node"
     make_test_videos = False
     loglevel = 10
+    if enable_meshcat:
+        visualizer = MeshcatVisualizer()
+    else:
+        visualizer = None
     if enable_meshcat:
         visualizer = MeshcatVisualizer()
     else:
@@ -77,8 +83,8 @@ class GlobalSettings:
 
     """Unchanging settings."""
     # global parameters
-    num_train_tasks = 10 # in robocasa, either the max demo number or num_train_tasks will be used
-    num_test_tasks = 5
+    num_train_tasks = 10  # in robocasa, either the max demo number or num_train_tasks will be used
+    num_test_tasks = 1
     # Perform online learning for this many cycles or until this many
     # transitions have been collected, whichever happens first.
     num_online_learning_cycles = 10
@@ -231,7 +237,8 @@ class GlobalSettings:
                 "fetch": (0.7071, 0.0, -0.7071, 0.0),
                 "panda": (0.7071, 0.7071, 0.0, 0.0),
             }
-        })
+        },
+    )
 
     # IKFast parameters
     ikfast_max_time = 0.05
@@ -741,10 +748,10 @@ class GlobalSettings:
     grammar_search_predicate_cost_upper_bound = 6
     grammar_search_prune_redundant_preds = True
     grammar_search_score_function = "expected_nodes_created"
-    grammar_search_heuristic_based_weight = 10.
+    grammar_search_heuristic_based_weight = 10.0
     grammar_search_max_demos = float("inf")
     grammar_search_max_nondemos = 50
-    grammar_search_energy_based_temperature = 10.
+    grammar_search_energy_based_temperature = 10.0
     grammar_search_task_planning_timeout = 1.0
     grammar_search_search_algorithm = "hill_climbing"  # hill_climbing or gbfs
     grammar_search_hill_climbing_depth = 0
@@ -758,8 +765,7 @@ class GlobalSettings:
     grammar_search_expected_nodes_backtracking_cost = 1e3
     grammar_search_expected_nodes_allow_noops = True
     grammar_search_classifier_pretty_str_names = ["?x", "?y", "?z"]
-    grammar_search_vlm_atom_proposal_prompt_type = \
-        "options_labels_whole_traj_diverse"
+    grammar_search_vlm_atom_proposal_prompt_type = "options_labels_whole_traj_diverse"
     grammar_search_vlm_atom_label_prompt_type = "per_scene_naive"
     grammar_search_vlm_atom_proposal_use_debug = False
     grammar_search_parallelize_vlm_labeling = True
@@ -790,11 +796,14 @@ class GlobalSettings:
 
         return dict(
             # The method used for perception: now only "trivial" or "sokoban".
-            perceiver=defaultdict(lambda: "trivial", {
-                "sokoban": "sokoban",
-                "kitchen": "kitchen",
-                "robo_kitchen": "robo_kitchen",
-            })[args.get("env", "")],
+            perceiver=defaultdict(
+                lambda: "trivial",
+                {
+                    "sokoban": "sokoban",
+                    "kitchen": "kitchen",
+                    "robo_kitchen": "robo_kitchen",
+                },
+            )[args.get("env", "")],
             # Horizon for each environment. When checking if a policy solves a
             # task, we run the policy for at most this many steps.
             horizon=defaultdict(
@@ -813,8 +822,8 @@ class GlobalSettings:
                     "touch_point": 15,
                     # Ditto for the simple grid row environment.
                     "grid_row": cls.grid_row_num_cells + 2,
-                })[args.get("env", "")],
-
+                },
+            )[args.get("env", "")],
             # Maximum number of steps to roll out an option policy.
             max_num_steps_option_rollout=defaultdict(
                 lambda: 1000,
@@ -822,8 +831,8 @@ class GlobalSettings:
                     # For the stick button environment, limit the per-option
                     # horizon.
                     "stick_button": 50,
-                })[args.get("env", "")],
-
+                },
+            )[args.get("env", "")],
             # In SeSamE, when to propagate failures back up to the high level
             # search. Choices are: {"after_exhaust", "immediately", "never"}.
             sesame_propagate_failures=defaultdict(
@@ -835,8 +844,8 @@ class GlobalSettings:
                     # immediately raise failures, leading to unsolvable tasks.
                     "cluttered_table": "after_exhaust",
                     "cluttered_table_place": "after_exhaust",
-                })[args.get("env", "")],
-
+                },
+            )[args.get("env", "")],
             # For learning-based approaches, the data collection strategy.
             offline_data_method=defaultdict(
                 # Use only demonstrations by default.
@@ -844,8 +853,8 @@ class GlobalSettings:
                 {
                     # Interactive learning project needs ground atom data.
                     "interactive_learning": "demo+ground_atoms",
-                })[args.get("approach", "")],
-
+                },
+            )[args.get("approach", "")],
             # The name of the option model used by the agent.
             option_model_name=defaultdict(
                 lambda: "oracle",
@@ -853,8 +862,8 @@ class GlobalSettings:
                     # For PyBullet environments, use non-PyBullet analogs.
                     "pybullet_cover": "oracle_cover",
                     "pybullet_blocks": "oracle_blocks",
-                })[args.get("env", "")],
-
+                },
+            )[args.get("env", "")],
             # In SeSamE, the maximum number of skeletons optimized before
             # giving up. If 1, can only solve downward refinable tasks.
             sesame_max_skeletons_optimized=defaultdict(
@@ -867,8 +876,8 @@ class GlobalSettings:
                     "stick_button": 1000,
                     "stick_button_move": 1000,
                     "robo_kitchen": 3,
-                })[args.get("env", "")],
-
+                },
+            )[args.get("env", "")],
             # In SeSamE, the maximum effort put into refining a single skeleton.
             # Concretely, this effort refers to the maximum number of calls to
             # the sampler on each step before backtracking.
@@ -877,8 +886,8 @@ class GlobalSettings:
                 {
                     # For the tools environment, don't do any backtracking.
                     "tools": 1,
-                })[args.get("env", "")],
-
+                },
+            )[args.get("env", "")],
             # Maximum number of skeletons used by ExpectedNodesScoreFunction.
             # If -1, defaults to CFG.sesame_max_skeletons_optimized.
             grammar_search_expected_nodes_max_skeletons=defaultdict(
@@ -886,8 +895,8 @@ class GlobalSettings:
                 {
                     # For the tools environment, keep it much lower.
                     "tools": 1,
-                })[args.get("env", "")],
-
+                },
+            )[args.get("env", "")],
             # Factor to divide feature range by when instantiating predicates
             # of the form |t1.f1 - t2.f2| < c to indicate that t1.f1 and
             # t2.f2 are "touching" or close. E.g. for the predicate
@@ -896,45 +905,49 @@ class GlobalSettings:
             # |robot.x - button.x| < ((ub - lb)/60.0) + ub, which corresponds
             # to a predicate that correctly classifies when the robot and
             # button are touching.
-            grammar_search_diff_features_const_multiplier=defaultdict(
-                lambda: 1e-6,
-                {"stick_button_move": 1 / 30.0})[args.get("env", "")],
-
+            grammar_search_diff_features_const_multiplier=defaultdict(lambda: 1e-6, {"stick_button_move": 1 / 30.0})[args.get("env", "")],
             # Feature names to use as part of the EuclideanPredicateGrammar.
             # Each entry is (type1_feature1name, type1_feature2name,
             # type2_feature1name, type2_feature2name)
-            grammar_search_euclidean_feature_names=defaultdict(
-                lambda: [("x", "y", "x", "y")], {
-                    "stick_button_move": [("x", "y", "x", "y"),
-                                          ("x", "y", "tip_x", "tip_y")]
-                })[args.get("env", "")],
-
+            grammar_search_euclidean_feature_names=defaultdict(lambda: [("x", "y", "x", "y")], {"stick_button_move": [("x", "y", "x", "y"), ("x", "y", "tip_x", "tip_y")]})[args.get("env", "")],
             # Factor to divide feature range by when instantiating euclidean
             # predicates of the form
             # (t1.f1 - t2.f1)^2 + (t1.f2 - t2.f2)^2 < c^2 to indicate that
             # the euclidean distance between f1 and f2 is close enough that.
             # the two objects are "touching".
-            grammar_search_euclidean_const_multiplier=defaultdict(
-                lambda: 1e-6,
-                {"stick_button_move": 1 / 250.0})[args.get("env", "")],
-
+            grammar_search_euclidean_const_multiplier=defaultdict(lambda: 1e-6, {"stick_button_move": 1 / 250.0})[args.get("env", "")],
             # Parameters specific to the cover environment.
             # cover env parameters
-            cover_num_blocks=defaultdict(lambda: 2, {
-                "cover_place_hard": 1,
-            })[args.get("env", "")],
-            cover_num_targets=defaultdict(lambda: 2, {
-                "cover_place_hard": 1,
-            })[args.get("env", "")],
-            cover_block_widths=defaultdict(lambda: [0.1, 0.07], {
-                "cover_place_hard": [0.1],
-            })[args.get("env", "")],
-            cover_target_widths=defaultdict(lambda: [0.05, 0.03], {
-                "cover_place_hard": [0.05],
-            })[args.get("env", "")],
-            cover_initial_holding_prob=defaultdict(lambda: 0.75, {
-                "cover_place_hard": 0.0,
-            })[args.get("env", "")],
+            cover_num_blocks=defaultdict(
+                lambda: 2,
+                {
+                    "cover_place_hard": 1,
+                },
+            )[args.get("env", "")],
+            cover_num_targets=defaultdict(
+                lambda: 2,
+                {
+                    "cover_place_hard": 1,
+                },
+            )[args.get("env", "")],
+            cover_block_widths=defaultdict(
+                lambda: [0.1, 0.07],
+                {
+                    "cover_place_hard": [0.1],
+                },
+            )[args.get("env", "")],
+            cover_target_widths=defaultdict(
+                lambda: [0.05, 0.03],
+                {
+                    "cover_place_hard": [0.05],
+                },
+            )[args.get("env", "")],
+            cover_initial_holding_prob=defaultdict(
+                lambda: 0.75,
+                {
+                    "cover_place_hard": 0.0,
+                },
+            )[args.get("env", "")],
         )
 
 
