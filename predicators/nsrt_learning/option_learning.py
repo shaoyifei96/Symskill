@@ -15,18 +15,15 @@ from predicators.envs.blocks import BlocksEnv
 from predicators.ground_truth_models import get_gt_options
 from predicators.ml_models import ImplicitMLPRegressor, MLPRegressor, Regressor
 from predicators.pybullet_helpers.geometry import Pose
-from predicators.pybullet_helpers.inverse_kinematics import \
-    InverseKinematicsError
-from predicators.pybullet_helpers.robots import \
-    create_single_arm_pybullet_robot
+from predicators.pybullet_helpers.inverse_kinematics import InverseKinematicsError
+from predicators.pybullet_helpers.robots import create_single_arm_pybullet_robot
 from predicators.settings import CFG
-from predicators.structs import Action, Array, Datastore, Object, OptionSpec, \
-    ParameterizedOption, Segment, State, STRIPSOperator, Variable, \
-    VarToObjSub, DummyParameterizedOption, Type
+from predicators.structs import Action, Array, Datastore, Object, OptionSpec, ParameterizedOption, Segment, State, STRIPSOperator, Variable, VarToObjSub, DummyParameterizedOption, Type
 from predicators.utils import OptionExecutionFailure, calculate_relative_pose
 
 from ds_policy import DSPolicy, UnifiedModelConfig, transform_frame, compute_vel_traj
 from scipy.spatial.transform import Rotation as R
+
 
 def create_option_learner(action_space: Box) -> _OptionLearnerBase:
     """Create an option learner given its name."""
@@ -39,8 +36,7 @@ def create_option_learner(action_space: Box) -> _OptionLearnerBase:
     if CFG.option_learner == "implicit_bc":
         return _ImplicitBehaviorCloningOptionLearner(action_space)
     if CFG.option_learner == "direct_bc_nonparameterized":
-        return _DirectBehaviorCloningOptionLearner(action_space,
-                                                   is_parameterized=False)
+        return _DirectBehaviorCloningOptionLearner(action_space, is_parameterized=False)
     if CFG.option_learner == "ds_policy":
         return _DSOptionLearner(action_space)
     raise NotImplementedError(f"Unknown option_learner: {CFG.option_learner}")
@@ -59,8 +55,7 @@ class _OptionLearnerBase(abc.ABC):
     with options."""
 
     @abc.abstractmethod
-    def learn_option_specs(self, strips_ops: List[STRIPSOperator],
-                           datastores: List[Datastore]) -> List[OptionSpec]:
+    def learn_option_specs(self, strips_ops: List[STRIPSOperator], datastores: List[Datastore]) -> List[OptionSpec]:
         """Given datastores and STRIPS operators that were fit on them, learn
         option specs, which are tuples of (ParameterizedOption,
         Sequence[Variable]).
@@ -72,8 +67,7 @@ class _OptionLearnerBase(abc.ABC):
         raise NotImplementedError("Override me!")
 
     @abc.abstractmethod
-    def update_segment_from_option_spec(self, segment: Segment,
-                                        option_spec: OptionSpec) -> None:
+    def update_segment_from_option_spec(self, segment: Segment, option_spec: OptionSpec) -> None:
         """Figure out which option was executed within the given segment.
         Modify the segment in-place to include this option, via
         segment.set_option().
@@ -98,8 +92,7 @@ class KnownOptionsOptionLearner(_OptionLearnerBase):
     specs for the STRIPSOperator objects.
     """
 
-    def learn_option_specs(self, strips_ops: List[STRIPSOperator],
-                           datastores: List[Datastore]) -> List[OptionSpec]:
+    def learn_option_specs(self, strips_ops: List[STRIPSOperator], datastores: List[Datastore]) -> List[OptionSpec]:
         # Since we're not actually doing option learning, the data already
         # contains the options. So, we just extract option specs from the data.
         option_specs = []
@@ -123,13 +116,11 @@ class KnownOptionsOptionLearner(_OptionLearnerBase):
                     assert param_option == option_a.parent
                     option_args = [var_to_obj[v] for v in option_vars]
                     assert option_args == option_a.objects
-            assert param_option is not None and option_vars is not None, \
-                "No data in this datastore?"
+            assert param_option is not None and option_vars is not None, "No data in this datastore?"
             option_specs.append((param_option, option_vars))
         return option_specs
 
-    def update_segment_from_option_spec(self, segment: Segment,
-                                        option_spec: OptionSpec) -> None:
+    def update_segment_from_option_spec(self, segment: Segment, option_spec: OptionSpec) -> None:
         # If we're not doing option learning, the segments will already have
         # the options, so there is nothing to do here.
         pass
@@ -142,72 +133,44 @@ class _OracleOptionLearner(_OptionLearnerBase):
     Useful for testing.
     """
 
-    def learn_option_specs(self, strips_ops: List[STRIPSOperator],
-                           datastores: List[Datastore]) -> List[OptionSpec]:
+    def learn_option_specs(self, strips_ops: List[STRIPSOperator], datastores: List[Datastore]) -> List[OptionSpec]:
         env_options = get_gt_options(CFG.env)
         option_specs: List[OptionSpec] = []
         if CFG.env == "cover":
             assert len(strips_ops) == 4
-            PickPlace = [
-                option for option in env_options if option.name == "PickPlace"
-            ][0]
+            PickPlace = [option for option in env_options if option.name == "PickPlace"][0]
             # All strips operators use the same PickPlace option,
             # which has no parameters.
             for _ in strips_ops:
                 option_specs.append((PickPlace, []))
         elif CFG.env == "blocks":
             assert len(strips_ops) == 4
-            Pick = [option for option in env_options
-                    if option.name == "Pick"][0]
-            Stack = [
-                option for option in env_options if option.name == "Stack"
-            ][0]
-            PutOnTable = [
-                option for option in env_options if option.name == "PutOnTable"
-            ][0]
+            Pick = [option for option in env_options if option.name == "Pick"][0]
+            Stack = [option for option in env_options if option.name == "Stack"][0]
+            PutOnTable = [option for option in env_options if option.name == "PutOnTable"][0]
             for op in strips_ops:
-                if {atom.predicate.name for atom in op.preconditions} in \
-                   ({"GripperOpen", "Clear", "OnTable"},
-                    {"GripperOpen", "Clear", "On"}):
+                if {atom.predicate.name for atom in op.preconditions} in ({"GripperOpen", "Clear", "OnTable"}, {"GripperOpen", "Clear", "On"}):
                     # PickFromTable or Unstack operators
-                    gripper_open_atom = [
-                        atom for atom in op.preconditions
-                        if atom.predicate.name == "GripperOpen"
-                    ][0]
+                    gripper_open_atom = [atom for atom in op.preconditions if atom.predicate.name == "GripperOpen"][0]
                     robot = gripper_open_atom.variables[0]
-                    clear_atom = [
-                        atom for atom in op.preconditions
-                        if atom.predicate.name == "Clear"
-                    ][0]
+                    clear_atom = [atom for atom in op.preconditions if atom.predicate.name == "Clear"][0]
                     block = clear_atom.variables[0]
                     option_specs.append((Pick, [robot, block]))
-                elif {atom.predicate.name for atom in op.preconditions} == \
-                     {"Clear", "Holding"}:
+                elif {atom.predicate.name for atom in op.preconditions} == {"Clear", "Holding"}:
                     # Stack operator
-                    gripper_open_atom = [
-                        atom for atom in op.add_effects
-                        if atom.predicate.name == "GripperOpen"
-                    ][0]
+                    gripper_open_atom = [atom for atom in op.add_effects if atom.predicate.name == "GripperOpen"][0]
                     robot = gripper_open_atom.variables[0]
-                    clear_atom = [
-                        atom for atom in op.preconditions
-                        if atom.predicate.name == "Clear"
-                    ][0]
+                    clear_atom = [atom for atom in op.preconditions if atom.predicate.name == "Clear"][0]
                     otherblock = clear_atom.variables[0]
                     option_specs.append((Stack, [robot, otherblock]))
-                elif {atom.predicate.name for atom in op.preconditions} == \
-                     {"Holding"}:
+                elif {atom.predicate.name for atom in op.preconditions} == {"Holding"}:
                     # PutOnTable operator
-                    gripper_open_atom = [
-                        atom for atom in op.add_effects
-                        if atom.predicate.name == "GripperOpen"
-                    ][0]
+                    gripper_open_atom = [atom for atom in op.add_effects if atom.predicate.name == "GripperOpen"][0]
                     robot = gripper_open_atom.variables[0]
                     option_specs.append((PutOnTable, [robot]))
         return option_specs
 
-    def update_segment_from_option_spec(self, segment: Segment,
-                                        option_spec: OptionSpec) -> None:
+    def update_segment_from_option_spec(self, segment: Segment, option_spec: OptionSpec) -> None:
         if CFG.env == "cover":
             param_opt, opt_vars = option_spec
             assert not opt_vars
@@ -220,17 +183,11 @@ class _OracleOptionLearner(_OptionLearnerBase):
             param_opt, opt_vars = option_spec
             assert len(segment.actions) == 1
             act = segment.actions[0].arr
-            robby = [obj for obj in segment.states[1]
-                     if obj.name == "robby"][0]
+            robby = [obj for obj in segment.states[1] if obj.name == "robby"][0]
             # Transform action array back into parameters.
             if param_opt.name == "Pick":
                 assert len(opt_vars) == 2
-                picked_blocks = [
-                    obj for obj in segment.states[1]
-                    if obj.type.name == "block"
-                    and segment.states[0].get(obj, "held") < 0.5 <
-                    segment.states[1].get(obj, "held")
-                ]
+                picked_blocks = [obj for obj in segment.states[1] if obj.type.name == "block" and segment.states[0].get(obj, "held") < 0.5 < segment.states[1].get(obj, "held")]
                 assert len(picked_blocks) == 1
                 block = picked_blocks[0]
                 params = np.zeros(0, dtype=np.float32)
@@ -238,20 +195,12 @@ class _OracleOptionLearner(_OptionLearnerBase):
                 segment.set_option(option)
             elif param_opt.name == "PutOnTable":
                 x, y, _, _ = act
-                params = np.array([
-                    (x - BlocksEnv.x_lb) / (BlocksEnv.x_ub - BlocksEnv.x_lb),
-                    (y - BlocksEnv.y_lb) / (BlocksEnv.y_ub - BlocksEnv.y_lb)
-                ])
+                params = np.array([(x - BlocksEnv.x_lb) / (BlocksEnv.x_ub - BlocksEnv.x_lb), (y - BlocksEnv.y_lb) / (BlocksEnv.y_ub - BlocksEnv.y_lb)])
                 option = param_opt.ground([robby], params)
                 segment.set_option(option)
             elif param_opt.name == "Stack":
                 assert len(opt_vars) == 2
-                dropped_blocks = [
-                    obj for obj in segment.states[1]
-                    if obj.type.name == "block"
-                    and segment.states[1].get(obj, "held") < 0.5 <
-                    segment.states[0].get(obj, "held")
-                ]
+                dropped_blocks = [obj for obj in segment.states[1] if obj.type.name == "block" and segment.states[1].get(obj, "held") < 0.5 < segment.states[0].get(obj, "held")]
                 assert len(dropped_blocks) == 1
                 block = dropped_blocks[0]
                 params = np.zeros(0, dtype=np.float32)
@@ -290,6 +239,7 @@ class _KinematicActionConverter(_ActionConverter):
 
     Creates a new PyBullet connection for the robot.
     """
+
     _gripper_open: ClassVar[float] = 1.0
     _gripper_closed: ClassVar[float] = 0.0
 
@@ -301,8 +251,7 @@ class _KinematicActionConverter(_ActionConverter):
         # Create a new PyBullet connection and robot.
         self._physics_client_id = p.connect(p.DIRECT)
         # Create the robot.
-        self._robot = create_single_arm_pybullet_robot(CFG.pybullet_robot,
-                                                       self._physics_client_id)
+        self._robot = create_single_arm_pybullet_robot(CFG.pybullet_robot, self._physics_client_id)
         # The rotation is assumed to be fixed, so record it once.
         qx, qy, qz, qw = self._robot.get_state()[3:7]
         self._ee_orn = (qx, qy, qz, qw)
@@ -314,13 +263,13 @@ class _KinematicActionConverter(_ActionConverter):
 
     def env_to_reduced(self, env_action_arr: Array) -> Array:
         # Forward kinematics.
-        assert env_action_arr.shape == (9, )
+        assert env_action_arr.shape == (9,)
         pose = self._robot.forward_kinematics(env_action_arr.tolist())
         x, y, z = pose.position
         # Average the two fingers.
         left_finger = env_action_arr[self._robot.left_finger_joint_idx]
         right_finger = env_action_arr[self._robot.right_finger_joint_idx]
-        fingers = (left_finger + right_finger) / 2.
+        fingers = (left_finger + right_finger) / 2.0
         # Round the fingers.
         dist_to_open = abs(fingers - self._robot.open_fingers)
         dist_to_closed = abs(fingers - self._robot.closed_fingers)
@@ -358,7 +307,6 @@ def create_action_converter() -> _ActionConverter:
     if name == "kinematic":
         return _KinematicActionConverter()
     raise NotImplementedError(f"Unknown action space converter: {name}")
-
 
 
 class _LearnedNeuralParameterizedOption(ParameterizedOption):
@@ -405,26 +353,24 @@ class _LearnedNeuralParameterizedOption(ParameterizedOption):
     continuous parameters. If it is False, the parameter space is null.
     """
 
-    def __init__(self,
-                 name: str,
-                 operator: STRIPSOperator,
-                 regressor: Regressor,
-                 changing_var_to_feat: Dict[Variable, List[int]],
-                 changing_var_order: List[Variable],
-                 action_space: Box,
-                 action_converter: _ActionConverter,
-                 is_parameterized: bool = True) -> None:
+    def __init__(
+        self,
+        name: str,
+        operator: STRIPSOperator,
+        regressor: Regressor,
+        changing_var_to_feat: Dict[Variable, List[int]],
+        changing_var_order: List[Variable],
+        action_space: Box,
+        action_converter: _ActionConverter,
+        is_parameterized: bool = True,
+    ) -> None:
         assert set(changing_var_to_feat).issubset(set(operator.parameters))
         types = [v.type for v in operator.parameters]
-        option_param_dim = sum(
-            len(idxs) for idxs in changing_var_to_feat.values())
+        option_param_dim = sum(len(idxs) for idxs in changing_var_to_feat.values())
         if is_parameterized:
-            params_space = Box(low=-np.inf,
-                               high=np.inf,
-                               shape=(option_param_dim, ),
-                               dtype=np.float32)
+            params_space = Box(low=-np.inf, high=np.inf, shape=(option_param_dim,), dtype=np.float32)
         else:
-            params_space = Box(0, 1, (0, ), dtype=np.float32)
+            params_space = Box(0, 1, (0,), dtype=np.float32)
         self.operator = operator
         self._regressor = regressor
         self._changing_var_to_feat = changing_var_to_feat
@@ -432,39 +378,26 @@ class _LearnedNeuralParameterizedOption(ParameterizedOption):
         self._action_space = action_space
         self._action_converter = action_converter
         self._is_parameterized = is_parameterized
-        super().__init__(name,
-                         types,
-                         params_space,
-                         policy=self._regressor_based_policy,
-                         initiable=self._precondition_based_initiable,
-                         terminal=self._optimized_effect_based_terminal)
+        super().__init__(name, types, params_space, policy=self._regressor_based_policy, initiable=self._precondition_based_initiable, terminal=self._optimized_effect_based_terminal)
 
-    def _precondition_based_initiable(self, state: State, memory: Dict,
-                                      objects: Sequence[Object],
-                                      params: Array) -> bool:
+    def _precondition_based_initiable(self, state: State, memory: Dict, objects: Sequence[Object], params: Array) -> bool:
         if self._is_parameterized:
             # The memory here is used to store the absolute params, based on
             # the relative params and the object states.
             memory["params"] = params  # store for sanity checking in policy
             var_to_obj = dict(zip(self.operator.parameters, objects))
-            state_params = _create_absolute_option_param(
-                state, self._changing_var_to_feat, self._changing_var_order,
-                var_to_obj)
+            state_params = _create_absolute_option_param(state, self._changing_var_to_feat, self._changing_var_order, var_to_obj)
             memory["absolute_params"] = state_params + params
         # Check if initiable based on preconditions.
         grounded_op = self.operator.ground(tuple(objects))
         return all(pre.holds(state) for pre in grounded_op.preconditions)
 
-    def _regressor_based_policy(self, state: State, memory: Dict,
-                                objects: Sequence[Object],
-                                params: Array) -> Action:
+    def _regressor_based_policy(self, state: State, memory: Dict, objects: Sequence[Object], params: Array) -> Action:
         if self._is_parameterized:
             # Compute the updated relative goal.
             assert np.allclose(params, memory["params"])
             var_to_obj = dict(zip(self.operator.parameters, objects))
-            state_params = _create_absolute_option_param(
-                state, self._changing_var_to_feat, self._changing_var_order,
-                var_to_obj)
+            state_params = _create_absolute_option_param(state, self._changing_var_to_feat, self._changing_var_order, var_to_obj)
             relative_goal_vec = memory["absolute_params"] - state_params
         else:
             relative_goal_vec = []
@@ -478,15 +411,12 @@ class _LearnedNeuralParameterizedOption(ParameterizedOption):
         # Clip the action.
         if CFG.env == "robo_kitchen":
             # Clip the action size to the robo_kitchen action space
-            action_arr = action_arr[:len(self._action_space.low)]
-            
-        action_arr = np.clip(action_arr, self._action_space.low,
-                             self._action_space.high)
+            action_arr = action_arr[: len(self._action_space.low)]
+
+        action_arr = np.clip(action_arr, self._action_space.low, self._action_space.high)
         return Action(np.array(action_arr, dtype=np.float32))
 
-    def _optimized_effect_based_terminal(self, state: State, memory: Dict,
-                                         objects: Sequence[Object],
-                                         params: Array) -> bool:
+    def _optimized_effect_based_terminal(self, state: State, memory: Dict, objects: Sequence[Object], params: Array) -> bool:
         if self._is_parameterized:
             assert np.allclose(params, memory["params"])
         terminate = self.effect_based_terminal(state, objects)
@@ -499,24 +429,19 @@ class _LearnedNeuralParameterizedOption(ParameterizedOption):
         memory["last_state"] = state
         return False
 
-    def effect_based_terminal(self, state: State,
-                              objects: Sequence[Object]) -> bool:
+    def effect_based_terminal(self, state: State, objects: Sequence[Object]) -> bool:
         """Terminate when the option's corresponding operator's effects have
         been reached."""
         grounded_op = self.operator.ground(tuple(objects))
-        if all(e.holds(state) for e in grounded_op.add_effects) and \
-            not any(e.holds(state) for e in grounded_op.delete_effects):
+        if all(e.holds(state) for e in grounded_op.add_effects) and not any(e.holds(state) for e in grounded_op.delete_effects):
             return True
         return False
 
-    def get_rel_option_param_from_state(self, state: State, memory: Dict,
-                                        objects: Sequence[Object]) -> Array:
+    def get_rel_option_param_from_state(self, state: State, memory: Dict, objects: Sequence[Object]) -> Array:
         """Get the relative parameter that is passed into the option's
         regressor."""
         var_to_obj = dict(zip(self.operator.parameters, objects))
-        curr_state_changing_feat = _create_absolute_option_param(
-            state, self._changing_var_to_feat, self._changing_var_order,
-            var_to_obj)
+        curr_state_changing_feat = _create_absolute_option_param(state, self._changing_var_to_feat, self._changing_var_order, var_to_obj)
         subgoal_state_changing_feat = memory["absolute_params"]
         relative_param = subgoal_state_changing_feat - curr_state_changing_feat
         return relative_param
@@ -537,9 +462,7 @@ class _BehaviorCloningOptionLearner(_OptionLearnerBase):
     continuous parameters. If it is False, the parameter space is null.
     """
 
-    def __init__(self,
-                 action_space: Box,
-                 is_parameterized: bool = True) -> None:
+    def __init__(self, action_space: Box, is_parameterized: bool = True) -> None:
         super().__init__()
         # Actions are clipped to stay within the action space.
         self._action_space = action_space
@@ -550,17 +473,17 @@ class _BehaviorCloningOptionLearner(_OptionLearnerBase):
         # While learning the policy, we record the map from each segment to
         # the option parameterization, so we don't need to recompute it in
         # update_segment_from_option_spec.
-        self._segment_to_grounding: Dict[Segment, Tuple[Sequence[Object],
-                                                        Array]] = {}
+        self._segment_to_grounding: Dict[Segment, Tuple[Sequence[Object], Array]] = {}
 
     @abc.abstractmethod
     def _create_regressor(self) -> Regressor:
         raise NotImplementedError("Override me!")
 
-    def learn_option_specs(self, 
-                           strips_ops: List[STRIPSOperator], # List of operators to learn options for, each operator has a datastore
-                           datastores: List[Datastore] # List of datastores for each operator, each containing a list of segments
-                           ) -> List[OptionSpec]:
+    def learn_option_specs(
+        self,
+        strips_ops: List[STRIPSOperator],  # List of operators to learn options for, each operator has a datastore
+        datastores: List[Datastore],  # List of datastores for each operator, each containing a list of segments
+    ) -> List[OptionSpec]:
         option_specs: List[Tuple[ParameterizedOption, List[Variable]]] = []
 
         assert len(strips_ops) == len(datastores)
@@ -583,12 +506,9 @@ class _BehaviorCloningOptionLearner(_OptionLearnerBase):
             # Just to avoid confusion, we will insist that the order of the
             # changing parameters is consistent with the order of the operator
             # parameters.
-            changing_var_order = sorted(changing_var_to_feat,
-                                        key=op.parameters.index)
+            changing_var_order = sorted(changing_var_to_feat, key=op.parameters.index)
             for segment, var_to_obj in datastore:
-                all_objects_in_operator = [
-                    var_to_obj[v] for v in op.parameters
-                ]
+                all_objects_in_operator = [var_to_obj[v] for v in op.parameters]
 
                 # We're accomplishing two things here: (1) computing
                 # option_param so it can later be stored into the segment, and
@@ -598,20 +518,15 @@ class _BehaviorCloningOptionLearner(_OptionLearnerBase):
                 if self._is_parameterized:
                     init_state = segment.states[0]
                     final_state = segment.states[-1]
-                    init_param = _create_absolute_option_param( # this is pose of init_state, only changing_var_to_feat is included
-                        init_state, changing_var_to_feat, changing_var_order,
-                        var_to_obj)
-                    final_param = _create_absolute_option_param(
-                        final_state, changing_var_to_feat, changing_var_order,
-                        var_to_obj)
+                    init_param = _create_absolute_option_param(init_state, changing_var_to_feat, changing_var_order, var_to_obj)  # this is pose of init_state, only changing_var_to_feat is included
+                    final_param = _create_absolute_option_param(final_state, changing_var_to_feat, changing_var_order, var_to_obj)
                     option_param = final_param - init_param
                 else:
-                    option_param = np.zeros((0, ), dtype=np.float32)
+                    option_param = np.zeros((0,), dtype=np.float32)
 
                 # Store the option parameterization for this segment so we can
                 # use it in update_segment_from_option_spec.
-                self._segment_to_grounding[segment] = (all_objects_in_operator,
-                                                       option_param)
+                self._segment_to_grounding[segment] = (all_objects_in_operator, option_param)
                 del option_param  # not used after this
 
                 # Next, create the input vectors from all object states named
@@ -624,9 +539,7 @@ class _BehaviorCloningOptionLearner(_OptionLearnerBase):
                     state_features = _flatten_and_convert_to_array(state_features)
                     if self._is_parameterized:
                         # Compute the relative goal vector for this segment.
-                        state_param = _create_absolute_option_param(
-                            state, changing_var_to_feat, changing_var_order,
-                            var_to_obj)
+                        state_param = _create_absolute_option_param(state, changing_var_to_feat, changing_var_order, var_to_obj)
                         rel_goal_vec = (final_param - state_param).tolist()
                     else:
                         rel_goal_vec = []
@@ -640,29 +553,20 @@ class _BehaviorCloningOptionLearner(_OptionLearnerBase):
             X_arr_regressor = np.array(X_regressor, dtype=np.float32)
             Y_arr_regressor = np.array(Y_regressor, dtype=np.float32)
             regressor = self._create_regressor()
-            logging.info("Fitting regressor with X shape: "
-                         f"{X_arr_regressor.shape}, Y shape: "
-                         f"{Y_arr_regressor.shape}.")
+            logging.info("Fitting regressor with X shape: " f"{X_arr_regressor.shape}, Y shape: " f"{Y_arr_regressor.shape}.")
             regressor.fit(X_arr_regressor, Y_arr_regressor)
 
             # Construct the ParameterizedOption for this operator.
             name = f"{op.name}LearnedOption"
             parameterized_option = _LearnedNeuralParameterizedOption(
-                name,
-                op,
-                regressor,
-                changing_var_to_feat,
-                changing_var_order,
-                self._action_space,
-                self._action_converter,
-                is_parameterized=self._is_parameterized)
+                name, op, regressor, changing_var_to_feat, changing_var_order, self._action_space, self._action_converter, is_parameterized=self._is_parameterized
+            )
             option_specs.append((parameterized_option, list(op.parameters)))
 
         return option_specs
 
     @staticmethod
-    def _get_changing_features(
-            datastore: Datastore) -> Dict[Variable, List[int]]:
+    def _get_changing_features(datastore: Datastore) -> Dict[Variable, List[int]]:
         """Returns a dict from variables to changing feature indices.
 
         If a variable has no changing feature indices, it is not
@@ -700,14 +604,10 @@ class _BehaviorCloningOptionLearner(_OptionLearnerBase):
                     elif abs(start[o][i] - end[o][i]) > 1e-7:
                         changed_indices.add(i)
                 changing_var_to_feat_set[v].update(changed_indices)
-        changing_var_to_feat = {
-            v: sorted(f)
-            for v, f in changing_var_to_feat_set.items()
-        }
+        changing_var_to_feat = {v: sorted(f) for v, f in changing_var_to_feat_set.items()}
         return changing_var_to_feat
 
-    def update_segment_from_option_spec(self, segment: Segment,
-                                        option_spec: OptionSpec) -> None:
+    def update_segment_from_option_spec(self, segment: Segment, option_spec: OptionSpec) -> None:
         objects, params = self._segment_to_grounding[segment]
         param_opt, opt_vars = option_spec
         assert all(o.type == v.type for o, v in zip(objects, opt_vars))
@@ -719,15 +619,17 @@ class _DirectBehaviorCloningOptionLearner(_BehaviorCloningOptionLearner):
     """Use an MLPRegressor for regression."""
 
     def _create_regressor(self) -> Regressor:
-        return MLPRegressor(seed=CFG.seed,
-                            hid_sizes=CFG.mlp_regressor_hid_sizes,
-                            max_train_iters=CFG.mlp_regressor_max_itr,
-                            clip_gradients=CFG.mlp_regressor_clip_gradients,
-                            clip_value=CFG.mlp_regressor_gradient_clip_value,
-                            learning_rate=CFG.learning_rate,
-                            weight_decay=CFG.weight_decay,
-                            use_torch_gpu=CFG.use_torch_gpu,
-                            train_print_every=CFG.pytorch_train_print_every)
+        return MLPRegressor(
+            seed=CFG.seed,
+            hid_sizes=CFG.mlp_regressor_hid_sizes,
+            max_train_iters=CFG.mlp_regressor_max_itr,
+            clip_gradients=CFG.mlp_regressor_clip_gradients,
+            clip_value=CFG.mlp_regressor_gradient_clip_value,
+            learning_rate=CFG.learning_rate,
+            weight_decay=CFG.weight_decay,
+            use_torch_gpu=CFG.use_torch_gpu,
+            train_print_every=CFG.pytorch_train_print_every,
+        )
 
 
 class _DSOptionLearner(_OptionLearnerBase):
@@ -743,13 +645,13 @@ class _DSOptionLearner(_OptionLearnerBase):
         # While learning the policy, we record the map from each segment to
         # the option parameterization, so we don't need to recompute it in
         # update_segment_from_option_spec.
-        self._segment_to_grounding: Dict[Segment, Tuple[Sequence[Object],
-                                                        Array]] = {}
+        self._segment_to_grounding: Dict[Segment, Tuple[Sequence[Object], Array]] = {}
 
-    def learn_option_specs(self, 
-                           strips_ops: List[STRIPSOperator], # List of operators to learn options for, each operator has a datastore
-                           datastores: List[Datastore] # List of datastores for each operator, each containing a list of segments
-                           ) -> List[OptionSpec]:
+    def learn_option_specs(
+        self,
+        strips_ops: List[STRIPSOperator],  # List of operators to learn options for, each operator has a datastore
+        datastores: List[Datastore],  # List of datastores for each operator, each containing a list of segments
+    ) -> List[OptionSpec]:
         option_specs: List[Tuple[ParameterizedOption, List[Variable]]] = []
 
         assert len(strips_ops) == len(datastores)
@@ -766,33 +668,39 @@ class _DSOptionLearner(_OptionLearnerBase):
             quat = []  # quaternion trajectories
             omega = []  # angular velocity trajectories
             gripper_action = []  # gripper state trajectories if available
-            
-            OOI_type_name, success = find_OOI_name(op) # extract OOI type name from predicates
+
+            OOI_type_name, success = find_OOI_name(op)  # extract OOI type name from predicates
             if not success:
                 for var in op.parameters:
                     if var.type.name != "gripper_type":
                         OOI_type_name = var.type.name
                         break
                 logging.warning(f"NSRT {op.name} cannot find OOI type in predicates, using {OOI_type_name} in parameters as OOI")
-            
+
             # Process each segment to extract position, orientation and velocity data
+            gripper = None
+            obj_of_interest = None
             option_gripper_action = []
-            for segment, var_to_obj in datastore:
-                obj_of_interest, gripper, success = find_OOI_and_gripper_obj(var_to_obj, OOI_type_name) # extract exact objects from var_to_obj according to names extracted from predicates
-                if not success:
-                    logging.warning(f"NSRT {op.name} cannot find OOI and gripper from var_to_obj, ignoring segment")
-                    continue
-                
+            for obj in list(datastore[0][0].states[0].data.keys()):
+                if obj.name == "gripper":
+                    gripper = obj
+                if obj.name == OOI_type_name:
+                    obj_of_interest = obj
+                if gripper is not None and obj_of_interest is not None:
+                    break
+            if gripper is None or obj_of_interest is None:
+                logging.warning(f"NSRT {op.name} cannot find OOI and gripper from var_to_obj, ignoring segment")
+                continue
+
                 gripper_pos_traj_OOI_frame = []
                 gripper_quat_traj_OOI_frame = []
-                
+
                 # Extract position and orientation from states
-                for state , action in zip(segment.states, segment.actions):
+                for state, action in zip(segment.states, segment.actions):
                     gripper_pose_OOI_frame = calculate_relative_pose(state, obj_of_interest, gripper, "translation", "quaternion")
                     gripper_pos_traj_OOI_frame.append(gripper_pose_OOI_frame[:3])
                     gripper_quat_traj_OOI_frame.append(gripper_pose_OOI_frame[3:])
                     option_gripper_action.append(action.arr[6])
-                
 
                 gripper_pos_traj_OOI_frame = np.array(gripper_pos_traj_OOI_frame)
                 gripper_quat_traj_OOI_frame = np.array(gripper_quat_traj_OOI_frame)
@@ -804,48 +712,30 @@ class _DSOptionLearner(_OptionLearnerBase):
                 x_dot.append(gripper_vel_traj_OOI_frame)
                 quat.append(gripper_quat_traj_OOI_frame)
                 omega.append(gripper_ang_vel_traj_OOI_frame)
-            
+
             if len(x) == 0:
                 logging.warning(f"NSRT {op.name} has no valid segments, ignoring")
                 continue
 
             check_DSPolicy_input_data(x, x_dot, quat, omega, gripper_action, visualize=True, save_path=f"./feature_data/trajectory_visualization_{op.name}.png")
-            
+
             # Configure DS Policy
-            unified_config = UnifiedModelConfig(
-                mode="se3_lpvds",
-                k_init=1
-            )
-            
+            unified_config = UnifiedModelConfig(mode="se3_lpvds", k_init=1)
+
             # Create DSPolicy
-            ds_policy = DSPolicy(
-                x=x,
-                x_dot=x_dot,
-                quat=quat,
-                omega=omega,
-                gripper=gripper,
-                unified_config=unified_config,
-                dt=dt,
-                switch=False
-            )
+            ds_policy = DSPolicy(x=x, x_dot=x_dot, quat=quat, omega=omega, gripper=gripper, unified_config=unified_config, dt=dt, switch=False)
             ds_policy.plot_position_vector_field(save_path=f"./feature_data/vector_field_visualization_{op.name}.png")
             # Create a ParameterizedOption that uses DSPolicy
             name = f"{op.name}DSOption"
             parameterized_option = _LearnedDSParameterizedOption(
-                name,
-                op,
-                ds_policy,
-                OOI_type_name,
-                gripper_action = 1.0 if np.mean(option_gripper_action) > 0.0 else -1.0,
-                is_parameterized=self._is_parameterized
+                name, op, ds_policy, OOI_type_name, gripper_action=1.0 if np.mean(option_gripper_action) > 0.0 else -1.0, is_parameterized=self._is_parameterized
             )
-            
+
             option_specs.append((parameterized_option, list(op.parameters)))
-            
+
         return option_specs
-    
-    def update_segment_from_option_spec(self, segment: Segment,
-                                        option_spec: OptionSpec) -> None:
+
+    def update_segment_from_option_spec(self, segment: Segment, option_spec: OptionSpec) -> None:
         # objects, params = self._segment_to_grounding[segment]
         # param_opt, opt_vars = option_spec
         # assert all(o.type == v.type for o, v in zip(objects, opt_vars))
@@ -856,10 +746,10 @@ class _DSOptionLearner(_OptionLearnerBase):
 
 def find_OOI_name(op: STRIPSOperator) -> Tuple[str, bool]:
     """Extract the object of interest name from operator parameters.
-    
+
     Args:
         op: The STRIPS operator
-        
+
     Returns:
         Tuple of (object_of_interest_type_name, success_flag)
     """
@@ -867,7 +757,7 @@ def find_OOI_name(op: STRIPSOperator) -> Tuple[str, bool]:
     if len(op.add_effects) + len(op.delete_effects) != 1:
         logging.warning(f"NSRT {op.name} has {len(op.add_effects)} + {len(op.delete_effects)} != 1 predicates, ignoring segment")
         return None, False
-    
+
     # Get predicate types
     if op.add_effects:
         predicate_type1 = list(op.add_effects)[0].entities[0].type
@@ -875,7 +765,7 @@ def find_OOI_name(op: STRIPSOperator) -> Tuple[str, bool]:
     else:
         predicate_type1 = list(op.delete_effects)[0].entities[0].type
         predicate_type2 = list(op.delete_effects)[0].entities[1].type
-    
+
     predicate_types = [predicate_type1, predicate_type2]
     assert len(predicate_types) == 2
 
@@ -883,12 +773,13 @@ def find_OOI_name(op: STRIPSOperator) -> Tuple[str, bool]:
     OOI_type_name = None
     for i in range(2):
         if predicate_types[i].name == "gripper_type":
-            OOI_type_name = predicate_types[1-i].name
+            OOI_type_name = predicate_types[1 - i].name
             break
     if OOI_type_name is None:
         return None, False
-    
+
     return OOI_type_name, True
+
 
 def find_OOI_and_gripper_obj(var_to_obj: VarToObjSub, OOI_type_name: str) -> Tuple[Object, Object, bool]:
     obj_of_interest, gripper = None, None
@@ -904,7 +795,9 @@ def find_OOI_and_gripper_obj(var_to_obj: VarToObjSub, OOI_type_name: str) -> Tup
     return obj_of_interest, gripper, True
 
 
-def check_DSPolicy_input_data(x: List[np.ndarray], x_dot: List[np.ndarray], quat: List[np.ndarray], omega: List[np.ndarray], gripper: List[np.ndarray], visualize: bool = False, save_path: str = None) -> bool:
+def check_DSPolicy_input_data(
+    x: List[np.ndarray], x_dot: List[np.ndarray], quat: List[np.ndarray], omega: List[np.ndarray], gripper: List[np.ndarray], visualize: bool = False, save_path: str = None
+) -> bool:
     assert len(x) == len(x_dot) == len(quat) == len(omega)
     for i in range(len(x)):
         assert x[i].shape[0] == x_dot[i].shape[0] == quat[i].shape[0] == omega[i].shape[0]
@@ -916,25 +809,22 @@ def check_DSPolicy_input_data(x: List[np.ndarray], x_dot: List[np.ndarray], quat
     if visualize:
         import matplotlib.pyplot as plt
         from mpl_toolkits.mplot3d import Axes3D
-        
+
         fig = plt.figure(figsize=(10, 8))
-        ax = fig.add_subplot(111, projection='3d')
-        
+        ax = fig.add_subplot(111, projection="3d")
+
         # Plot each trajectory with a different color
         for i, trajectory in enumerate(x):
-            ax.plot(trajectory[:, 0], trajectory[:, 1], trajectory[:, 2], 
-                   label=f'Trajectory {i+1}', linewidth=2)
-            
+            ax.plot(trajectory[:, 0], trajectory[:, 1], trajectory[:, 2], label=f"Trajectory {i+1}", linewidth=2)
+
             # Mark start and end points
-            ax.scatter(trajectory[0, 0], trajectory[0, 1], trajectory[0, 2], 
-                      color='green', s=100, marker='o')
-            ax.scatter(trajectory[-1, 0], trajectory[-1, 1], trajectory[-1, 2], 
-                      color='red', s=100, marker='x')
-        
-        ax.set_xlabel('X')
-        ax.set_ylabel('Y')
-        ax.set_zlabel('Z')
-        ax.set_title('3D Trajectories')
+            ax.scatter(trajectory[0, 0], trajectory[0, 1], trajectory[0, 2], color="green", s=100, marker="o")
+            ax.scatter(trajectory[-1, 0], trajectory[-1, 1], trajectory[-1, 2], color="red", s=100, marker="x")
+
+        ax.set_xlabel("X")
+        ax.set_ylabel("Y")
+        ax.set_zlabel("Z")
+        ax.set_title("3D Trajectories")
         ax.legend()
         plt.tight_layout()
         if save_path is not None:
@@ -948,42 +838,29 @@ class _LearnedDSParameterizedOption(ParameterizedOption):
     """
     A parameterized option that uses DSPolicy for action selection.
     """
-    
+
     prev_left_right_finger_dist = 0.0
-    
-    def __init__(self,
-                 name: str,
-                 operator: STRIPSOperator,
-                 ds_policy: DSPolicy,  # DSPolicy object
-                 ooi_type_name: str,
-                 gripper_action: float,
-                 is_parameterized: bool = True) -> None:
+
+    def __init__(self, name: str, operator: STRIPSOperator, ds_policy: DSPolicy, ooi_type_name: str, gripper_action: float, is_parameterized: bool = True) -> None:  # DSPolicy object
         types = [v.type for v in operator.parameters]
         self.operator = operator
         self._ds_policy = ds_policy
         self._is_parameterized = is_parameterized
         self._ooi_type = ooi_type_name
         self._gripper_action = gripper_action
-        super().__init__(name,
-                         types,
-                         params_space=Box(0, 1, (0, ), dtype=np.float32),
-                         policy=self._DS_based_policy,
-                         initiable=self._precondition_based_initiable,
-                         terminal=self._optimized_effect_based_terminal)
-    
-    def _precondition_based_initiable(self, state: State, memory: Dict,
-                                      objects: Sequence[Object],
-                                      params: Array) -> bool:
+        super().__init__(
+            name, types, params_space=Box(0, 1, (0,), dtype=np.float32), policy=self._DS_based_policy, initiable=self._precondition_based_initiable, terminal=self._optimized_effect_based_terminal
+        )
+
+    def _precondition_based_initiable(self, state: State, memory: Dict, objects: Sequence[Object], params: Array) -> bool:
         memory["time_step"] = 0
-        
+
         return True
         # Check if initiable based on preconditions.
         grounded_op = self.operator.ground(tuple(objects))
         return all(pre.holds(state) for pre in grounded_op.preconditions)
-    
-    def _DS_based_policy(self, state: State, memory: Dict,
-                              objects: Sequence[Object],
-                              params: Array) -> Action:
+
+    def _DS_based_policy(self, state: State, memory: Dict, objects: Sequence[Object], params: Array) -> Action:
         # NOTE: assume objects contains gripper and obj_of_interest. We can find base from state
         # use the first base in state as base
         memory["time_step"] += 1
@@ -1002,7 +879,7 @@ class _LearnedDSParameterizedOption(ParameterizedOption):
             if obj.type.name == "left_finger_type":
                 left_finger = obj
             if obj.type.name == "right_finger_type":
-                right_finger = obj  
+                right_finger = obj
             if base and obj_of_interest and gripper and left_finger and right_finger:
                 break
         assert base and obj_of_interest and gripper and left_finger and right_finger
@@ -1012,13 +889,10 @@ class _LearnedDSParameterizedOption(ParameterizedOption):
         left_right_finger_dist = np.linalg.norm(left_right_finger_dist[:3])
         gripper_pos_OOI_frame = gripper_pose_OOI_frame[:3]
         gripper_quat_OOI_frame = gripper_pose_OOI_frame[3:]
-        
-         # Get action from DS Policy
+
+        # Get action from DS Policy
         action = self._ds_policy.get_action(
-            np.concatenate([gripper_pos_OOI_frame, gripper_quat_OOI_frame]), 
-            clf=True,  # Use Control Lyapunov Function
-            alpha_V=10.0,  # CLF parameter
-            lookahead=5  # Number of steps to look ahead
+            np.concatenate([gripper_pos_OOI_frame, gripper_quat_OOI_frame]), clf=True, alpha_V=10.0, lookahead=5  # Use Control Lyapunov Function  # CLF parameter  # Number of steps to look ahead
         )
         OOI_rot = R.from_quat(state.get(obj_of_interest, "quaternion")).as_matrix()
         base_rot = R.from_quat(state.get(base, "quaternion")).as_matrix()
@@ -1028,36 +902,34 @@ class _LearnedDSParameterizedOption(ParameterizedOption):
         pos_vel_base_frame = base_rot.T @ pos_vel_world_frame
         ang_vel_world_frame = OOI_rot @ ang_vel_OOI_frame
         ang_vel_base_frame = base_rot.T @ ang_vel_world_frame
-        
+
         mag = np.linalg.norm(ang_vel_base_frame)
         if mag > 1:
             ang_vel_base_frame = ang_vel_base_frame / mag
-        
+
         action_arr = np.zeros(7, dtype=np.float32)
         action_arr[:3] = pos_vel_base_frame
         action_arr[3:6] = ang_vel_base_frame
         action_arr[6] = self._gripper_action
-        
+
         # print(f"left_right_finger_dist: {left_right_finger_dist}")
         if left_right_finger_dist > 0.1:
-            gripper_state = -1.0 # open
+            gripper_state = -1.0  # open
         else:
-            gripper_state = 1.0 # close
-        
+            gripper_state = 1.0  # close
+
         if gripper_state == self._gripper_action and np.abs(left_right_finger_dist - self.prev_left_right_finger_dist) < 1e-2:
             action_low = np.array([-1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0], dtype=np.float32)
             action_high = np.array([1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0], dtype=np.float32)
         else:
-            action_low = np.array([0,0,0,0,0,0,-1.0], dtype=np.float32)
-            action_high = np.array([0,0,0,0,0,0,1.0], dtype=np.float32)
+            action_low = np.array([0, 0, 0, 0, 0, 0, -1.0], dtype=np.float32)
+            action_high = np.array([0, 0, 0, 0, 0, 0, 1.0], dtype=np.float32)
         action_arr = np.clip(action_arr, action_low, action_high)
         self.prev_left_right_finger_dist = left_right_finger_dist
-        
+
         return Action(action_arr)
-    
-    def _optimized_effect_based_terminal(self, state: State, memory: Dict,
-                                       objects: Sequence[Object],
-                                       params: Array) -> bool:
+
+    def _optimized_effect_based_terminal(self, state: State, memory: Dict, objects: Sequence[Object], params: Array) -> bool:
         # NOTE: based on optimized_effect_based_terminal in _LearnedNeuralParameterizedOption
         terminate = self.effect_based_terminal(state, objects)
         # Optimization: remember the most recent state and terminate early if
@@ -1065,14 +937,14 @@ class _LearnedDSParameterizedOption(ParameterizedOption):
         # Keep track of states in memory
         if "state_history" not in memory:
             memory["state_history"] = []
-        
+
         # Add current state to history
         memory["state_history"].append(state)
-        
+
         # Keep only the last 10 states
         if len(memory["state_history"]) > 10:
             memory["state_history"].pop(0)
-            
+
         # Check if state has not changed for 10 steps
         if len(memory["state_history"]) == 10:
             if all(memory["state_history"][0].allclose(s) for s in memory["state_history"][1:]):
@@ -1081,17 +953,16 @@ class _LearnedDSParameterizedOption(ParameterizedOption):
             return True
         memory["last_state"] = state
         return False
-    
-    def effect_based_terminal(self, state: State,
-                            objects: Sequence[Object]) -> bool:
+
+    def effect_based_terminal(self, state: State, objects: Sequence[Object]) -> bool:
         """Terminate when the option's corresponding operator's effects have
         been reached."""
         # NOTE: based on effect_based_terminal in _LearnedNeuralParameterizedOption
         grounded_op = self.operator.ground(tuple(objects))
-        if all(e.holds(state) for e in grounded_op.add_effects) and \
-           not any(e.holds(state) for e in grounded_op.delete_effects):
+        if all(e.holds(state) for e in grounded_op.add_effects) and not any(e.holds(state) for e in grounded_op.delete_effects):
             return True
         return False
+
 
 class _ImplicitBehaviorCloningOptionLearner(_BehaviorCloningOptionLearner):
     """Use an ImplicitMLPRegressor for regression."""
@@ -1121,7 +992,8 @@ class _ImplicitBehaviorCloningOptionLearner(_BehaviorCloningOptionLearner):
             derivative_free_num_iters=num_itr,
             derivative_free_sigma_init=sigma,
             derivative_free_shrink_scale=shrink_scale,
-            grid_num_ticks_per_dim=num_ticks)
+            grid_num_ticks_per_dim=num_ticks,
+        )
 
 
 class _RLOptionLearnerBase(abc.ABC):
@@ -1130,10 +1002,7 @@ class _RLOptionLearnerBase(abc.ABC):
     with an option."""
 
     @abc.abstractmethod
-    def update(
-        self, option: _LearnedNeuralParameterizedOption,
-        experience: List[List[Tuple[State, Array, Action, int, State]]]
-    ) -> _LearnedNeuralParameterizedOption:
+    def update(self, option: _LearnedNeuralParameterizedOption, experience: List[List[Tuple[State, Array, Action, int, State]]]) -> _LearnedNeuralParameterizedOption:
         """Updates a _LearnedNeuralParameterizedOption via reinforcement
         learning.
 
@@ -1147,10 +1016,7 @@ class _DummyRLOptionLearner(_RLOptionLearnerBase):
     """Does not update the policy associated with a
     _LearnedNeuralParameterizedOption."""
 
-    def update(
-        self, option: _LearnedNeuralParameterizedOption,
-        experience: List[List[Tuple[State, Array, Action, int, State]]]
-    ) -> _LearnedNeuralParameterizedOption:
+    def update(self, option: _LearnedNeuralParameterizedOption, experience: List[List[Tuple[State, Array, Action, int, State]]]) -> _LearnedNeuralParameterizedOption:
         # Don't actually update the option at all.
         # Update would be made to option._regressor, which requires changing the
         # code in ml_models.py so that you can train without re-initializing the
@@ -1159,11 +1025,7 @@ class _DummyRLOptionLearner(_RLOptionLearnerBase):
         return copy.deepcopy(option)
 
 
-def _create_absolute_option_param(state: State,
-                                  changing_var_to_feat: Dict[Variable,
-                                                             List[int]],
-                                  var_order: Sequence[Variable],
-                                  var_to_obj: VarToObjSub) -> Array:
+def _create_absolute_option_param(state: State, changing_var_to_feat: Dict[Variable, List[int]], var_order: Sequence[Variable], var_to_obj: VarToObjSub) -> Array:
     """From state, which includes objects, extract only changing variables according to changing_var_to_feat"""
     vec = []
     for v in var_order:
@@ -1176,5 +1038,3 @@ def _create_absolute_option_param(state: State,
             else:
                 vec.append(obj_vec[idx])
     return np.array(vec, dtype=np.float32)
-
-
