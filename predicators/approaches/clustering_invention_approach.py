@@ -378,10 +378,8 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             logging.info("Generating candidate predicates via contact clustering method...")
             ground_atom_dataset, candidates, initial_monitor_preds = self._generate_candidate_predicates_contact_goal_clustering(dataset)
             self._learned_predicates = set(candidates.keys()) | initial_monitor_preds
-            
+
             # self._learned_predicates = self._select_predicates_by_beam_search(candidates, dataset, self._train_tasks)
-
-
 
         # Save the learned predicates separately for potential reloading
         save_path = utils.get_approach_save_path_str()
@@ -411,7 +409,6 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             passed_in_predicates= self._learned_predicates
         )
 
-
     def _get_feature_difference_function(self, feat_name: str) -> Callable:
         if feat_name == "pose":
             return utils.calculate_se3_distance
@@ -431,7 +428,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         quat_feat_name = "quaternion"
         trans_feat_name = "translation"
         pose_feature_name = "pose"
-        
+
         # Initialize cluster visualization storage attributes
         self._last_cluster_fig = None
         self._last_cluster_ax = None
@@ -444,19 +441,19 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         # Process relative features
         for (type1, type2, feat_name), data in relative_feature_datasets.items():
             logging.debug(f"Clustering relative feature {feat_name} for ({type1.name}, {type2.name}) with {len(data)} points.")
-        
+
             if not data: continue # Skip if no data collected
 
             # Save the feature data for analysis and debugging
             feature_key = f"{type1.name}_{type2.name}_{feat_name}"
-            
+
             # Create directory if it doesn't exist
             os.makedirs("feature_data", exist_ok=True)
-            
+
             # Save the data to a numpy file
             data_path = f"feature_data/{feature_key}.npy"
             np.save(data_path, np.array(data))
-            
+
             logging.info(f"Saved {len(data)} data points for feature {feature_key} to {data_path}")
 
             # Select clustering epsilon based on feature type
@@ -489,13 +486,13 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                     # Calculate the mean SE(3) pose for the cluster
                     translations = cluster_points[:, :3]
                     quaternions = cluster_points[:, 3:]
-                    
+
                     # Mean translation is straightforward
                     mean_translation = np.mean(translations, axis=0)
-                    
+
                     # Mean rotation requires specialized handling
                     # try:
-                        # Ensure quaternions are valid (non-zero norm) before conversion
+                    # Ensure quaternions are valid (non-zero norm) before conversion
                     valid_quats_mask = np.linalg.norm(quaternions, axis=1) > 1e-6
                     if not np.all(valid_quats_mask):
                         raise ValueError("At least one quaternion in cluster is near zero. Skipping this cluster.")
@@ -509,7 +506,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
 
                     # Combine mean translation and mean quaternion
                     cluster_center = np.concatenate((mean_translation, mean_quaternion))
-                    
+
                     # logging.warning(f"INCORRECT MEAN CALCULATION:!!!!!!!!!!!!!!!!!!!") # Remove this warning
                     # normalize the quat -- No longer needed as Rotation.mean handles it
                     # cluster_center[3:7] = cluster_center[3:7] / np.linalg.norm(cluster_center[3:7])
@@ -520,8 +517,8 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                                                             CFG.clustering_se3_trans_weight, 
                                                             CFG.clustering_se3_rot_weight)
                         cluster_center_diff[i] = diff
-                    
-                    #find 95th percentile of cluster_center_diff
+
+                    # find 95th percentile of cluster_center_diff
                     # cluster_center_diff_90 = np.percentile(cluster_center_diff, 90)
                     # # logging.warning(f"90th percentile of cluster_center_diff: {cluster_center_diff_90:.4f}")
                     # cluster_center_diff_95 = np.percentile(cluster_center_diff, 95)
@@ -543,7 +540,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 cluster_info = kept_clusters_info[cluster_label]
                 cluster_points = cluster_info['points'] # Retrieve stored points
                 # compute the SE(3) covariance matrix
-              
+
             # Now, optionally visualize clusters if in debug mode, passing the *updated* info
             if CFG.clustering_debug and data_array.size > 0: # Check if there is data to plot
                 # The kept_clusters_info dict now contains cov matrix and threshold for plot
@@ -574,7 +571,6 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 candidates[pred] = pred.arity + 1.0
                 predicate_counter += 1
 
-
         # Rename predicates for PDDL compatibility (reuse from grammar search)
         renamed_candidates = self._rename_predicates_to_remove_incompatible_chars(candidates)
         return renamed_candidates
@@ -585,8 +581,6 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         """
         feature_data = defaultdict(list)
         feature_changes = defaultdict(list) # Track change magnitudes
-
-
 
         # Filter types so things other than gripper and are useful are kept!!!
         types = {obj.type for traj in dataset.trajectories for obj in traj.states[0]}
@@ -612,7 +606,6 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         if gripper_type_obj is None:
             logging.warning(f"No gripper type found in the dataset. Skipping relative features.")
             return {}
-        
 
         type_pairs = list(utils.combinations_no_self_pairs(sorted(list(filtered_types)), 2))
         # Create type pairs that include combinations with gripper
@@ -620,7 +613,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             # Add both (gripper, obj) and (obj, gripper) pairs
             type_pairs.append((type_obj, gripper_type_obj))
             logging.info(f"Adding gripper pair: ({gripper_type_obj.name}, {type_obj.name}) and ({type_obj.name}, {gripper_type_obj.name})")
-        
+
         logging.info(f"Total type pairs for relative features: {len(type_pairs)}")
         # type_pairs = list(product(sorted(list(types)), repeat=2))
 
@@ -645,7 +638,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                     # has_quat2 = quat_feat_name in type2.feature_names
 
                     # if has_trans1 and has_quat1 and has_trans2 and has_quat2:
-                        # logging.debug(f"Calculating relative pose for ({type1.name}, {type2.name})")
+                    # logging.debug(f"Calculating relative pose for ({type1.name}, {type2.name})")
                     for o1 in objs1:
                         # Handle type1 == type2 case
                         obj2_list = objs2 if type1 != type2 else [o for o in objs2 if o != o1]
@@ -659,20 +652,18 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                                 pose_diff_norm = utils.calculate_se3_distance(rel_pose_t, rel_pose_t1, 
                                                                                 CFG.clustering_se3_trans_weight, 
                                                                                 CFG.clustering_se3_rot_weight)
-                                
+
                                 # Add the pose at time t to the dataset
                                 feature_key = (type1, type2, pose_feat_name)
                                 feature_data[feature_key].append(rel_pose_t)
                                 feature_changes[feature_key].append(pose_diff_norm)
-
-                    
 
         # Filter based on constancy (e.g., keep points below 30th percentile of change)
         final_feature_data = defaultdict(list)
         for feature_key, data_points in feature_data.items():
             changes = np.array(feature_changes[feature_key])
             if len(changes) > 1: # Need at least 2 points to compute percentile
-                # get moving average of changes first 
+                # get moving average of changes first
                 changes_ma = np.convolve(changes, np.ones(CFG.clustering_moving_average_window) / CFG.clustering_moving_average_window, mode='valid')
                 constancy_threshold = np.percentile(changes_ma, CFG.clustering_feature_constancy_percentile) # Default 30?
                 logging.debug(f"Constancy threshold for {feature_key}: {constancy_threshold:.4f} ({CFG.clustering_feature_constancy_percentile}th percentile)")
@@ -680,11 +671,9 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 final_feature_data[feature_key] = [pt for pt, keep in zip(data_points, mask) if keep]
                 logging.debug(f"Kept {sum(mask)} / {len(data_points)} points for {feature_key} based on constancy.")
             else:
-                 logging.debug(f"No data points collected for {feature_key}.")
-
+                logging.debug(f"No data points collected for {feature_key}.")
 
         return final_feature_data
-
 
     def _cluster_feature_dataset(self, feature_data: List[np.ndarray], initial_epsilon: float, feature_name: str) -> Tuple[np.ndarray, np.ndarray, Set[int]]:
         """Performs clustering based on epsilon distance.
@@ -699,7 +688,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         data_array = np.array(feature_data)
         if data_array.ndim == 1:
             data_array = data_array.reshape(-1, 1)
-        
+
         # Handle case with 0 or 1 data point early
         if data_array.shape[0] < 2:
             labels = np.array([0]) if data_array.shape[0] == 1 else np.array([])
@@ -738,7 +727,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                                                 affinity="precomputed", # Pass metric
                                                 linkage='single', # Check compatibility with custom metric
                                                 distance_threshold=effective_epsilon).fit(dist_matrix)
-            
+
         labels = clustering.labels_
         unique_labels = set(labels)
 
@@ -779,7 +768,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         title = (f"{cluster_type_str} ({feat_name})\n"
                  f"MinRatio={CFG.clustering_min_ratio_of_data}, Kept={num_kept_clusters}/{num_total_clusters}")
         fname = f"{fname_prefix}_{feat_name}_clusters.png"
-        
+
         # Store figure reference for potential trajectory overlay
         self._last_cluster_fig = fig
         self._last_cluster_type1 = type1_name
@@ -822,14 +811,14 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 is_3d = True
                 # Optionally add origin marker for relative pose
                 ax.scatter([0], [0], [0], c='blue', s=100, marker='x', label='Origin (Frame 1)')
-                
+
                 # Store axis reference for trajectory overlay
                 self._last_cluster_ax = ax
             else:
-                 logging.warning(f"Pose feature has fewer than 3 dimensions ({num_dims}), cannot plot 3D translation.")
-                 # Fallback to 2D or 1D plot if desired? For now, just skip plotting.
-                 plt.close(fig)
-                 return
+                logging.warning(f"Pose feature has fewer than 3 dimensions ({num_dims}), cannot plot 3D translation.")
+                # Fallback to 2D or 1D plot if desired? For now, just skip plotting.
+                plt.close(fig)
+                return
         elif num_dims == 1:
             ax = fig.add_subplot(111)
             ax.scatter(data_array[:, 0], np.zeros_like(data_array[:, 0]), c=colors, alpha=0.7)
@@ -847,7 +836,6 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             ax.set_ylabel(f'{feat_name} dim 2')
             ax.set_zlabel(f'{feat_name} dim 3')
             is_3d = True
-
 
         # --- Plot Noise and Discarded First ---
         noise_indices = np.where(labels == -1)[0]
@@ -882,16 +870,16 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             for label in labels:
                 cluster_counts[label] += 1
 
-            # --- Calculate All Centroids --- 
+            # --- Calculate All Centroids ---
             discarded_centroids_plotted = False # For legend
             for k in unique_labels:
                 if k == -1: continue # Skip noise
-                
+
                 cluster_indices = np.where(labels == k)[0]
                 if len(cluster_indices) == 0: continue # Skip empty clusters if they somehow occur
-                
+
                 cluster_points = data_array[cluster_indices]
-                
+
                 # Calculate centroid (handle potential errors for small clusters)
                 try:
                     if feat_name == "pose":
@@ -910,19 +898,19 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                             mean_rotation = valid_rots.mean()
                             mean_quaternion = mean_rotation.as_quat()
                             mean_translation = np.mean(translations, axis=0) # Mean of all translations
-                            
+
                         centroid = np.concatenate((mean_translation, mean_quaternion))
                     else: # For non-pose features
                         centroid = np.mean(cluster_points, axis=0)
-                    
+
                     all_centroids[k] = centroid # Store calculated centroid
 
-                    # --- Plot Discarded Centroids --- 
+                    # --- Plot Discarded Centroids ---
                     if k not in kept_clusters_info:
                         marker_kwargs_discarded = {'color': 'grey', 's': 50, 'marker': 'o', 'alpha': 0.7}
                         if not discarded_centroids_plotted:
                             marker_kwargs_discarded['label'] = 'Discarded Centroids'
-                        
+
                         if feat_name == "pose" and is_3d:
                             ax.scatter(centroid[0], centroid[1], centroid[2], **marker_kwargs_discarded)
                         # Add plotting for other dimensions/features if needed
@@ -1002,11 +990,11 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 marker_kwargs = {'color': 'magenta', 's': 150, 'marker': '*'} # Use color argument
                 # Only add the label once for the first centroid plotted
                 if not centroids_plotted:
-                     marker_kwargs['label'] = 'Kept Centroids'
+                    marker_kwargs['label'] = 'Kept Centroids'
 
                 if feat_name == "pose" and is_3d:
-                     ax.scatter(centroid[0], centroid[1], centroid[2], **marker_kwargs)
-                     ax.text(centroid[0], centroid[1], centroid[2], label_text, fontsize=9)
+                    ax.scatter(centroid[0], centroid[1], centroid[2], **marker_kwargs)
+                    ax.text(centroid[0], centroid[1], centroid[2], label_text, fontsize=9)
                 elif num_dims == 1:
                     ax.scatter(centroid[0], 0, **marker_kwargs)
                     ax.text(centroid[0], 0.01, label_text, fontsize=9) 
@@ -1018,7 +1006,6 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                     ax.text(centroid[0], centroid[1], centroid[2], label_text, fontsize=9)
                 centroids_plotted = True
 
-
                 # --- Plot Boundaries (Ellipsoids for non-pose) or Frames (for pose) ---
                 if feat_name == "pose" and is_3d:
                     # Plot coordinate frame for the centroid pose
@@ -1029,13 +1016,13 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                     q_norm = norm(centroid_quat)
                     if np.isclose(q_norm, 0): raise ValueError("Centroid quaternion norm is zero.")
                     centroid_quat /= q_norm
-                    
+
                     rot_mat = Rotation.from_quat(centroid_quat).as_matrix()
                     axis_len = CFG.clustering_visualization_frame_axis_length # Add to CFG (e.g., 0.05)
 
                     # Quiver args
                     q_args = {'length': axis_len, 'normalize': False, 'alpha': 0.8}
-                    
+
                     # X-axis (Red)
                     ax.quiver(centroid_trans[0], centroid_trans[1], centroid_trans[2], 
                                 rot_mat[0, 0], rot_mat[1, 0], rot_mat[2, 0], 
@@ -1072,7 +1059,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                         # ax.plot_wireframe(x_s, y_s, z_s, color=cluster_color, alpha=0.15, rstride=4, cstride=4, label=sphere_label)
                         boundaries_plotted = False # Mark that a boundary (sphere) was plotted
                     # --- End Sphere Plotting ---
-                    
+
                     # --- Plot Ellipsoidal Decision Boundary ---
                     # If covariance matrix is available, also plot an ellipsoid representing the Mahalanobis distance boundary
                     if 'cluster_cov' in info and 'mahalanobis_threshold' in info:
@@ -1084,21 +1071,21 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                         if 'cluster_cov' in info:
                             logging.info(f"Cluster Covariance (shape {info['cluster_cov'].shape}):\n{info['cluster_cov']}")
                         if 'mahalanobis_threshold' in info:
-                             logging.info(f"Mahalanobis Threshold: {info['mahalanobis_threshold']}")
+                            logging.info(f"Mahalanobis Threshold: {info['mahalanobis_threshold']}")
                         else:
-                             logging.warning(f"Mahalanobis Threshold MISSING in info for cluster {label}")
+                            logging.warning(f"Mahalanobis Threshold MISSING in info for cluster {label}")
                         # <<< INSERT END >>>
 
                         cluster_cov = info['cluster_cov']
                         mahalanobis_threshold = info['mahalanobis_threshold']
-                        
+
                         # Extract translation part of covariance if dealing with pose
                         if feat_name == "pose" and cluster_cov.shape[0] >= 3:
                             trans_cov = cluster_cov[:3, :3]  # Translation covariance (3x3)
                             # <<< INSERT START >>>
                             logging.info(f"Translation Covariance (trans_cov, shape {trans_cov.shape}):\n{trans_cov}")
                             # <<< INSERT END >>>
-                            
+
                             # Check if covariance is valid for visualization
                             if np.all(np.isfinite(trans_cov)) and not np.any(np.isnan(trans_cov)):
                                 try:
@@ -1108,41 +1095,41 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                                     logging.info(f"Eigenvalues (eigvals): {eigvals}")
                                     logging.info(f"Eigenvectors (eigvecs):\n{eigvecs}")
                                     # <<< INSERT END >>>
-                                    
+
                                     # Ensure positive eigenvalues (should be positive definite)
                                     eigvals = np.abs(eigvals)
-                                    
+
                                     # Scale eigenvalues by Mahalanobis threshold and take square root
                                     # as we need standard deviation not variance
                                     eigvals_scaled = np.sqrt(mahalanobis_threshold * eigvals)
                                     # <<< INSERT START >>>
                                     logging.info(f"Scaled Eigenvalues (sqrt(thresh * eigvals)): {eigvals_scaled}")
                                     # <<< INSERT END >>>
-                                    
+
                                     # Create meshgrid of points on a unit sphere
                                     u = np.linspace(0, 2 * np.pi, 25)
                                     v = np.linspace(0, np.pi, 25)
                                     x_unit = np.outer(np.cos(u), np.sin(v))
                                     y_unit = np.outer(np.sin(u), np.sin(v))
                                     z_unit = np.outer(np.ones_like(u), np.cos(v))
-                                    
+
                                     # Reshape unit sphere points to apply transformation
                                     points = np.stack([x_unit.flatten(), y_unit.flatten(), z_unit.flatten()], axis=1)
-                                    
+
                                     # Apply eigenvalue scaling (multiply each axis by corresponding eigenvalue)
                                     scaled_points = points * eigvals_scaled
-                                    
+
                                     # Rotate using eigenvectors to align with covariance principal components
                                     rotated_points = np.dot(scaled_points, eigvecs.T)
-                                    
+
                                     # Translate to centroid position
                                     ellipsoid_points = rotated_points + centroid_trans
-                                    
+
                                     # Reshape back to mesh format
                                     x_ellipsoid = ellipsoid_points[:, 0].reshape(x_unit.shape)
                                     y_ellipsoid = ellipsoid_points[:, 1].reshape(y_unit.shape)
                                     z_ellipsoid = ellipsoid_points[:, 2].reshape(z_unit.shape)
-                                    
+
                                     # Plot ellipsoid as wireframe
                                     ellipsoid_label = 'Covariance Ellipsoid (Maha. Thresh.)' if not boundaries_plotted else ""
                                     ax.plot_wireframe(
@@ -1150,14 +1137,14 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                                         color='red', alpha=0.2, rstride=4, cstride=4, 
                                         label=ellipsoid_label, linestyle='--'
                                     )
-                                    
+
                                     # Add to legend items
                                     # if ellipsoid_label:
                                     #     if 'ellipsoid_plotted' not in locals():
                                     #         ellipsoid_plotted = True
-                                    #         handles.append(plt.Line2D([0], [0], linestyle='--', color='red', alpha=0.5, 
+                                    #         handles.append(plt.Line2D([0], [0], linestyle='--', color='red', alpha=0.5,
                                     #                                 label='Covariance Ellipsoid (Maha. Thresh.)'))
-                                    
+
                                 except (np.linalg.LinAlgError, ValueError) as e:
                                     logging.warning(f"Could not plot ellipsoid for cluster {label}: {e}")
                             else:
@@ -1165,8 +1152,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                         # --- End Ellipsoid Plotting ---
 
                 else:
-                     logging.debug(f"Skipping boundary/frame plot for cluster {label}: Missing info.")
-
+                    logging.debug(f"Skipping boundary/frame plot for cluster {label}: Missing info.")
 
             # --- Finalize Plot ---
             ax.set_title(title)
@@ -1180,7 +1166,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 zlim = ax.get_zlim()
                 self._last_cluster_zlim = zlim
             else:
-                 self._last_cluster_zlim = None # Ensure it's reset for non-3D plots
+                self._last_cluster_zlim = None # Ensure it's reset for non-3D plots
 
             # Create legend handles
             # handles = []
@@ -1273,7 +1259,6 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         pred = Predicate(name, types, classifier)
         return pred
 
-
     # --- Candidate Predicate based on clustering of contact relative poses ---
     def _generate_candidate_predicates_contact_goal_clustering(self, dataset: Dataset) -> Tuple[List[GroundAtomTrajectory], Dict[Predicate, float], Set[Predicate]]:
         """Generate candidate predicates based on clustering of contact relative poses."""
@@ -1283,6 +1268,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         # Identify the InContact predicate and the gripper type
         in_contact_pred = next(p for p in env.predicates if "InContact" in p.name)
         gripper_type = next(t for t in self._types if "gripper" in t.name) # Assumes gripper type name contains "gripper"
+        surface_type = next(t for t in self._types if "surface" in t.name) # Assumes surface type name contains "surface"
         if not gripper_type:
             logging.warning("Gripper type not found. Cannot generate contact-based predicates.")
             return {}, {} # Return empty dicts if gripper type is not found
@@ -1293,16 +1279,16 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
 
         relative_pose_dataset_dict = defaultdict(list) # Maps (atom_pred, type1, type2) -> List[rel_pose]
 
-
         quat_feat_name = "quaternion"
         trans_feat_name = "translation"
         pose_feat_name = "pose"
 
         logging.info("Extracting relative poses at contact initiation...")
-        
+
         for i, (ll_traj, atom_seq) in enumerate(ground_atom_dataset):
             if not ll_traj.states: continue # Skip empty trajectories
             gripper_obj_init = ll_traj.states[0].get_objects(gripper_type)[0]
+            surface_obj_init = ll_traj.states[0].get_objects(surface_type)[0]
             # logging.info(f"Processing trajectory {i} of {len(ground_atom_dataset)}")
 
             for t in range(1, len(atom_seq), 4): # Start from 1 to compare with t-1, skip every 4
@@ -1329,7 +1315,8 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                                 contact_obj = obj1
                             elif not obj1.is_instance(gripper_type) and not obj2.is_instance(gripper_type):
                                 gripper_obj = gripper_obj_init
-                                contact_obj = obj2 # just using obj1 for goal predicates
+                                # contact_obj = obj2 # just using obj1 for goal predicates
+                                contact_obj = surface_obj_init # TODO: this is hardcoded for now
                                 # continue
                             else:
                                 logging.warning(f"Skipping contact pair {obj1} and {obj2} for {atom}")
@@ -1357,7 +1344,8 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                                 contact_obj = obj1
                             elif not obj1.is_instance(gripper_type) and not obj2.is_instance(gripper_type):
                                 gripper_obj = gripper_obj_init
-                                contact_obj = obj2 # just using obj1 for goal predicates
+                                # contact_obj = obj2 # just using obj1 for goal predicates
+                                contact_obj = surface_obj_init  # TODO: this is hardcoded for now
                                 # continue
                             else:
                                 logging.warning(f"Skipping contact pair {obj1} and {obj2} for {atom}")
@@ -1422,10 +1410,9 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 cluster_size = len(cluster_points)
 
                 if cluster_size >= min_cluster_size:
-                   
+
                     translations = cluster_points[:, :3]
                     quaternions = cluster_points[:, 3:]
-
 
                     valid_quats = quaternions
                     rotations = Rotation.from_quat(valid_quats)
@@ -1439,7 +1426,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                     # Use only the translation part for Mahalanobis distance/covariance
                     cluster_translations = cluster_points[:, :3]
                     # try:
-                        # Calculate covariance of the translation vectors
+                    # Calculate covariance of the translation vectors
                     if cluster_translations.shape[0] < 2: # Need at least 2 points for covariance
                         raise ValueError("Not enough points for covariance calculation.")
                     # Calculate difference from the mean translation
@@ -1534,7 +1521,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 if not atom_seq:
                     logging.info("  (No states or no atoms true in this trajectory)")
                     continue
-                
+
                 # Print changes in atom sets
                 last_atoms = None
                 for t, atoms in enumerate(atom_seq):
@@ -1544,9 +1531,8 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                         last_atoms = current_atoms
             logging.info("--- End segmentation with new predicates ---")
         else:
-             logging.info("No new cluster predicates were generated to create atom dataset.")
+            logging.info("No new cluster predicates were generated to create atom dataset.")
         # --- End Debugging ---
-
 
         # If traj_dataset_dict needs to be used later, it should be stored or returned differently.
         # Returning candidates to fit the existing beam search input type.
@@ -1555,8 +1541,6 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         return ground_atom_dataset, renamed_candidates, predicates_to_monitor
         ### Returning learned predicate segmented Ground Atom Dataset, learned predicates, and learned predicates again
         return cluster_pred_atom_dataset, renamed_candidates, env.goal_predicates
-
-
 
     # --- Predicate Selection Functions (Beam Search) ---
     def _select_predicates_by_beam_search(self,
@@ -1669,9 +1653,9 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                         current_atom = atom
                         current_atom_count = 1
 
-              # Add debug visualization here
-                
-                # End debug visualization
+            # Add debug visualization here
+
+            # End debug visualization
 
         op_term , operators = self._calculate_operator_complexity_term(predicates, dataset, atom_dataset, train_tasks)
         # Now check constraint
@@ -1733,7 +1717,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             # segments = segment_trajectory(ll_traj, predicates, atom_seq=atom_seq)
             # Calculate both segment counts and action counts for each demo
             # segment_lengths = [len(segment) for segment in segmented_trajs]
-            # segment_action_counts = [[len(segment.actions) for segment in demo_segments] 
+            # segment_action_counts = [[len(segment.actions) for segment in demo_segments]
             #                         for demo_segments in segmented_trajs]
             # logging.info(f"Segment action counts: \n {segment_action_counts}")
             # for p in predicates:
@@ -1889,7 +1873,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         """
         if not CFG.clustering_debug:
             return
-            
+
         # Find the object types by name
         type1 = None
         type2 = None
@@ -1898,14 +1882,14 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 type1 = obj_type
             elif obj_type.name == type2_name:
                 type2 = obj_type
-                
+
         if type1 is None or type2 is None:
             logging.warning(f"Could not find types {type1_name} and/or {type2_name} for trajectory visualization")
             return
-            
+
         trans_feat_name = "translation"
         quat_feat_name = "quaternion"
-        
+
         # Check if we have an existing cluster figure to overlay on
         if (hasattr(self, '_last_cluster_fig') and self._last_cluster_fig is not None and
             hasattr(self, '_last_cluster_ax') and self._last_cluster_ax is not None and
@@ -1929,33 +1913,33 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             ax.set_zlabel('Z relative')
             is_overlay = False
             fname = f"rel_traj_{type1_name}_{type2_name}.png"
-        
+
         # Different colors for different trajectories - use brighter colors for trajectories
         colors = plt.cm.rainbow(np.linspace(0, 1, len(dataset.trajectories)))
-        
+
         # Mark which trajectories are used
         trajectories_plotted = False
-        
+
         for traj_idx, traj in enumerate(dataset.trajectories):
             # Skip trajectories with too few states
             if len(traj.states) < 2:
                 continue
-                
+
             # Find all objects of the required types in this trajectory
             type1_objs = list(traj.states[0].get_objects(type1))
             type2_objs = list(traj.states[0].get_objects(type2))
-            
+
             if not type1_objs or not type2_objs:
                 continue
-                
+
             # For simplicity, just use the first object of each type
             # Could be extended to show all pairs
             obj1 = type1_objs[0]
             obj2 = type2_objs[0]
-            
+
             # Collection for relative positions across time
             relative_positions = []
-            
+
             for state in traj.states:
                 # Calculate relative pose in each state
                 rel_pose = utils.calculate_relative_pose(state, obj1, obj2, 
@@ -1964,11 +1948,11 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 if rel_pose is not None:
                     # Just extract the translation part (first 3 components)
                     relative_positions.append(rel_pose[:3])
-            
+
             if relative_positions:
                 # Convert to numpy array for plotting
                 relative_positions = np.array(relative_positions)
-                
+
                 # Plot the trajectory
                 traj_label = f"Traj {traj_idx}" if not trajectories_plotted else None
                 ax.plot(relative_positions[:, 0], 
@@ -1977,7 +1961,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                         '-', color=colors[traj_idx], 
                         linewidth=2,
                         label=traj_label)
-                
+
                 # Mark start and end points
                 ax.scatter(relative_positions[0, 0], 
                            relative_positions[0, 1], 
@@ -1989,9 +1973,9 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                            relative_positions[-1, 2], 
                            color=colors[traj_idx], marker='s', s=100,
                            label="End point" if not trajectories_plotted else None)
-                
+
                 trajectories_plotted = True
-        
+
         # Determine final axis limits (considering overlay)
         traj_xlim = ax.get_xlim()
         traj_ylim = ax.get_ylim()
@@ -2012,7 +1996,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             final_xlim = traj_xlim
             final_ylim = traj_ylim
             final_zlim = traj_zlim
-        
+
         # Apply equal aspect ratio based on the *final* combined range
         # Avoid errors if range is zero
         ax.set_xlim(final_xlim[0], final_xlim[1])
@@ -2021,14 +2005,14 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
 
         # Set view angle (consistent for both new and overlaid plots)
         ax.view_init(elev=20., azim=-35) # Example view angle
-        
+
         # Add legend with a good location
         ax.legend(loc='upper right', bbox_to_anchor=(1, 1))
-        
+
         # If we're overlaying, use the stored title from cluster visualization
         if is_overlay and hasattr(self, '_last_cluster_title'):
             ax.set_title(f"{self._last_cluster_title}\nWith Object Trajectories")
-        
+
         # Save the visualization
         os.makedirs("feature_data", exist_ok=True)
         plt.tight_layout()
@@ -2036,13 +2020,13 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         plt.savefig(f"feature_data/{fname}")
         logging.info(f"Saved {'combined cluster and' if is_overlay else ''} relative trajectory visualization to feature_data/{fname}")
         plt.close(fig)
-        
+
         # Clear references
         if is_overlay:
             self._last_cluster_fig = None
             self._last_cluster_ax = None
             self._last_cluster_title = None
-            
+
     def _test_clustering_with_dummy_data(self, num_clusters=3, points_per_cluster=50, 
                                         noise_level=0.05, cluster_separation=0.5):
         """Test HDBSCAN clustering with synthetic pose data.
@@ -2055,35 +2039,35 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         """
         logging.info(f"Generating synthetic pose data with {num_clusters} clusters, "
                      f"{points_per_cluster} points per cluster, noise level {noise_level}")
-        
+
         # Import necessary visualization packages
         import matplotlib.pyplot as plt
         from mpl_toolkits.mplot3d import Axes3D
         import matplotlib.cm as cm
         import matplotlib
         matplotlib.use('TkAgg')  # Try TkAgg first
-        
+
         # Set random seed for reproducibility
         np.random.seed(42)
-        
+
         # Function to generate random rotation quaternion
         def random_quaternion():
             # Generate random rotation axis
             axis = np.random.randn(3)
             axis = axis / np.linalg.norm(axis)
-            
+
             # Random angle (in radians)
             angle = np.random.uniform(0, 2*np.pi)
-            
+
             # Convert axis-angle to quaternion
             sin_a = np.sin(angle/2)
             cos_a = np.cos(angle/2)
             qx, qy, qz = axis * sin_a
             qw = cos_a
-            
+
             # Return in xyzw format
             return np.array([qx, qy, qz, qw])
-        
+
         # Generate cluster centers with good separation
         centers = []
         for i in range(num_clusters):
@@ -2091,21 +2075,21 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             grid_size = int(np.ceil(np.sqrt(num_clusters)))
             row = i // grid_size
             col = i % grid_size
-            
+
             # Create translation with separation
             trans = np.array([
                 col * cluster_separation - (grid_size-1) * cluster_separation / 2,
                 row * cluster_separation - (grid_size-1) * cluster_separation / 2,
                 0.0  # Keep Z at zero for clarity
             ])
-            
+
             # Create a random rotation for each cluster
             quat = random_quaternion()
-            
+
             # Combine into 7D pose vector [tx, ty, tz, qx, qy, qz, qw]
             center = np.concatenate([trans, quat])
             centers.append(center)
-        
+
         # Generate data points with noise
         all_data = []
         true_labels = []
@@ -2113,44 +2097,44 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         # Generate a single random quaternion to use for all clusters
         # This makes all clusters have the same orientation, varying only in position
         shared_quaternion = random_quaternion()
-        
+
         # Update all centers to use the same quaternion
         for i in range(len(centers)):
             centers[i][3:] = shared_quaternion
-        
+
         for cluster_idx, center in enumerate(centers):
             for _ in range(points_per_cluster):
                 # Add Gaussian noise to translation
                 trans_noise = np.random.normal(0, noise_level, 3)
                 noisy_trans = center[:3] + trans_noise
-                
+
                 # Add noise to quaternion (small rotation perturbation)
                 # Generate small random rotation
                 noise_in_deg = 30
                 noise_angle = np.random.normal(0, noise_in_deg * np.pi / 180)  # Smaller noise for rotation
                 noise_axis = np.random.randn(3)
                 noise_axis = noise_axis / np.linalg.norm(noise_axis)
-                
+
                 # Convert to quaternion
                 sin_a = np.sin(noise_angle/2)
                 cos_a = np.cos(noise_angle/2)
                 noise_quat = np.array([*noise_axis * sin_a, cos_a])  # xyzw format
-                
+
                 # Apply noise rotation to center quaternion using quaternion multiplication
                 center_quat = center[3:]
-                
+
                 # Use scipy's Rotation for quaternion multiplication
                 from scipy.spatial.transform import Rotation
                 center_rot = Rotation.from_quat(center_quat)
                 noise_rot = Rotation.from_quat(noise_quat)
                 noisy_rot = noise_rot * center_rot
                 noisy_quat = noisy_rot.as_quat()
-                
+
                 # Create noisy pose
                 noisy_pose = np.concatenate([noisy_trans, noisy_quat])
                 all_data.append(noisy_pose)
                 true_labels.append(cluster_idx)
-        
+
         # Add some random noise points
         num_noise_points = int(points_per_cluster * 0.1)  # 10% of points per cluster
         for _ in range(num_noise_points):
@@ -2161,28 +2145,28 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             noise_point = np.concatenate([trans, quat])
             all_data.append(noise_point)
             true_labels.append(-1)  # -1 for noise points
-        
+
         all_data = np.array(all_data)
         true_labels = np.array(true_labels)
-        
+
         # Run clustering
         logging.info("Running HDBSCAN on synthetic data...")
         feat_name = "pose"  # This will use the SE(3) metric
-        
+
         # Use _cluster_feature_dataset to perform clustering
         data_array, labels, unique_labels = self._cluster_feature_dataset(
             all_data.tolist(), CFG.clustering_se3_epsilon, feat_name)
-        
+
         # Calculate clustering metrics
         num_clusters_found = len(unique_labels) - (1 if -1 in unique_labels else 0)
         noise_points = sum(1 for label in labels if label == -1)
-        
+
         logging.info(f"HDBSCAN found {num_clusters_found} clusters (ground truth: {num_clusters})")
         logging.info(f"HDBSCAN identified {noise_points} noise points")
-        
+
         # Create a visualization
         fig = plt.figure(figsize=(20, 15))
-        
+
         # 3D plot of translations with ground truth labels
         ax1 = fig.add_subplot(221, projection='3d')
         scatter1 = ax1.scatter(all_data[:, 0], all_data[:, 1], all_data[:, 2], 
@@ -2191,7 +2175,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         ax1.set_xlabel('X')
         ax1.set_ylabel('Y')
         ax1.set_zlabel('Z')
-        
+
         # 3D plot of translations with HDBSCAN labels
         ax2 = fig.add_subplot(222, projection='3d')
         scatter2 = ax2.scatter(data_array[:, 0], data_array[:, 1], data_array[:, 2], 
@@ -2200,10 +2184,10 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         ax2.set_xlabel('X')
         ax2.set_ylabel('Y')
         ax2.set_zlabel('Z')
-        
+
         # Rotation visualization (Optional)
         # Project quaternions to 3D using PCA if needed
-        
+
         # Add information table
         params_text = (
             f"Parameters:\n"
@@ -2215,21 +2199,20 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             f"Clusters found: {num_clusters_found}\n"
             f"Noise points: {noise_points}/{len(labels)}"
         )
-        
+
         fig.text(0.1, 0.3, params_text, fontsize=12, bbox=dict(facecolor='white', alpha=0.5))
-        
+
         # Draw cluster centers
         for i, center in enumerate(centers):
             ax1.scatter([center[0]], [center[1]], [center[2]], 
                        c='black', marker='*', s=200, edgecolor='white')
             ax1.text(center[0], center[1], center[2], f'Center {i}', fontsize=10)
-        
+
         # Save figure
         plt.tight_layout()
         os.makedirs("feature_data", exist_ok=True)
         plt.savefig("feature_data/hdbscan_test_results.png")
         logging.info("Saved visualization to feature_data/hdbscan_test_results.png")
         plt.show()
-        
-        return labels, true_labels
 
+        return labels, true_labels
