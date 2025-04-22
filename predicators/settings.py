@@ -15,6 +15,8 @@ from predicators.meshcat_visualizer import MeshcatVisualizer
 class GlobalSettings:
     # clustering_invention approach parameters
     predicate_candidates_method = "contact_clustering" # "low_speed" or "contact_clustering"
+    clustering_inv_cov_reg = 1e-7
+    clustering_change_only = False
 
 
     clustering_moving_average_window = 5
@@ -36,7 +38,7 @@ class GlobalSettings:
     test_noise_level = 0.05  # Noise standard deviation for clusters
     test_cluster_separation = 0.1  # Distance between cluster centers
     
-    clustering_mahalanobis_confidence = 0.9999
+    clustering_mahalanobis_confidence = 0.90
     clustering_translation_epsilon = 0.3 # set dbscane to be different
     clustering_quaternion_epsilon = 0.7 
     clustering_dbscan_ratio = 0.1 # dbscan is 10 times smaller than this

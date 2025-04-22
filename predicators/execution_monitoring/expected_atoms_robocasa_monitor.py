@@ -115,7 +115,9 @@ class ExpectedAtomsRobocasaExecutionMonitor(BaseExecutionMonitor):
             
         assert "oracle" in CFG.approach or "active_sampler" in CFG.approach \
             or "maple_q" in CFG.approach or \
-            "grammar_search_invention" in CFG.approach
+            "grammar_search_invention" in CFG.approach\
+            or "clustering_invention" in CFG.approach
+            
             
         if not self._approach_info:  # pragma: no cover
             return False

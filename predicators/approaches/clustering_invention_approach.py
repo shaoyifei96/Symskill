@@ -59,53 +59,34 @@ class _RelativeFeatureCovClusterClassifier(_BinaryClassifier):
     Uses the provided covariance matrix to define the cluster boundary.
     Classification is True if the Mahalanobis distance squared is less than or
     equal to a threshold derived from the Chi-squared distribution.
+
+    The inverse covariance and threshold must be pre-calculated and passed in.
     """
     object1_type: Type
     object2_type: Type
     feature_name: str # Will be "pose" for SE(3) clusters
     cluster_center: np.ndarray # Can be 7D for pose
     cluster_cov: np.ndarray # Covariance matrix for the cluster
-    # diff_fn is Optional, mainly for non-pose features if custom diff logic needed
-    diff_fn: Optional[Callable[[Any, Any], Any]] 
+    diff_fn: Optional[Callable[[Any, Any], Any]]
     cluster_id: int
-
-    # Calculated fields
-    inv_covariance_matrix: np.ndarray = field(init=False)
-    mahalanobis_threshold: float = field(init=False)
-    _is_valid: bool = field(default=True, init=False) # Track if inversion succeeded
+    inv_covariance_matrix: np.ndarray # MUST be provided
+    mahalanobis_threshold: float     # MUST be provided
 
     # Feature name constants for convenience
     _pose_feat_name: str = field(default="pose", init=False)
     _trans_feat_name: str = field(default="translation", init=False)
     _quat_feat_name: str = field(default="quaternion", init=False)
 
-    def __post_init__(self) -> None:
-        """Calculate inverse covariance matrix and Mahalanobis threshold."""
-        num_dims = self.cluster_cov.shape[0]
-        # Use object.__setattr__ because the class is frozen
-        inv_cov = inv(self.cluster_cov)
-        # Calculate threshold using Chi-squared distribution
-        # The degrees of freedom is the dimensionality of the feature space
-        threshold = chi2.ppf(CFG.clustering_mahalanobis_confidence, df=num_dims)
-
-        cov_new = self.cluster_cov *1.001 # ensure all points are contained
-        inv_cov = inv(cov_new)
-        object.__setattr__(self, "inv_covariance_matrix", inv_cov)
-        object.__setattr__(self, "mahalanobis_threshold", threshold)
-
+    # __post_init__ is removed
 
     def _classify_object(self, s: State, obj1: Object, obj2: Object) -> bool:
-        """Classify based on Mahalanobis distance using covariance."""
-        if not self._is_valid:
-            return False # Invalid classifier due to covariance issue
-
+        """Classify based on Mahalanobis distance using pre-calculated covariance."""
         assert obj1.is_instance(self.object1_type)
         assert obj2.is_instance(self.object2_type)
 
         # Calculate the relevant relative feature
         relative_feature = None
         if self.feature_name == self._pose_feat_name:
-            # Calculate the 7D relative pose
             relative_feature = utils.calculate_relative_pose(s, obj1, obj2,
                                                        self._trans_feat_name,
                                                        self._quat_feat_name)
@@ -113,12 +94,12 @@ class _RelativeFeatureCovClusterClassifier(_BinaryClassifier):
                 logging.debug(f"Could not compute relative pose for classification between {obj1}, {obj2}. Returning False.")
                 return False # Cannot classify if pose cannot be computed
         else:
+            # If supporting other features, add logic here
             raise ValueError(f"Unsupported feature name: {self.feature_name}")
 
         # Ensure feature is numpy array for Mahalanobis calculation
         relative_feature = np.array(relative_feature, dtype=self.cluster_center.dtype)
-        relative_feature = relative_feature[:3]
-
+        relative_feature = relative_feature[:3] # Use only translation part for Mahalanobis
 
         # Calculate Mahalanobis distance squared
         diff = relative_feature - self.cluster_center[:3]
@@ -137,6 +118,7 @@ class _RelativeFeatureCovClusterClassifier(_BinaryClassifier):
             logging.error(f"Relative feature: {relative_feature}, Cluster center: {self.cluster_center}")
             return False
 
+        # Use the pre-calculated threshold
         return mahalanobis_dist_sq <= self.mahalanobis_threshold
 
     def __str__(self) -> str:
@@ -157,6 +139,7 @@ class _RelativeFeatureCovClusterClassifier(_BinaryClassifier):
              # Generic diff representation or use feature name directly
              feat_desc = f"Diff({name1}.{self.feature_name}, {name2}.{self.feature_name})"
 
+        # Use the pre-calculated threshold
         body_str = (f"MahaDistSq({feat_desc}, Cluster-{self.feature_name}-ID{self.cluster_id}) "
                     f"<= {self.mahalanobis_threshold:.3f}")
         return vars_str, body_str
@@ -759,7 +742,6 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         unique_labels = set(labels)
 
         return data_array, labels, unique_labels
-
     def _plot_cluster_results(self,
                               data_array: np.ndarray,
                               labels: np.ndarray,
@@ -887,45 +869,6 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         # Choose a colormap for distance visualization
         dist_cmap = cm.get_cmap('viridis') # Or 'plasma', 'coolwarm', etc.
         colorbar_added = False # Ensure colorbar is added only once
-
-        # --- Setup Plot Axes --- (Moved down to plot kept clusters individually)
-        # if feat_name == "pose":
-        #     # For pose (7D), plot the translational part (first 3 dims)
-        #     if num_dims >= 3:
-        #         ax = fig.add_subplot(111, projection='3d')
-        #         # Scatter plot using only the first 3 dimensions (translation)
-        #         ax.scatter(data_array[:, 0], data_array[:, 1], data_array[:, 2], c=colors, alpha=0.5, s=30, label='Feature Points')
-        #         ax.set_xlabel('Relative Tx')
-        #         ax.set_ylabel('Relative Ty')
-        #         ax.set_zlabel('Relative Tz')
-        #         is_3d = True
-        #         # Optionally add origin marker for relative pose
-        #         ax.scatter([0], [0], [0], c='blue', s=100, marker='x', label='Origin (Frame 1)')
-        #
-        #         # Store axis reference for trajectory overlay
-        #         self._last_cluster_ax = ax
-        #     else:
-        #          logging.warning(f"Pose feature has fewer than 3 dimensions ({num_dims}), cannot plot 3D translation.")
-        #          # Fallback to 2D or 1D plot if desired? For now, just skip plotting.
-        #          plt.close(fig)
-        #          return
-        # elif num_dims == 1:
-        #     ax = fig.add_subplot(111)
-        #     ax.scatter(data_array[:, 0], np.zeros_like(data_array[:, 0]), c=colors, alpha=0.7)
-        #     ax.set_xlabel(f'{feat_name} dim 1')
-        # elif num_dims == 2:
-        #     ax = fig.add_subplot(111)
-        #     ax.scatter(data_array[:, 0], data_array[:, 1], c=colors, alpha=0.7)
-        #     ax.set_xlabel(f'{feat_name} dim 1')
-        #     ax.set_ylabel(f'{feat_name} dim 2')
-        #     ax.set_aspect('equal', adjustable='box') # Keep aspect ratio for 2D
-        # elif num_dims >= 3: # Non-pose 3D+ features
-        #     ax = fig.add_subplot(111, projection='3d')
-        #     ax.scatter(data_array[:, 0], data_array[:, 1], data_array[:, 2], c=colors, alpha=0.7)
-        #     ax.set_xlabel(f'{feat_name} dim 1')
-        #     ax.set_ylabel(f'{feat_name} dim 2')
-        #     ax.set_zlabel(f'{feat_name} dim 3')
-        #     is_3d = True
 
         # --- Plot Centroids and Boundaries/Frames ---
         centroids_plotted = False
@@ -1109,24 +1052,24 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                     # --- Plot Cluster Radius Sphere ---
                     if 'cluster_radius' in info:
                         # Original SE(3) radius
-                        se3_radius = info['cluster_radius']
-                        # Calculate equivalent translation radius for visualization
-                        # Avoid division by zero if weight is somehow zero
-                        trans_weight = CFG.clustering_se3_trans_weight
-                        if np.isclose(trans_weight, 0):
-                            logging.warning("Translation weight is close to zero, cannot calculate equivalent radius for plot.")
-                            radius_for_plot = 0.0 # Or some default / skip plotting
-                        else:
-                            radius_for_plot = np.sqrt(se3_radius*se3_radius / trans_weight) # Equivalent translation radius
+                        # se3_radius = info['cluster_radius']
+                        # # Calculate equivalent translation radius for visualization
+                        # # Avoid division by zero if weight is somehow zero
+                        # trans_weight = CFG.clustering_se3_trans_weight
+                        # if np.isclose(trans_weight, 0):
+                        #     logging.warning("Translation weight is close to zero, cannot calculate equivalent radius for plot.")
+                        #     radius_for_plot = 0.0 # Or some default / skip plotting
+                        # else:
+                        #     radius_for_plot = np.sqrt(se3_radius*se3_radius / trans_weight) # Equivalent translation radius
 
-                        sphere_label = 'Equiv. Trans. Radius (Max Dist)' if not boundaries_plotted else "" # Add legend only once
-                        u_s = np.linspace(0, 2 * np.pi, 50) # Azimuthal angle
-                        v_s = np.linspace(0, np.pi, 25) # Polar angle
-                        x_s = centroid_trans[0] + radius_for_plot * np.outer(np.cos(u_s), np.sin(v_s))
-                        y_s = centroid_trans[1] + radius_for_plot * np.outer(np.sin(u_s), np.sin(v_s))
-                        z_s = centroid_trans[2] + radius_for_plot * np.outer(np.ones(np.size(u_s)), np.cos(v_s))
-                        ax.plot_wireframe(x_s, y_s, z_s, color=cluster_color, alpha=0.15, rstride=4, cstride=4, label=sphere_label)
-                        boundaries_plotted = True # Mark that a boundary (sphere) was plotted
+                        # sphere_label = 'Equiv. Trans. Radius (Max Dist)' if not boundaries_plotted else "" # Add legend only once
+                        # u_s = np.linspace(0, 2 * np.pi, 50) # Azimuthal angle
+                        # v_s = np.linspace(0, np.pi, 25) # Polar angle
+                        # x_s = centroid_trans[0] + radius_for_plot * np.outer(np.cos(u_s), np.sin(v_s))
+                        # y_s = centroid_trans[1] + radius_for_plot * np.outer(np.sin(u_s), np.sin(v_s))
+                        # z_s = centroid_trans[2] + radius_for_plot * np.outer(np.ones(np.size(u_s)), np.cos(v_s))
+                        # ax.plot_wireframe(x_s, y_s, z_s, color=cluster_color, alpha=0.15, rstride=4, cstride=4, label=sphere_label)
+                        boundaries_plotted = False # Mark that a boundary (sphere) was plotted
                     # --- End Sphere Plotting ---
                     
                     # --- Plot Ellipsoidal Decision Boundary ---
@@ -1208,11 +1151,11 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                                     )
                                     
                                     # Add to legend items
-                                    if ellipsoid_label:
-                                        if 'ellipsoid_plotted' not in locals():
-                                            ellipsoid_plotted = True
-                                            handles.append(plt.Line2D([0], [0], linestyle='--', color='red', alpha=0.5, 
-                                                                    label='Covariance Ellipsoid (Maha. Thresh.)'))
+                                    # if ellipsoid_label:
+                                    #     if 'ellipsoid_plotted' not in locals():
+                                    #         ellipsoid_plotted = True
+                                    #         handles.append(plt.Line2D([0], [0], linestyle='--', color='red', alpha=0.5, 
+                                    #                                 label='Covariance Ellipsoid (Maha. Thresh.)'))
                                     
                                 except (np.linalg.LinAlgError, ValueError) as e:
                                     logging.warning(f"Could not plot ellipsoid for cluster {label}: {e}")
@@ -1239,36 +1182,36 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                  self._last_cluster_zlim = None # Ensure it's reset for non-3D plots
 
             # Create legend handles
-            handles = []
-            # Create a single handle for all kept points using a generic marker
-            # handles.append(plt.Line2D([0], [0], marker='o', color='w', label='Kept Cluster Pts', markersize=10, markerfacecolor='gray'))
-            # Handle for discarded points (updated color)
-            if len(discarded_indices) > 0:
-                handles.append(plt.Line2D([0], [0], marker='x', color='w', label='Discarded Cluster Pts', markersize=10, markerfacecolor='lightgrey', linestyle='None')) # Use marker='x'
+            # handles = []
+            # # Create a single handle for all kept points using a generic marker
+            # # handles.append(plt.Line2D([0], [0], marker='o', color='w', label='Kept Cluster Pts', markersize=10, markerfacecolor='gray'))
+            # # Handle for discarded points (updated color)
+            # if len(discarded_indices) > 0:
+            #     handles.append(plt.Line2D([0], [0], marker='x', color='w', label='Discarded Cluster Pts', markersize=10, markerfacecolor='lightgrey', linestyle='None')) # Use marker='x'
 
-            if len(noise_indices) > 0:
-                handles.append(plt.Line2D([0], [0], marker='o', color='w', label='Noise Pts', markersize=10, markerfacecolor='black'))
-            # Handle for centroids (generic marker)
-            if centroids_plotted:
-                handles.append(plt.Line2D([0], [0], marker='*', color='w', label='Kept Centroids', markersize=10, markerfacecolor='magenta', linestyle='None'))
-            if discarded_centroids_plotted:
-                handles.append(plt.Line2D([0], [0], marker='o', color='w', label='Discarded Centroids', markersize=8, markerfacecolor='grey', alpha=0.7, linestyle='None'))
-            # Handle for boundaries (generic color)
-            if boundaries_plotted: # Ellipsoid legend
-                handles.append(plt.Line2D([0], [0], linestyle='--', color='gray', label='Ellipsoid Boundary (Maha. Thresh.)'))
-            if frames_plotted: # Add legend entries for frames if any were plotted
-                 handles.append(plt.Line2D([0],[0], color='r', lw=2, label='Centroid Frame X'))
-                 handles.append(plt.Line2D([0],[0], color='g', lw=2, label='Centroid Frame Y'))
-                 handles.append(plt.Line2D([0],[0], color='b', lw=2, label='Centroid Frame Z'))
-            if boundaries_plotted and feat_name == "pose": # Add legend for pose cluster radius sphere
-                handles.append(plt.Line2D([0], [0], linestyle='-', color='gray', alpha=0.3, label='Equiv. Trans. Radius (Max Dist)'))
-            # Add legend for furthest point if plotted
-            if furthest_plotted:
-                handles.append(plt.Line2D([0], [0], marker='v', color='w', label='Furthest Point', markersize=8, markerfacecolor='red', markeredgecolor='black', linestyle='None'))
-            # if feat_name == "pose" and is_3d: # Origin marker for pose - REMOVED
-            #      handles.append(plt.Line2D([0], [0], marker='x', color='w', label='Origin (Frame 1)', markersize=10, markerfacecolor='blue', linestyle='None'))
+            # if len(noise_indices) > 0:
+            #     handles.append(plt.Line2D([0], [0], marker='o', color='w', label='Noise Pts', markersize=10, markerfacecolor='black'))
+            # # Handle for centroids (generic marker)
+            # if centroids_plotted:
+            #     handles.append(plt.Line2D([0], [0], marker='*', color='w', label='Kept Centroids', markersize=10, markerfacecolor='magenta', linestyle='None'))
+            # if discarded_centroids_plotted:
+            #     handles.append(plt.Line2D([0], [0], marker='o', color='w', label='Discarded Centroids', markersize=8, markerfacecolor='grey', alpha=0.7, linestyle='None'))
+            # # Handle for boundaries (generic color)
+            # if boundaries_plotted: # Ellipsoid legend
+            #     handles.append(plt.Line2D([0], [0], linestyle='--', color='gray', label='Ellipsoid Boundary (Maha. Thresh.)'))
+            # if frames_plotted: # Add legend entries for frames if any were plotted
+            #      handles.append(plt.Line2D([0],[0], color='r', lw=2, label='Centroid Frame X'))
+            #      handles.append(plt.Line2D([0],[0], color='g', lw=2, label='Centroid Frame Y'))
+            #      handles.append(plt.Line2D([0],[0], color='b', lw=2, label='Centroid Frame Z'))
+            # if boundaries_plotted and feat_name == "pose": # Add legend for pose cluster radius sphere
+            #     handles.append(plt.Line2D([0], [0], linestyle='-', color='gray', alpha=0.3, label='Equiv. Trans. Radius (Max Dist)'))
+            # # Add legend for furthest point if plotted
+            # if furthest_plotted:
+            #     handles.append(plt.Line2D([0], [0], marker='v', color='w', label='Furthest Point', markersize=8, markerfacecolor='red', markeredgecolor='black', linestyle='None'))
+            # # if feat_name == "pose" and is_3d: # Origin marker for pose - REMOVED
+            # #      handles.append(plt.Line2D([0], [0], marker='x', color='w', label='Origin (Frame 1)', markersize=10, markerfacecolor='blue', linestyle='None'))
 
-            ax.legend(handles=handles)
+            # ax.legend(handles=handles)
             # No longer setting axis limits or view init here as it's done above
 
             # Comment out saving/closing logic if overlay is pending
@@ -1283,16 +1226,38 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             # Just store the title for later finalization
             self._last_cluster_title = title
 
-    def _create_predicate_from_relative_cluster(self, type1: Type, type2: Type, feature_name: str, cluster_center: np.ndarray, cluster_radius: float, diff_fn: Optional[Callable], cluster_id: int, cluster_cov: Optional[np.ndarray] = None) -> Predicate:
-        """Creates a binary predicate from a relative feature cluster (including pose)."""
-        if cluster_cov is None:
-            classifier = _RelativeFeatureClusterClassifier(type1, type2, feature_name, 
-                                                        cluster_center, cluster_radius,
-                                                        diff_fn, cluster_id)
+    def _create_predicate_from_relative_cluster(self,
+                                                type1: Type,
+                                                type2: Type,
+                                                feature_name: str,
+                                                cluster_center: np.ndarray,
+                                                cluster_radius: float,
+                                                diff_fn: Optional[Callable],
+                                                cluster_id: int,
+                                                cluster_cov: Optional[np.ndarray] = None,
+                                                inv_covariance_matrix: Optional[np.ndarray] = None,
+                                                mahalanobis_threshold: Optional[float] = None) -> Predicate:
+        """Creates a binary predicate from a relative feature cluster (including pose).
+
+        If cluster_cov, inv_covariance_matrix, and mahalanobis_threshold are provided,
+        uses _RelativeFeatureCovClusterClassifier. Otherwise, uses
+        _RelativeFeatureClusterClassifier based on radius.
+        """
+        if cluster_cov is not None and inv_covariance_matrix is not None and mahalanobis_threshold is not None:
+            # Use the covariance-based classifier, passing pre-calculated values
+            classifier = _RelativeFeatureCovClusterClassifier(
+                type1, type2, feature_name,
+                cluster_center, cluster_cov,
+                diff_fn, cluster_id,
+                inv_covariance_matrix, # Pass pre-calculated inv cov
+                mahalanobis_threshold) # Pass pre-calculated threshold
         else:
-            classifier = _RelativeFeatureCovClusterClassifier(type1, type2, feature_name, 
-                                                        cluster_center, cluster_cov,
-                                                        diff_fn, cluster_id)
+            # Use the original radius-based classifier
+            classifier = _RelativeFeatureClusterClassifier(
+                type1, type2, feature_name,
+                cluster_center, cluster_radius,
+                diff_fn, cluster_id)
+
         name = str(classifier)
         types = [type1, type2]
         pred = Predicate(name, types, classifier)
@@ -1336,52 +1301,78 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         for i, (ll_traj, atom_seq) in enumerate(ground_atom_dataset):
             if not ll_traj.states: continue # Skip empty trajectories
             gripper_obj_init = ll_traj.states[0].get_objects(gripper_type)[0]
-            logging.info(f"Processing trajectory {i} of {len(ground_atom_dataset)}")
+            # logging.info(f"Processing trajectory {i} of {len(ground_atom_dataset)}")
 
             for t in range(1, len(atom_seq)): # Start from 1 to compare with t-1
                 state_t = ll_traj.states[t]
-                state_tm1 = ll_traj.states[t-1]
+                # state_tm1 = ll_traj.states[t-1] # Not needed for just looking at added atoms
                 atoms_t = atom_seq[t]
                 atoms_tm1 = atom_seq[t-1]
 
                 positive_change = atoms_t - atoms_tm1
 
-                if not positive_change: continue # Skip if no change
+                if CFG.clustering_change_only:
+                    if not positive_change: continue # Skip if no change
+                    for atom in positive_change:
+                        # logging.debug(f"Processing atom {atom} at time {t}") # Reduced logging noise
+                        # Check if the added atom is the InContact predicate we care about or a goal predicate
+                        if atom.predicate == in_contact_pred or atom.predicate in env.goal_predicates:
+                            # Ensure the atom involves the gripper type or handle goals correctly
+                            obj1, obj2 = atom.objects
+                            contact_obj = None
+                            gripper_obj = None
 
-                for atom in positive_change:
-                    logging.info(f"Processing atom {atom} at time {t}")
-                    # Check if the added atom is the InContact predicate we care about
-                    if atom.predicate == in_contact_pred or atom.predicate in env.goal_predicates:
-                        # Ensure the atom involves the gripper type
-                        obj1, obj2 = atom.objects
-                        contact_obj = None
-                        gripper_obj = None
+                            if obj2.is_instance(gripper_type) and not obj1.is_instance(gripper_type):
+                                gripper_obj = obj2
+                                contact_obj = obj1
+                            elif not obj1.is_instance(gripper_type) and not obj2.is_instance(gripper_type):
+                                gripper_obj = gripper_obj_init
+                                contact_obj = obj2 # just using obj1 for goal predicates
+                                # continue
+                            else:
+                                logging.warning(f"Skipping contact pair {obj1} and {obj2} for {atom}")
+                                continue
 
-                        if obj2.is_instance(gripper_type) and not obj1.is_instance(gripper_type):
-                            gripper_obj = obj2
-                            contact_obj = obj1
-                        elif not obj1.is_instance(gripper_type) and not obj2.is_instance(gripper_type):
-                            gripper_obj = gripper_obj_init
-                            contact_obj = obj2 # just using obj1 for goal predicates
-                            # continue
-                        else:
-                            logging.warning(f"Skipping contact pair {obj1} and {obj2} for {atom}")
-                            continue
+                            # Calculate relative pose at the moment of contact (state t)
+                            rel_pose_at_contact = utils.calculate_relative_pose(
+                                state_t, contact_obj, gripper_obj,
+                                trans_feat_name, quat_feat_name
+                            )
 
-                        # Calculate relative pose at the moment of contact (state t)
-                        rel_pose_at_contact = utils.calculate_relative_pose(
-                            state_t, contact_obj, gripper_obj,
-                            trans_feat_name, quat_feat_name
-                        )
+                            if rel_pose_at_contact is not None:
+                                key = (atom.predicate, contact_obj.type, gripper_obj.type)
+                                relative_pose_dataset_dict[key].append(rel_pose_at_contact)
+                else:
+                    for atom in atoms_t:
+                        if atom.predicate == in_contact_pred or atom.predicate in env.goal_predicates:
+                            # Ensure the atom involves the gripper type or handle goals correctly
+                            obj1, obj2 = atom.objects
+                            contact_obj = None
+                            gripper_obj = None
 
-                        if rel_pose_at_contact is not None:
-                            key = (atom.predicate, contact_obj.type, gripper_obj.type)
-                            relative_pose_dataset_dict[key].append(rel_pose_at_contact)
+                            if obj2.is_instance(gripper_type) and not obj1.is_instance(gripper_type):
+                                gripper_obj = obj2
+                                contact_obj = obj1
+                            elif not obj1.is_instance(gripper_type) and not obj2.is_instance(gripper_type):
+                                gripper_obj = gripper_obj_init
+                                contact_obj = obj2 # just using obj1 for goal predicates
+                                # continue
+                            else:
+                                logging.warning(f"Skipping contact pair {obj1} and {obj2} for {atom}")
+                                continue
 
+                            # Calculate relative pose at the moment of contact (state t)
+                            rel_pose_at_contact = utils.calculate_relative_pose(
+                                state_t, contact_obj, gripper_obj,
+                                trans_feat_name, quat_feat_name
+                            )
 
+                            if rel_pose_at_contact is not None:
+                                key = (atom.predicate, contact_obj.type, gripper_obj.type)
+                                relative_pose_dataset_dict[key].append(rel_pose_at_contact)
         logging.info("Clustering collected relative contact poses...")
         candidates: Dict[Predicate, float] = {}
-        predicate_counter = 0 # To ensure unique cluster IDs
+        # predicate_counter = 0 # To ensure unique cluster IDs
 
         # Initialize cluster visualization storage attributes (copied from _generate_candidate_predicates)
         self._last_cluster_fig = None
@@ -1400,25 +1391,24 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             if not data: continue # Skip if no data collected
 
             # Save feature data (optional, copied from _generate_candidate_predicates)
-            feature_key = f"contact_{type1.name}_{type2.name}_{feat_name}"
-            os.makedirs("feature_data", exist_ok=True)
-            data_path = f"feature_data/{feature_key}.npy"
-            np.save(data_path, np.array(data))
-            logging.info(f"Saved {len(data)} contact pose data points for feature {feature_key} to {data_path}")
+            # feature_key = f"contact_{type1.name}_{type2.name}_{feat_name}"
+            # os.makedirs("feature_data", exist_ok=True)
+            # data_path = f"feature_data/{feature_key}.npy"
+            # np.save(data_path, np.array(data))
+            # logging.info(f"Saved {len(data)} contact pose data points for feature {feature_key} to {data_path}")
 
             # Use SE(3) epsilon
             epsilon = CFG.clustering_se3_epsilon
 
             # Perform clustering
             data_array, labels, unique_labels = self._cluster_feature_dataset(data, epsilon, feat_name)
-            # Note: diff_fn is not strictly needed for SE(3) distance used in _RelativeFeatureClusterClassifier classification
-            # but we might need a placeholder or refine the classifier structure. For now, pass None.
-            diff_fn = None # Or potentially utils.calculate_se3_distance if needed by classifier internals
+            diff_fn = None # Not needed for SE(3) Mahalanobis distance based on translation
 
             if data_array.size == 0: continue # Skip if clustering returned empty
 
-            min_cluster_size = max(1, int(CFG.clustering_min_ratio_of_data * len(data_array))) # Ensure min size is at least 1
-            logging.debug(f"Using minimum cluster size: {min_cluster_size} ({CFG.clustering_min_ratio_of_data * 100}% of {len(data_array)} data points)")
+            # Adjust min cluster size calculation if needed (e.g., minimum 3 points for covariance)
+            min_cluster_size = max(3, int(CFG.clustering_min_ratio_of_data * len(data_array)))
+            # logging.debug(f"Using minimum cluster size: {min_cluster_size} ({CFG.clustering_min_ratio_of_data * 100}% of {len(data_array)} data points)") # Reduced logging
 
             # --- Cluster Processing (Copied and adapted from _generate_candidate_predicates) ---
             kept_clusters_info = {}
@@ -1443,34 +1433,57 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
 
                     cluster_center = np.concatenate((mean_translation, mean_quaternion))
 
-                    # Calculate max distance to center (cluster radius)
-                    cluster_center_diff = np.zeros((len(cluster_points),3))
-                    # get R3 diff in each axis
-                    cluster_center_diff[:,0] = translations[:,0] - cluster_center[0]
-                    cluster_center_diff[:,1] = translations[:,1] - cluster_center[1]
-                    cluster_center_diff[:,2] = translations[:,2] - cluster_center[2]
-                    
-                    # for i in range(len(cluster_points)):
-                    #     diff = utils.calculate_se3_distance(cluster_center, cluster_points[i],
-                    #                                         CFG.clustering_se3_trans_weight,
-                    #                                         CFG.clustering_se3_rot_weight)
-                    #     cluster_center_diff[i] = diff
-                    cluster_cov = np.cov(cluster_center_diff, rowvar=False)
-                    cluster_radius = np.max(np.linalg.eigvals(cluster_cov))
+                    # --- Calculate Covariance, Inverse Covariance, and Threshold ---
+                    # Use only the translation part for Mahalanobis distance/covariance
+                    cluster_translations = cluster_points[:, :3]
+                    # try:
+                        # Calculate covariance of the translation vectors
+                    if cluster_translations.shape[0] < 2: # Need at least 2 points for covariance
+                        raise ValueError("Not enough points for covariance calculation.")
+                    # Calculate difference from the mean translation
+                    num_dims = cluster_translations.shape[1] # Should be 3
+                    trans_diff = cluster_translations - mean_translation
+                    reg_term = np.eye(num_dims) * CFG.clustering_inv_cov_reg # Use CFG value
+                    cluster_cov = np.cov(trans_diff, rowvar=False) + reg_term
 
+                    # Calculate inverse covariance with regularization
                     inv_cov = inv(cluster_cov)
-                    threshold = chi2.ppf(CFG.clustering_mahalanobis_confidence, df=3)
-                    mahalanobis_threshold = np.sqrt(threshold)
-                    kept_clusters_info[k] = {'center': cluster_center, 'size': cluster_size, 'points': cluster_points, 'cluster_radius': cluster_radius, 'cluster_cov': cluster_cov, 'mahalanobis_threshold': mahalanobis_threshold}
-        # Calculate threshold using Chi-squared distribution
-        # The degrees of freedom is the dimensionality of the feature space
-                    logging.info(f"Contact Cluster {k} for {type1.name}-{type2.name}-{feat_name} kept (size {cluster_size}). Radius: {cluster_radius:.2f}, Cov: {cluster_cov}")
+
+                    # Calculate Mahalanobis threshold
+                    threshold = chi2.ppf(CFG.clustering_mahalanobis_confidence, df=num_dims)
+
+                    # except (ValueError, LinAlgError) as e:
+                    #     logging.warning(f"Error calculating covariance/inverse for cluster {k} ({type1.name}-{type2.name}): {e}. Skipping cluster.")
+                    #     discarded_labels.add(k)
+                    #     continue
+
+                    # --- Calculate Radius (Max SE(3) distance) ---
+                    # (Optional, can still be calculated for reference or radius-based classifier)
+                    cluster_se3_diffs = np.zeros(len(cluster_points))
+                    for i in range(len(cluster_points)):
+                        diff = utils.calculate_se3_distance(cluster_center, cluster_points[i],
+                                                            CFG.clustering_se3_trans_weight,
+                                                            CFG.clustering_se3_rot_weight)
+                        cluster_se3_diffs[i] = diff
+                    cluster_radius = np.max(cluster_se3_diffs) # Max SE(3) distance
+
+                    # Store calculated info
+                    kept_clusters_info[k] = {
+                        'center': cluster_center,
+                        'size': cluster_size,
+                        'points': cluster_points, # Keep for visualization if needed
+                        'cluster_cov': cluster_cov,
+                        'inv_covariance_matrix': inv_cov,
+                        'mahalanobis_threshold': threshold,
+                        'cluster_radius': cluster_radius # Store radius too
+                    }
+                    # logging.info(f"Contact Cluster {k} ({type1.name}-{type2.name}) kept (size {cluster_size}). Radius: {cluster_radius:.4f}, Thresh: {threshold:.4f}") # Reduced logging
 
                 else:
                     discarded_labels.add(k)
                     logging.debug(f"Contact Cluster {k} for {type1.name}-{type2.name}-{feat_name} discarded (size {cluster_size} < {min_cluster_size}).")
 
-            # Optional visualization
+            # Optional visualization (now uses stored info)
             if CFG.clustering_debug and data_array.size > 0:
                 self._plot_cluster_results(data_array, labels, unique_labels, kept_clusters_info,
                                            type1.name, type2.name, feat_name)
@@ -1486,17 +1499,46 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             logging.debug(f"Selecting top {top_k} valid contact clusters for {feat_name}:{type1.name}-{type2.name}.")
             for i, (cluster_label, cluster_info) in enumerate(sorted_valid_kept_clusters[:top_k]):
                 # Create predicate using the specific relative cluster method
+                # Pass the pre-calculated inv_cov and threshold
                 pred = self._create_predicate_from_relative_cluster(
-                    type1, type2, feat_name, cluster_info['center'],
-                    cluster_info['cluster_radius'],
-                    diff_fn, cluster_label + predicate_counter,
-                    cluster_info['cluster_cov']) # Add offset to ID
-                candidates[pred] = pred.arity 
-            predicate_counter += len(unique_labels) # Increment counter to avoid ID collision across different type pairs
-
+                    type1, type2, feat_name,
+                    cluster_info['center'],
+                    cluster_info['cluster_radius'], # Pass radius (for potential use or consistency)
+                    diff_fn, # Pass diff_fn (is None here)
+                    cluster_label, 
+                    cluster_cov=cluster_info['cluster_cov'], # Pass cov
+                    inv_covariance_matrix=cluster_info['inv_covariance_matrix'], # Pass inv_cov
+                    mahalanobis_threshold=cluster_info['mahalanobis_threshold'] # Pass threshold
+                )
+                # Add predicate to candidates with cost (e.g., based on arity)
+                candidates[pred] = float(pred.arity) # Example cost
 
         # Rename predicates
         renamed_candidates = self._rename_predicates_to_remove_incompatible_chars(candidates)
+
+
+        # --- Debugging: Show segmentation with ONLY the new cluster predicates ---
+        newly_generated_preds = set(renamed_candidates.keys())
+        if newly_generated_preds:
+            logging.info("--- Segmentation using ONLY newly generated cluster predicates ---")
+            cluster_pred_atom_dataset = self._create_atom_dataset(dataset, newly_generated_preds)
+            for i, (ll_traj, atom_seq) in enumerate(cluster_pred_atom_dataset):
+                logging.info(f"Trajectory {i} segmentation with new preds ({len(atom_seq)} states):")
+                if not atom_seq:
+                    logging.info("  (No states or no atoms true in this trajectory)")
+                    continue
+                
+                # Print changes in atom sets
+                last_atoms = None
+                for t, atoms in enumerate(atom_seq):
+                    current_atoms = frozenset(atoms)
+                    if current_atoms != last_atoms:
+                        logging.info(f"  Time {t}: {current_atoms if current_atoms else '{}'}")
+                        last_atoms = current_atoms
+            logging.info("--- End segmentation with new predicates ---")
+        else:
+             logging.info("No new cluster predicates were generated to create atom dataset.")
+        # --- End Debugging ---
 
 
         # If traj_dataset_dict needs to be used later, it should be stored or returned differently.
@@ -2178,3 +2220,4 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         plt.show()
         
         return labels, true_labels
+
