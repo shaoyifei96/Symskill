@@ -43,12 +43,9 @@ class RoboKitchenEnv(BaseEnv):
 
     door_open_thresh = 1.3  # rad
     door_half_open_thresh = 0.4  # rad
-    close_distance_thresh = 0.02  # m
+    grab_close_distance_thresh = 0.02  # m
     gripper_fingers_distance_thresh = 0.08  # m
-    gripper_fingers_distance_thresh = 0.08  # m
-    offset_inwards_from_handle = 0.10  # m
-    close_distance_thresh = 0.05  # m
-    close_distance_thresh = 0.05  # m
+    place_close_distance_thresh = 0.05  # m
 
     # Types
     object_type = Type("object_type", ["translation", "quaternion"])
@@ -331,7 +328,7 @@ class RoboKitchenEnv(BaseEnv):
             Predicate("DoorOpen", [cls.handle_type, cls.cabinet_type], cls._DoorOpen_holds),
             Predicate("DoorClosed", [cls.handle_type, cls.cabinet_type], cls._DoorClosed_holds),
             Predicate("InContact", [cls.object_type, cls.object_type], cls._InContact_holds),
-            Predicate("OnSurface", [cls.object_type, cls.surface_type], cls._OnSurface_holds),
+            Predicate("OnSurface", [cls.thing_type, cls.surface_type], cls._OnSurface_holds),
             Predicate("DoorHalfOpen", [cls.handle_type, cls.cabinet_type], cls._DoorHalfOpen_holds),
         }
 
@@ -348,7 +345,7 @@ class RoboKitchenEnv(BaseEnv):
         Convert 7D predicators action [dx, dy, dz, droll, dpitch, dyaw, gripper]
         to 12D robocasa action [right_pose(6), right_gripper(1), base(3), torso(1), extra(1)]
         """
-        
+
         # Debugging: show frames of gripper, target and surface
         gripper_obj = self._current_state.get_objects(self.gripper_type)[0]
         gripper_pos = self._current_state.get(gripper_obj, "translation")
@@ -513,23 +510,15 @@ class RoboKitchenEnv(BaseEnv):
     @classmethod
     def _ReadyGrabObj_holds(cls, state: State, objects: Sequence[Object]) -> bool:
         """Check if gripper is ready to grip handle."""
-        def frame_transform(pos_in_init: np.ndarray, quat_in_init: np.ndarray, target_pos: np.ndarray, target_rot: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:                
-            rot_in_init = R.from_quat(quat_in_init).as_matrix()
 
-            rel_pos_init = pos_in_init - target_pos
-
-            pos_in_target = target_rot.T @ rel_pos_init
-            rot_in_target = target_rot.T @ rot_in_init
-
-            return pos_in_target, rot_in_target
         gripper, obj = objects
         # Check if position of gripper is close to handle
         gripper_pos = state.get(gripper, "translation")
         gripper_quat = state.get(gripper, "quaternion")
         obj_pos = state.get(obj, "translation")
         obj_quat = state.get(obj, "quaternion")
-        gripper_pos_in_obj, _ = frame_transform(gripper_pos, gripper_quat, obj_pos, R.from_quat(obj_quat).as_matrix())
-        if np.linalg.norm(gripper_pos_in_obj[0]) <= 0.1 and gripper_pos_in_obj[1] > 0:
+        obj_pos_in_gripper, _ = frame_transform(obj_pos, obj_quat, gripper_pos, R.from_quat(gripper_quat).as_matrix())
+        if np.linalg.norm(obj_pos_in_gripper) <= cls.grab_close_distance_thresh:
             return True
         return False
 
@@ -646,7 +635,19 @@ class RoboKitchenEnv(BaseEnv):
         """Check if object is at location."""
         obj, surface = objects
         obj_pos = state.get(obj, "translation")
-        location_pos = state.get(surface, "translation")
-        near_surface = np.linalg.norm(obj_pos - location_pos) < cls.close_distance_thresh
-        on_top = (obj_pos[2] - location_pos[2]) < cls.close_distance_thresh
-        return near_surface and on_top
+        obj_quat = state.get(obj, "quaternion")
+        surface_pos = state.get(surface, "translation")
+        surface_quat = state.get(surface, "quaternion")
+        obj_pos_in_surface, _ = frame_transform(obj_pos, obj_quat, surface_pos, R.from_quat(surface_quat).as_matrix())
+        return abs(obj_pos_in_surface[2]) <= cls.place_close_distance_thresh
+
+
+def frame_transform(pos_in_init: np.ndarray, quat_in_init: np.ndarray, target_pos: np.ndarray, target_rot: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    rot_in_init = R.from_quat(quat_in_init).as_matrix()
+
+    rel_pos_init = pos_in_init - target_pos
+
+    pos_in_target = target_rot.T @ rel_pos_init
+    rot_in_target = target_rot.T @ rot_in_init
+
+    return pos_in_target, rot_in_target

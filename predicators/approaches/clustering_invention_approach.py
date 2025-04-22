@@ -339,10 +339,10 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
     def learn_from_offline_dataset(self, dataset: Dataset) -> None:
         logging.info("Generating candidate predicates via clustering...")
         # Filter dataset to only keep specific trajectory indices
-        keep_indices = [0, 3, 4, 6, 7, 8]
-        dataset._trajectories = [dataset._trajectories[i] for i in keep_indices]
+        # keep_indices = [0, 3, 4, 6, 7, 8]
+        # dataset._trajectories = [dataset._trajectories[i] for i in keep_indices]
 
-        logging.info(f"Filtered dataset to trajectories (indices: {keep_indices})")
+        # logging.info(f"Filtered dataset to trajectories (indices: {keep_indices})")
         # Clear caches before starting learning
         self._atom_dataset_cache = {}
         self._operator_complexity_cache = {}
@@ -1523,7 +1523,8 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
 
         # Optionally Reconsider the atom seq
         # --- Debugging: Show segmentation with ONLY the new cluster predicates ---
-        kept_preds = set(renamed_candidates.keys())
+        # kept_preds = set(renamed_candidates.keys())
+        kept_preds = set(predicates_to_monitor)
         if kept_preds:
             logging.info("--- Segmentation using ONLY newly generated cluster predicates ---")
             cluster_pred_atom_dataset = self._create_atom_dataset(dataset, kept_preds)
