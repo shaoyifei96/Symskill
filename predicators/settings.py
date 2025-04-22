@@ -13,6 +13,9 @@ from predicators.meshcat_visualizer import MeshcatVisualizer
 
 
 class GlobalSettings:
+
+
+    dict_contact_predicate_to_rel_pose_predicates = {} # key: contact predicate, value: set of rel_pose predicates
     # clustering_invention approach parameters
     predicate_candidates_method = "contact_clustering" # "low_speed" or "contact_clustering"
     clustering_inv_cov_reg = 1e-7

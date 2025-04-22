@@ -1292,6 +1292,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
 
         relative_pose_dataset_dict = defaultdict(list) # Maps (atom_pred, type1, type2) -> List[rel_pose]
 
+
         quat_feat_name = "quaternion"
         trans_feat_name = "translation"
         pose_feat_name = "pose"
@@ -1303,7 +1304,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             gripper_obj_init = ll_traj.states[0].get_objects(gripper_type)[0]
             # logging.info(f"Processing trajectory {i} of {len(ground_atom_dataset)}")
 
-            for t in range(1, len(atom_seq)): # Start from 1 to compare with t-1
+            for t in range(1, len(atom_seq), 4): # Start from 1 to compare with t-1, skip every 4
                 state_t = ll_traj.states[t]
                 # state_tm1 = ll_traj.states[t-1] # Not needed for just looking at added atoms
                 atoms_t = atom_seq[t]
@@ -1500,7 +1501,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             for i, (cluster_label, cluster_info) in enumerate(sorted_valid_kept_clusters[:top_k]):
                 # Create predicate using the specific relative cluster method
                 # Pass the pre-calculated inv_cov and threshold
-                pred = self._create_predicate_from_relative_cluster(
+                pred_generated = self._create_predicate_from_relative_cluster(
                     type1, type2, feat_name,
                     cluster_info['center'],
                     cluster_info['cluster_radius'], # Pass radius (for potential use or consistency)
@@ -1511,17 +1512,21 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                     mahalanobis_threshold=cluster_info['mahalanobis_threshold'] # Pass threshold
                 )
                 # Add predicate to candidates with cost (e.g., based on arity)
-                candidates[pred] = float(pred.arity) # Example cost
+                candidates[pred_generated] = float(pred_generated.arity) # Example cost
+                if (pred.name, type1.name, type2.name) in CFG.dict_contact_predicate_to_rel_pose_predicates:
+                    CFG.dict_contact_predicate_to_rel_pose_predicates[(pred.name, type1.name, type2.name)].add(pred_generated)
+                else:
+                    CFG.dict_contact_predicate_to_rel_pose_predicates[(pred.name, type1.name, type2.name)] = set([pred_generated])
 
         # Rename predicates
         renamed_candidates = self._rename_predicates_to_remove_incompatible_chars(candidates)
 
-
+        # Optionally Reconsider the atom seq
         # --- Debugging: Show segmentation with ONLY the new cluster predicates ---
-        newly_generated_preds = set(renamed_candidates.keys())
-        if newly_generated_preds:
+        kept_preds = set(renamed_candidates.keys())
+        if kept_preds:
             logging.info("--- Segmentation using ONLY newly generated cluster predicates ---")
-            cluster_pred_atom_dataset = self._create_atom_dataset(dataset, newly_generated_preds)
+            cluster_pred_atom_dataset = self._create_atom_dataset(dataset, kept_preds)
             for i, (ll_traj, atom_seq) in enumerate(cluster_pred_atom_dataset):
                 logging.info(f"Trajectory {i} segmentation with new preds ({len(atom_seq)} states):")
                 if not atom_seq:
@@ -1543,7 +1548,12 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
 
         # If traj_dataset_dict needs to be used later, it should be stored or returned differently.
         # Returning candidates to fit the existing beam search input type.
+
+        ### Returning Contact Segmented Ground Atom Dataset, learned predicates, and inital predicates
         return ground_atom_dataset, renamed_candidates, predicates_to_monitor
+        ### Returning learned predicate segmented Ground Atom Dataset, learned predicates, and learned predicates again
+        return cluster_pred_atom_dataset, renamed_candidates, env.goal_predicates
+
 
 
     # --- Predicate Selection Functions (Beam Search) ---
