@@ -1044,7 +1044,7 @@ class _LearnedDSParameterizedOption(ParameterizedOption):
         else:
             gripper_state = 1.0 # close
         
-        if gripper_state == self._gripper_action and np.abs(left_right_finger_dist - self.prev_left_right_finger_dist) < 1e-3:
+        if gripper_state == self._gripper_action and np.abs(left_right_finger_dist - self.prev_left_right_finger_dist) < 1e-2:
             action_low = np.array([-1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0], dtype=np.float32)
             action_high = np.array([1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0], dtype=np.float32)
         else:
