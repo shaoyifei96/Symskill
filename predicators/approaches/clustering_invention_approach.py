@@ -318,19 +318,47 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
 
     def load(self, online_learning_cycle: Optional[int]) -> None:
         # We need to properly load the learned predicates if they exist
-        super().load(online_learning_cycle)
-        if online_learning_cycle is None: # Only load during offline learning phase
-            save_path = utils.get_approach_save_path_str()
-            # Load the learned predicates set if available
-            learned_preds_path = f"{save_path}_learned_predicates.pkl"
-            if utils.file_exists(learned_preds_path):
-                self._learned_predicates = utils.load_from_pickle(learned_preds_path)
-                logging.info(f"Loaded {len(self._learned_predicates)} learned predicates.")
-            else:
-                self._learned_predicates = set()
-        else: # In online learning, learned predicates are already part of NSRTs
+        # super().load(online_learning_cycle)
+        # if online_learning_cycle is None: # Only load during offline learning phase
+        #     save_path = utils.get_approach_save_path_str()
+        #     # Load the learned predicates set if available
+        #     learned_preds_path = f"{save_path}_learned_predicates.pkl"
+        #     if os.path.exists(learned_preds_path):
+        #         self._learned_predicates = pkl.load(open(learned_preds_path, "rb"))
+        #         logging.info(f"Loaded {len(self._learned_predicates)} learned predicates.")
+        #     else:
+        #         self._learned_predicates = set()
+        # else: # In online learning, learned predicates are already part of NSRTs
+        
+        main_folder = f"{CFG.approach_dir}/"
+        all_files = os.listdir(main_folder)
+        approach_files = [main_folder + f for f in all_files if f.startswith(f"{CFG.env}__{CFG.approach}")]
+        for file in approach_files:
+            with open(file, "rb") as f:
+                loaded_nsrts = pkl.load(f)
+                self._nsrts.update(loaded_nsrts)
+
+        if CFG.pretty_print_when_loading:  # pragma: no cover
             preds, _ = utils.extract_preds_and_types(self._nsrts)
-            self._learned_predicates = set(preds.values()) - self._initial_predicates
+            name_map = {}
+            logging.info("Invented predicates:")
+            for idx, pred in enumerate(sorted(set(preds.values()) - self._initial_predicates)):
+                vars_str, body_str = pred.pretty_str()
+                logging.info(f"\tP{idx+1}({vars_str}) ≜ {body_str}")
+                name_map[body_str] = f"P{idx+1}"
+        logging.info("\n\nLoaded NSRTs:")
+        for nsrt in sorted(self._nsrts):
+            if CFG.pretty_print_when_loading:
+                logging.info(nsrt.pretty_str(name_map))
+            else:
+                logging.info(nsrt)
+        logging.info("")
+        # Seed the option parameter spaces after loading.
+        for nsrt in self._nsrts:
+            nsrt.option.params_space.seed(CFG.seed)
+        
+        preds, _ = utils.extract_preds_and_types(self._nsrts)
+        self._learned_predicates = set(preds.values()) - self._initial_predicates
 
     def _get_current_predicates(self) -> Set[Predicate]:
         return self._initial_predicates | self._learned_predicates
@@ -381,12 +409,12 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
 
             # self._learned_predicates = self._select_predicates_by_beam_search(candidates, dataset, self._train_tasks)
 
-        # Save the learned predicates separately for potential reloading
-        save_path = utils.get_approach_save_path_str()
-        learned_preds_path = f"{save_path}_learned_predicates.pkl"
-        # Replace utils.save_to_pickle with direct pkl.dump
-        with open(learned_preds_path, "wb") as f:
-            pkl.dump(self._learned_predicates, f)
+        # # Save the learned predicates separately for potential reloading
+        # save_path = utils.get_approach_save_path_str()
+        # learned_preds_path = f"{save_path}_learned_predicates.pkl"
+        # # Replace utils.save_to_pickle with direct pkl.dump
+        # with open(learned_preds_path, "wb") as f:
+        #     pkl.dump(self._learned_predicates, f)
 
         # Learn NSRTs with the final set of predicates
         # final_predicates = self._get_current_predicates()

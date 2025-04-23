@@ -339,6 +339,15 @@ class RoboKitchenEnv(BaseEnv):
         # Implement simulation logic
         raise NotImplementedError("Simulate not implemented for robosuite kitchen")
 
+    def viz_type_frames(self, target_type: Type):
+        """Show frames of objects of the given type."""
+        objects = self._current_state.get_objects(target_type)
+        for obj in objects:
+            pos = self._current_state.get(obj, "translation")
+            quat = self._current_state.get(obj, "quaternion")
+            self.mjshowframe(pos, quat, name=obj.name)
+    
+    
     def step(self, action: Action) -> Observation:
         """Execute action and return observation.
 
@@ -347,22 +356,10 @@ class RoboKitchenEnv(BaseEnv):
         """
 
         # Debugging: show frames of gripper, target and surface
-        gripper_obj = self._current_state.get_objects(self.gripper_type)[0]
-        gripper_pos = self._current_state.get(gripper_obj, "translation")
-        gripper_quat = self._current_state.get(gripper_obj, "quaternion")
-        self.mjshowframe(gripper_pos, gripper_quat, name="gripper")
-        grap_obj = self._current_state.get_objects(self.grab_type)[0]
-        grab_pos = self._current_state.get(grap_obj, "translation")
-        grab_quat = self._current_state.get(grap_obj, "quaternion")
-        self.mjshowframe(grab_pos, grab_quat, name="target")
-        surface_obj = self._current_state.get_objects(self.surface_type)[0]
-        surface_pos = self._current_state.get(surface_obj, "translation")
-        surface_quat = self._current_state.get(surface_obj, "quaternion")
-        self.mjshowframe(surface_pos, surface_quat, name="surface")
-        cabinet_obj = self._current_state.get_objects(self.cabinet_type)[0]
-        cabinet_obj_pos = self._current_state.get(cabinet_obj, "translation")
-        cabinet_obj_quat = self._current_state.get(cabinet_obj, "quaternion")
-        self.mjshowframe(cabinet_obj_pos, cabinet_obj_quat, name="cabinet")
+        self.viz_type_frames(self.gripper_type)
+        self.viz_type_frames(self.grab_type)
+        self.viz_type_frames(self.surface_type)
+        self.viz_type_frames(self.cabinet_type)
 
         if CFG.use_teleop:
             input_ac_dict = self.device.input2action(mirror_actions=True)
