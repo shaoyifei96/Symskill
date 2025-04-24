@@ -123,7 +123,7 @@ class _RelativeFeatureCovClusterClassifier(_BinaryClassifier):
 
     def __str__(self) -> str:
         # Indicate covariance-based cluster in the name
-        return (f"RelCovCluster-{self.object1_type.name}-{self.object2_type.name}-"
+        return (f"RelCovCluster-{CFG.robo_kitchen_task}-{self.object2_type.name}-in-{self.object1_type.name}-frame-"
                 f"{self.feature_name}-ID{self.cluster_id}")
 
     def pretty_str(self) -> Tuple[str, str]:
@@ -286,7 +286,7 @@ class _AbsoluteFeatureClusterClassifier(_UnaryClassifier):
 
     def __str__(self) -> str:
         # Generate a unique name based on type, feature, and cluster ID.
-        return (f"AbsEllipsoidCluster-{self.object_type.name}-"
+        return (f"AbsEllipsoidCluster-{CFG.robo_kitchen_task}-{self.object_type.name}-"
                 f"{self.feature_name}-ID{self.cluster_id}")
 
     def pretty_str(self) -> Tuple[str, str]:
@@ -318,25 +318,22 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
 
     def load(self, online_learning_cycle: Optional[int]) -> None:
         # We need to properly load the learned predicates if they exist
-        # super().load(online_learning_cycle)
-        # if online_learning_cycle is None: # Only load during offline learning phase
-        #     save_path = utils.get_approach_save_path_str()
-        #     # Load the learned predicates set if available
-        #     learned_preds_path = f"{save_path}_learned_predicates.pkl"
-        #     if os.path.exists(learned_preds_path):
-        #         self._learned_predicates = pkl.load(open(learned_preds_path, "rb"))
-        #         logging.info(f"Loaded {len(self._learned_predicates)} learned predicates.")
-        #     else:
-        #         self._learned_predicates = set()
-        # else: # In online learning, learned predicates are already part of NSRTs
-        
         main_folder = f"{CFG.approach_dir}/"
         all_files = os.listdir(main_folder)
-        approach_files = [main_folder + f for f in all_files if f.startswith(f"{CFG.env}__{CFG.approach}")]
+        approach_files = [main_folder + f for f in all_files if f.startswith(f"{CFG.env}__{CFG.approach}") and f.endswith(".NSRTs")]
+        contact2rel_files = [main_folder + f for f in all_files if f.startswith(f"{CFG.env}__{CFG.approach}") and f.endswith("_contact2rel_preds.pkl")]
         for file in approach_files:
             with open(file, "rb") as f:
                 loaded_nsrts = pkl.load(f)
                 self._nsrts.update(loaded_nsrts)
+        for file in contact2rel_files:
+            with open(file, "rb") as f:
+                contact2rel_preds = pkl.load(f)
+                for key, value in contact2rel_preds.items():
+                    if key not in CFG.dict_contact_predicate_to_rel_pose_predicates:
+                        CFG.dict_contact_predicate_to_rel_pose_predicates[key] = value
+                    else:
+                        CFG.dict_contact_predicate_to_rel_pose_predicates[key].update(value)
 
         if CFG.pretty_print_when_loading:  # pragma: no cover
             preds, _ = utils.extract_preds_and_types(self._nsrts)
@@ -356,7 +353,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         # Seed the option parameter spaces after loading.
         for nsrt in self._nsrts:
             nsrt.option.params_space.seed(CFG.seed)
-        
+
         preds, _ = utils.extract_preds_and_types(self._nsrts)
         self._learned_predicates = set(preds.values()) - self._initial_predicates
 
@@ -415,6 +412,11 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         # # Replace utils.save_to_pickle with direct pkl.dump
         # with open(learned_preds_path, "wb") as f:
         #     pkl.dump(self._learned_predicates, f)
+        
+        save_path = utils.get_approach_save_path_str()
+        learned_preds_path = f"{save_path}_contact2rel_preds.pkl"
+        with open(learned_preds_path, "wb") as f:
+            pkl.dump(CFG.dict_contact_predicate_to_rel_pose_predicates, f)
 
         # Learn NSRTs with the final set of predicates
         # final_predicates = self._get_current_predicates()
@@ -783,11 +785,11 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
 
         # Determine if relative or absolute for titles/filenames
         if type2_name:
-            cluster_type_str = f"Relative Cluster: {type1_name}-{type2_name}"
-            fname_prefix = f"rel_cluster_{type1_name}_{type2_name}"
+            cluster_type_str = f"Relative Cluster: {type2_name} in {type1_name} frame"
+            fname_prefix = f"rel_cluster_{CFG.robo_kitchen_task}_{type2_name}_in_{type1_name}_frame"
         else:
             cluster_type_str = f"Absolute Cluster: {type1_name}"
-            fname_prefix = f"abs_cluster_{type1_name}"
+            fname_prefix = f"abs_cluster_{CFG.robo_kitchen_task}_{type1_name}"
 
         num_total_clusters = len(unique_labels - {-1})
         num_kept_clusters = len(kept_clusters_info)
@@ -1940,7 +1942,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             ax.set_ylabel('Y relative')
             ax.set_zlabel('Z relative')
             is_overlay = False
-            fname = f"rel_traj_{type1_name}_{type2_name}.png"
+            fname = f"rel_traj_{type2_name}_in_{type1_name}_frame_.png"
 
         # Different colors for different trajectories - use brighter colors for trajectories
         colors = plt.cm.rainbow(np.linspace(0, 1, len(dataset.trajectories)))

@@ -34,6 +34,10 @@ class RoboKitchenPerceiver(BasePerceiver):
             goal = {
                 GroundAtom(OnSurface, [obj, bottom]),
             }
+        elif goal_desc == 'StoreFruit':
+            goal = {
+                GroundAtom(OnSurface, [obj, bottom]),
+            }
         else:
             raise NotImplementedError(f"Unrecognized goal: {goal_desc}")
         return Task(state, goal)

@@ -61,6 +61,8 @@ class RoboKitchenEnv(BaseEnv):
 
     obj_name_to_type = {
         "handle": handle_type,
+        "left_door_handle": handle_type,
+        # "right_door_handle": handle_type,
         "gripper": gripper_type,
         "left_finger": left_finger_type,
         "right_finger": right_finger_type,
@@ -70,32 +72,150 @@ class RoboKitchenEnv(BaseEnv):
         "bottom": surface_type,
     }
 
-    tasks_extended = ['Lift', 'Stack', 'NutAssembly', 'NutAssemblySingle', 'NutAssemblySquare', 'NutAssemblyRound',
-                       'PickPlace', 'PickPlaceSingle', 'PickPlaceMilk', 'PickPlaceBread', 'PickPlaceCereal', 'PickPlaceCan',
-                       'Door', 'Wipe', 'ToolHang', 'TwoArmLift', 'TwoArmPegInHole', 'TwoArmHandover', 'TwoArmTransport', 'Kitchen',
-                         'KitchenDemo', 'CupcakeCleanup', 'OrganizeBakingIngredients', 'PastryDisplay', 'FillKettle', 'HeatMultipleWater',
-                           'VeggieBoil', 'ArrangeTea', 'KettleBoiling', 'PrepareCoffee', 'ArrangeVegetables', 'BreadSetupSlicing',
-                           'ClearingTheCuttingBoard', 'MeatTransfer', 'OrganizeVegetables', 'BowlAndCup', 'CandleCleanup',
-                           'ClearingCleaningReceptacles', 'CondimentCollection', 'DessertAssembly', 'DrinkwareConsolidation',
-                           'FoodCleanup', 'DefrostByCategory', 'MicrowaveThawing', 'QuickThaw', 'ThawInSink', 'AssembleCookingArray',
-                           'FryingPanAdjustment', 'MealPrepStaging', 'SearingMeat', 'SetupFrying', 'BreadSelection', 'CheesyBread',
-                           'PrepareToast', 'SweetSavoryToastSetup', 'PrepForTenderizing', 'PrepMarinatingMeat', 'ColorfulSalsa',
-                           'SetupJuicing', 'SpicyMarinade', 'HeatMug', 'MakeLoadedPotato', 'SimmeringSauce', 'WaffleReheat',
-                           'WarmCroissant', 'BeverageSorting', 'RestockBowls', 'RestockPantry', 'StockingBreakfastFoods',
-                           'CleanMicrowave', 'CountertopCleanup', 'PrepForSanitizing', 'PushUtensilsToSink', 'DessertUpgrade',
-                             'PanTransfer', 'PlaceFoodInBowls', 'PrepareSoupServing', 'ServeSteak', 'WineServingPrep',
-                             'ArrangeBreadBasket', 'BeverageOrganization', 'DateNight', 'SeasoningSpiceSetup',
-                             'SetBowlsForSoup', 'SizeSorting', 'BreadAndCheese', 'CerealAndBowl', 'MakeFruitBowl',
-                             'VeggieDipPrep', 'YogurtDelightPrep', 'MultistepSteaming', 'SteamInMicrowave', 'SteamVegetables',
-                             'ManipulateDrawer', 'OpenDrawer', 'CloseDrawer', 'DrawerUtensilSort', 'OrganizeCleaningSupplies',
-                             'PantryMishap', 'ShakerShuffle', 'SnackSorting', 'DryDishes', 'DryDrinkware', 'PreSoakPan', 'SortingCleanup',
-                             'StackBowlsInSink', 'AfterwashSorting', 'ClearClutter', 'DrainVeggies', 'PrewashFoodAssembly', 'PnPCoffee',
-                             'CoffeeSetupMug', 'CoffeeServeMug', 'CoffeePressButton', 'ManipulateDoor', 'OpenDoor', 'OpenSingleDoor',
-                             'OpenDoubleDoor', 'CloseDoor', 'CloseSingleDoor', 'CloseDoubleDoor', 'MicrowavePressButton', 'TurnOnMicrowave',
-                               'TurnOffMicrowave', 'NavigateKitchen', 'PnP', 'PnPCounterToCab', 'PnPCabToCounter', 'PnPCounterToSink',
-                               'PnPSinkToCounter', 'PnPCounterToMicrowave', 'PnPMicrowaveToCounter', 'PnPCounterToStove', 'PnPStoveToCounter',
-                               'ManipulateSinkFaucet', 'TurnOnSinkFaucet', 'TurnOffSinkFaucet', 'TurnSinkSpout', 'ManipulateStoveKnob',
-                                 'TurnOnStove', 'TurnOffStove']
+    tasks_extended = [
+        "Lift",
+        "Stack",
+        "NutAssembly",
+        "NutAssemblySingle",
+        "NutAssemblySquare",
+        "NutAssemblyRound",
+        "PickPlace",
+        "PickPlaceSingle",
+        "PickPlaceMilk",
+        "PickPlaceBread",
+        "PickPlaceCereal",
+        "PickPlaceCan",
+        "Door",
+        "Wipe",
+        "ToolHang",
+        "TwoArmLift",
+        "TwoArmPegInHole",
+        "TwoArmHandover",
+        "TwoArmTransport",
+        "Kitchen",
+        "KitchenDemo",
+        "CupcakeCleanup",
+        "OrganizeBakingIngredients",
+        "PastryDisplay",
+        "FillKettle",
+        "HeatMultipleWater",
+        "VeggieBoil",
+        "ArrangeTea",
+        "KettleBoiling",
+        "PrepareCoffee",
+        "ArrangeVegetables",
+        "BreadSetupSlicing",
+        "ClearingTheCuttingBoard",
+        "MeatTransfer",
+        "OrganizeVegetables",
+        "BowlAndCup",
+        "CandleCleanup",
+        "ClearingCleaningReceptacles",
+        "CondimentCollection",
+        "DessertAssembly",
+        "DrinkwareConsolidation",
+        "FoodCleanup",
+        "DefrostByCategory",
+        "MicrowaveThawing",
+        "QuickThaw",
+        "ThawInSink",
+        "AssembleCookingArray",
+        "FryingPanAdjustment",
+        "MealPrepStaging",
+        "SearingMeat",
+        "SetupFrying",
+        "BreadSelection",
+        "CheesyBread",
+        "PrepareToast",
+        "SweetSavoryToastSetup",
+        "PrepForTenderizing",
+        "PrepMarinatingMeat",
+        "ColorfulSalsa",
+        "SetupJuicing",
+        "SpicyMarinade",
+        "HeatMug",
+        "MakeLoadedPotato",
+        "SimmeringSauce",
+        "WaffleReheat",
+        "WarmCroissant",
+        "BeverageSorting",
+        "RestockBowls",
+        "RestockPantry",
+        "StockingBreakfastFoods",
+        "CleanMicrowave",
+        "CountertopCleanup",
+        "PrepForSanitizing",
+        "PushUtensilsToSink",
+        "DessertUpgrade",
+        "PanTransfer",
+        "PlaceFoodInBowls",
+        "PrepareSoupServing",
+        "ServeSteak",
+        "WineServingPrep",
+        "ArrangeBreadBasket",
+        "BeverageOrganization",
+        "DateNight",
+        "SeasoningSpiceSetup",
+        "SetBowlsForSoup",
+        "SizeSorting",
+        "BreadAndCheese",
+        "CerealAndBowl",
+        "MakeFruitBowl",
+        "VeggieDipPrep",
+        "YogurtDelightPrep",
+        "MultistepSteaming",
+        "SteamInMicrowave",
+        "SteamVegetables",
+        "ManipulateDrawer",
+        "OpenDrawer",
+        "CloseDrawer",
+        "DrawerUtensilSort",
+        "OrganizeCleaningSupplies",
+        "PantryMishap",
+        "ShakerShuffle",
+        "SnackSorting",
+        "DryDishes",
+        "DryDrinkware",
+        "PreSoakPan",
+        "SortingCleanup",
+        "StackBowlsInSink",
+        "AfterwashSorting",
+        "ClearClutter",
+        "DrainVeggies",
+        "PrewashFoodAssembly",
+        "PnPCoffee",
+        "CoffeeSetupMug",
+        "CoffeeServeMug",
+        "CoffeePressButton",
+        "ManipulateDoor",
+        "OpenDoor",
+        "OpenSingleDoor",
+        "OpenDoubleDoor",
+        "CloseDoor",
+        "CloseSingleDoor",
+        "CloseDoubleDoor",
+        "MicrowavePressButton",
+        "TurnOnMicrowave",
+        "TurnOffMicrowave",
+        "NavigateKitchen",
+        "PnP",
+        "PnPCounterToCab",
+        "PnPCabToCounter",
+        "PnPCounterToSink",
+        "PnPSinkToCounter",
+        "PnPCounterToMicrowave",
+        "PnPMicrowaveToCounter",
+        "PnPCounterToStove",
+        "PnPStoveToCounter",
+        "ManipulateSinkFaucet",
+        "TurnOnSinkFaucet",
+        "TurnOffSinkFaucet",
+        "TurnSinkSpout",
+        "ManipulateStoveKnob",
+        "TurnOnStove",
+        "TurnOffStove",
+        "StoreFruit",
+    ]
 
     def __init__(self, use_gui: bool = True) -> None:
         super().__init__(use_gui)
@@ -115,7 +235,7 @@ class RoboKitchenEnv(BaseEnv):
             raise ValueError(f"Task {self.task_selected} not supported")
         print(colored(f"Selected task: {self.task_selected}", "green"))
 
-        self.device = None # control device
+        self.device = None  # control device
 
     def get_objects_of_interest(self, task_name: str) -> List[Object]:
         """Get the object of interest for the task."""
@@ -124,7 +244,9 @@ class RoboKitchenEnv(BaseEnv):
         # by default, there are robot and gripper objects
         elif task_name == "PnPCounterToCab":
             # warnings.warn("\033[91mPnPCounterToCab is not supported, only using handle as object of interest as a dummy\033[0m")
-            return [self.object_name_to_object("obj")] 
+            return [self.object_name_to_object("obj")]
+        elif task_name == "StoreFruit":
+            return [self.object_name_to_object("handle"), self.object_name_to_object("obj")]
         else:
             raise ValueError(f"Task {task_name} not supported")
 
@@ -222,6 +344,18 @@ class RoboKitchenEnv(BaseEnv):
             cabinet = self.object_name_to_object("cabinet")
             if self._DoorOpen_holds(state, [handle, cabinet]):
                 return True
+        elif goal_desc == "PnPCounterToCab" or goal_desc == "StoreFruit":
+            obj = self.object_name_to_object("obj")
+            bottom = self.object_name_to_object("bottom")
+            if self._OnSurface_holds(state, [obj, bottom]):
+                return True
+        # elif goal_desc == "StoreFruit":
+        #     handle = self.object_name_to_object("handle")
+        #     bottom = self.object_name_to_object("bottom")
+        #     cabinet = self.object_name_to_object("cabinet")
+        #     obj = self.object_name_to_object("obj")
+        #     if self._DoorOpen_holds(state, [handle, cabinet]) and self._OnSurface_holds(state, [obj, bottom]):
+        #         return True
         else:
             return False
 
@@ -230,7 +364,7 @@ class RoboKitchenEnv(BaseEnv):
         # Create or recreate environment if needed
         warnings.warn("Resetting environment to initial state from seed not implemented for robosuite kitchen")
         if self._env is None:
-            complex_config = True # NOTE: this should be removed. only for mac
+            complex_config = True  # NOTE: this should be removed. only for mac
             if complex_config:
                 robot_type = "PandaOmron"
                 controller_config = load_composite_controller_config(robot=robot_type)
@@ -346,8 +480,7 @@ class RoboKitchenEnv(BaseEnv):
             pos = self._current_state.get(obj, "translation")
             quat = self._current_state.get(obj, "quaternion")
             self.mjshowframe(pos, quat, name=obj.name)
-    
-    
+
     def step(self, action: Action) -> Observation:
         """Execute action and return observation.
 
@@ -415,7 +548,7 @@ class RoboKitchenEnv(BaseEnv):
         if self._env_raw is not None:
             self._env_raw.viewer.mjprint(text, auto_clean=auto_clean)
 
-    def mjshowframe(self, xyz, quat=(1,0,0,0), size=0.1, name=None, keep=False):
+    def mjshowframe(self, xyz, quat=(1, 0, 0, 0), size=0.1, name=None, keep=False):
         """Show frame in the viewer."""
         if self._env_raw is not None:
             self._env_raw.viewer.mjshowframe(xyz, quat=quat, size=size, name=name, keep=keep)
@@ -428,13 +561,20 @@ class RoboKitchenEnv(BaseEnv):
     @property
     def goal_predicates(self) -> Set[Predicate]:
         """Get the subset of self.predicates that are used in goals."""
+        return {
+            self._pred_name_to_pred["DoorOpen"], 
+            self._pred_name_to_pred["OnSurface"],
+        }
         goal_desc = self.task_selected
         goal_preds = set()
         if goal_desc == "OpenSingleDoor":
             goal_preds = {self._pred_name_to_pred["DoorOpen"]}
         elif goal_desc == "PnPCounterToCab":
             goal_preds = {self._pred_name_to_pred["OnSurface"]}
+        elif goal_desc == "StoreFruit":
+            goal_preds = {self._pred_name_to_pred["DoorOpen"], self._pred_name_to_pred["OnSurface"]}
         return goal_preds
+
     @property
     def inContact_predicate(self) -> Set[Predicate]:
         """Get the subset of self.predicates that are used in goals."""
@@ -493,7 +633,8 @@ class RoboKitchenEnv(BaseEnv):
                 obj = cls.object_name_to_object(obj_name)
                 translation = np.array([val[0], val[1], val[2]])
                 quaternion = np.array([val[3], val[4], val[5], val[6]])
-                state_dict[obj] = {"translation": translation, "quaternion": quaternion}
+                if obj is not None:
+                    state_dict[obj] = {"translation": translation, "quaternion": quaternion}
             elif key.endswith("_quat"):
                 obj_name = key[:-5]  # Remove _pos
                 translation = np.array(state_info[key[:-5] + "_pos"])

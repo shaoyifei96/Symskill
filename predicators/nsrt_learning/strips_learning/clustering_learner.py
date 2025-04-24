@@ -29,26 +29,24 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
                 segment_param_option = DummyOption.parent
                 segment_option_objs = tuple()
 
-
             # 1. Identify objects directly involved in effects (moved up to be reused)
             effect_objects = {o for atom in segment.add_effects | segment.delete_effects for o in atom.objects} | set(segment_option_objs)
-            
+
             # 2. Find initial atoms involving any effect object (moved up to be reused)
             relevant_initial_atoms = {atom for atom in segment.init_atoms 
                                     if any(o in effect_objects for o in atom.objects)}
-            
+
             # 3. Get all objects from these relevant initial atoms (moved up to be reused)
             if False:#CFG.include_all_or_relevant_objects:
                 other_objs = {o for atom in relevant_initial_atoms for o in atom.objects} - effect_objects
             else:
                 other_objs = set(segment.states[0]) - effect_objects
-            
+
             other_objs = sorted(other_objs)
             params_from_relevant_atoms = [o.type for o in other_objs]
             type_to_obj_other = dict(zip(params_from_relevant_atoms, other_objs))
             # Create these mappings for this segment regardless of whether it's added to existing PNAD or creates new one
-            
-            
+
             for pnad in pnads:
                 # Try to unify this transition with existing effects.
                 # Note that both add and delete effects must unify,
@@ -70,7 +68,7 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
                             for o, v in ent_to_ent_sub.items()})
                 if suc:
                     # Add to this PNAD.
-                    
+
                     assert set(sub.keys()).issubset(set(pnad.op.parameters))
                     pnad.add_to_datastore((segment, sub, type_to_obj_other))
                     break
@@ -78,24 +76,15 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
                 # Otherwise, create a new PNAD.
 
                 objects_lst = sorted(effect_objects)
-                params = utils.create_new_variables(
-                    [o.type for o in objects_lst])
+                params = utils.create_new_variables([o.type for o in objects_lst])
                 preconds: Set[LiftedAtom] = set()  # will be learned later
                 obj_to_var = dict(zip(objects_lst, params))
                 var_to_obj = dict(zip(params, objects_lst))
 
-                add_effects = {
-                    atom.lift(obj_to_var)
-                    for atom in segment.add_effects
-                }
-                delete_effects = {
-                    atom.lift(obj_to_var)
-                    for atom in segment.delete_effects
-                }
+                add_effects = {atom.lift(obj_to_var) for atom in segment.add_effects}
+                delete_effects = {atom.lift(obj_to_var) for atom in segment.delete_effects}
                 ignore_effects: Set[Predicate] = set()  # will be learned later
-                op = STRIPSOperator(f"Op{len(pnads)}", params, preconds,
-                                    add_effects, delete_effects,
-                                    ignore_effects)
+                op = STRIPSOperator(f"{CFG.robo_kitchen_task}-Op{len(pnads)}", params, preconds, add_effects, delete_effects, ignore_effects)
                 datastore = [(segment, var_to_obj, type_to_obj_other)]
                 option_vars = [obj_to_var[o] for o in segment_option_objs]
                 option_spec = (segment_param_option, option_vars)
