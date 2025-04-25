@@ -1191,6 +1191,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             # --- Calculate and Store Axis Limits ---
             xlim = ax.get_xlim()
             ylim = ax.get_ylim()
+            # ax.set_aspect("equal")
             self._last_cluster_xlim = xlim
             self._last_cluster_ylim = ylim
             if is_3d:
@@ -2000,6 +2001,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         ax.set_xlim(final_xlim[0], final_xlim[1])
         ax.set_ylim(final_ylim[0], final_ylim[1])
         ax.set_zlim(final_zlim[0], final_zlim[1])
+        # ax.set_aspect("equal")
 
         # Set view angle (consistent for both new and overlaid plots)
         ax.view_init(elev=20., azim=-35) # Example view angle
@@ -2013,7 +2015,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
 
         # Save the visualization
         os.makedirs("feature_data", exist_ok=True)
-        plt.tight_layout()
+        # plt.tight_layout()
         # plt.show()
         plt.savefig(f"feature_data/{fname}")
         logging.info(f"Saved {'combined cluster and' if is_overlay else ''} relative trajectory visualization to feature_data/{fname}")

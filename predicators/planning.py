@@ -1230,13 +1230,25 @@ def run_task_plan_once(
 
         # Get first plan
         try:
-            first_plan = next(plan_generator)
-            plans.append(first_plan[0])
-            atoms_seqs.append(first_plan[1])
-            metrics_list.append(first_plan[2])
+            # first_plan = next(plan_generator)
+            # logging.debug(f"Plan [{', '.join(nsrt.name for nsrt in first_plan[0])}]")
+            # plans.append(first_plan[0])
+            # atoms_seqs.append(first_plan[1])
+            # metrics_list.append(first_plan[2])
 
-            # Try to get more plans up to max_skeletons_optimized
-            for plan_tuple in islice(plan_generator, CFG.sesame_max_skeletons_optimized - 1):
+            # # Try to get more plans up to max_skeletons_optimized
+            # for plan_tuple in islice(plan_generator, CFG.sesame_max_skeletons_optimized - 1):
+            #     logging.debug(f"Plan [{', '.join(nsrt.name for nsrt in plan_tuple[0])}]")
+            #     if redundancy_check(plan_tuple[0]):
+            #         continue
+            #     plans.append(plan_tuple[0])
+            #     atoms_seqs.append(plan_tuple[1])
+            #     metrics_list.append(plan_tuple[2])
+
+            for plan_tuple in islice(plan_generator, CFG.sesame_max_skeletons_optimized):
+                logging.debug(f"Plan [{', '.join(nsrt.name for nsrt in plan_tuple[0])}]")
+                if redundancy_check(plan_tuple[0]):
+                    continue
                 plans.append(plan_tuple[0])
                 atoms_seqs.append(plan_tuple[1])
                 metrics_list.append(plan_tuple[2])
@@ -1248,10 +1260,13 @@ def run_task_plan_once(
 
         # If previous plan exists, prioritize most similar plan
         if previous_plan and len(plans) > 1:  # only if there are multiple plans
+            logging.debug(f"Prev-Plan [{', '.join(nsrt.name for nsrt in previous_plan)}]")
             # Untested!
             # Calculate similarity scores based on matching operators
             similarities = []
-            for plan in plans:
+            steps = []
+            for i in range(len(plans)):
+                plan = plans[i]
                 # Make plans same length by keeping tail of longer one
                 min_len = min(len(previous_plan), len(plan))
                 tail1 = previous_plan[-min_len:]
@@ -1260,10 +1275,14 @@ def run_task_plan_once(
                 # TODO: use edit distance instead of simple matching
                 # check if plan is subplan of previous plan's tail, if so, score is high
                 similarities.append(score)
-                logging.debug(f"Plan [{', '.join(nsrt.name for nsrt in plan)}] has {score} score")
+                steps.append(len(plan))
+                # logging.debug(f"Re-Plan {i} [{', '.join(nsrt.name for nsrt in plan)}] has {score} score, {len(plan)} steps")
+
+            # filter out plans that are too long
+            # min_steps = min(steps)
+            # similarities = [s if step == min_steps else -1 for s, step in zip(similarities, steps)]
 
             # Select plan with highest similarity
-
             # Choose min/max similarity based on whether we want to stay close to previous plan
             if stay_close_to_previous_plan:   
                 best_score = max(similarities) if stay_close_to_previous_plan else min(similarities)
@@ -1271,16 +1290,17 @@ def run_task_plan_once(
             else:
                 # Choose random index since stay_close_to_previous_plan is False
                 best_idx = np.random.choice(range(len(similarities)))
+            logging.debug(f"Best Re-Plan [{', '.join(nsrt.name for nsrt in plans[best_idx])}] has {similarities[best_idx]} score, {steps[best_idx]} steps")
             plan = plans[best_idx]
             atoms_seq = atoms_seqs[best_idx]
             metrics = metrics_list[best_idx]
         else:
             # Otherwise choose the shortest plan
-            for i in range(len(plans)):
-                logging.debug(f"Plan {i} [{', '.join(nsrt.name for nsrt in plans[i])}] has {len(plans[i])} steps")
+            # for i in range(len(plans)):
+            #     logging.debug(f"Init-Plan {i} [{', '.join(nsrt.name for nsrt in plans[i])}] has {len(plans[i])} steps")
             min_plan_length = min(len(plan) for plan in plans)
             best_idx = [len(plan) for plan in plans].index(min_plan_length)         
-            logging.debug(f"Best Plan {best_idx} [{', '.join(nsrt.name for nsrt in plans[best_idx])}] has {len(plans[best_idx])} steps")
+            logging.debug(f"Best Init-Plan [{', '.join(nsrt.name for nsrt in plans[best_idx])}] has {len(plans[best_idx])} steps")
             plan = plans[best_idx]
             atoms_seq = atoms_seqs[best_idx]
             metrics = metrics_list[best_idx]
@@ -1335,6 +1355,59 @@ def run_task_plan_once(
         plan, atoms_seq, goal)
 
     return plan, necessary_atoms_seq, metrics
+
+
+def redundancy_check(plan: List[_GroundNSRT]) -> bool:
+    """Checks for simple redundancies in a plan.
+
+    1. Checks if any add effect of an operator is never used as a
+       precondition by any subsequent operator in the plan.
+    2. Checks if any delete effect of an operator was never added by
+       any preceding operator in the plan.
+
+    Args:
+        plan: A sequence of ground NSRTs.
+
+    Returns:
+        True if a redundancy is found, False otherwise.
+    """
+    num_ops = len(plan)
+
+    # Check for useless add effects
+    for i, op in enumerate(plan):
+        if not op.add_effects or i == num_ops - 1:
+            continue
+        for add_atom in op.add_effects:
+            is_add_used = False
+            # Check subsequent operators' preconditions
+            for subsequent_op in plan[i + 1 :]:
+                if add_atom in subsequent_op.preconditions:
+                    is_add_used = True
+                    break
+            if not is_add_used:
+                # If the add effect is not used by any subsequent operator
+                logging.debug(f"Redundancy found: Add effect {add_atom} of operator {op.name}{op.objects} at step {i} is never used later.")
+                return True
+
+    # Check for useless delete effects (based on prompt's definition)
+    for i, op in enumerate(plan):
+        if not op.delete_effects or i == 0:
+            continue
+        for del_atom in op.delete_effects:
+            was_del_added_before = False
+            # Check previous operators' add effects
+            for prev_op in plan[:i]:
+                if del_atom in prev_op.add_effects:
+                    was_del_added_before = True
+                    break
+            if not was_del_added_before:
+                # If the delete effect was never added by a previous operator in the plan
+                # Note: This doesn't check if the atom was true in the initial state.
+                logging.debug(f"Redundancy found: Delete effect {del_atom} of operator {op.name}{op.objects} at step {i} was never added by a previous step in the plan.")
+                return True
+
+    # If all checks passed
+    return False
 
 
 class PlanningFailure(utils.ExceptionWithInfo):

@@ -60,7 +60,6 @@ class CogMan:
         self._reset_policy(task)
         self._exec_monitor.update_approach_info(
             self._approach.get_execution_monitoring_info())
-        self._approach._last_nsrt_plan = []
         self._episode_state_history = [task.init]
         self._episode_action_history = []
         self._episode_images = []

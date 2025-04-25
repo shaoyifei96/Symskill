@@ -28,8 +28,8 @@ class MeshcatVisualizer:
         cylinder_radius = 0.01
         self.vis["robot"].set_object(g.Cylinder(cylinder_height, cylinder_radius), 
                                     g.MeshBasicMaterial(color=color_array_to_hex(self.robot_color)))
-        self.vis["ref_point"].set_object(g.Cylinder(cylinder_height, cylinder_radius), 
-                                     g.MeshBasicMaterial(color=color_array_to_hex(self.ref_traj_color)))
+        # self.vis["ref_point"].set_object(g.Cylinder(cylinder_height, cylinder_radius), 
+        #                              g.MeshBasicMaterial(color=color_array_to_hex(self.ref_traj_color)))
 
         # Add markers to indicate direction
         box_size = 0.02
@@ -40,9 +40,9 @@ class MeshcatVisualizer:
                                              g.MeshBasicMaterial(color=color_array_to_hex(self.robot_color)))
         self.vis["robot"]["marker"].set_transform(marker_transform)
 
-        self.vis["ref_point"]["marker"].set_object(g.Box([3*box_size, box_size, box_size]),
-                                                g.MeshBasicMaterial(color=color_array_to_hex(self.ref_traj_color)))
-        self.vis["ref_point"]["marker"].set_transform(marker_transform)
+        # self.vis["ref_point"]["marker"].set_object(g.Box([3*box_size, box_size, box_size]),
+        #                                         g.MeshBasicMaterial(color=color_array_to_hex(self.ref_traj_color)))
+        # self.vis["ref_point"]["marker"].set_transform(marker_transform)
 
         if self.demo_trajs is not None and self.demo_traj_scores is not None:
             self.demo_traj_scores = rescale(self.demo_traj_scores)

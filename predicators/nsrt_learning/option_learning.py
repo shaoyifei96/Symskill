@@ -7,6 +7,7 @@ import copy
 import logging
 from collections import defaultdict
 from typing import ClassVar, Dict, List, Sequence, Set, Tuple, Any, Optional
+import matplotlib.pyplot as plt
 
 import numpy as np
 import pybullet as p
@@ -709,7 +710,9 @@ class _DSOptionLearner(_OptionLearnerBase):
                 logging.warning(f"NSRT {op.name} has no valid segments, ignoring")
                 continue
 
-            check_DSPolicy_input_data(x, x_dot, quat, omega, gripper_action, visualize=True, save_path=f"./feature_data/option_traj_{op.name}_gripper_in_{OOI_type_name}_frame.png", OOI_type=OOI_type_name)
+            plot_DSPolicy_input_data(
+                x, x_dot, quat, omega, gripper_action, visualize=True, save_path=f"./feature_data/option_traj_{op.name}_gripper_in_{OOI_type_name}_frame.png", OOI_type=OOI_type_name
+            )
 
             # Configure DS Policy
             unified_config = UnifiedModelConfig(mode="se3_lpvds", k_init=1)
@@ -819,20 +822,20 @@ def find_OOI_and_gripper_obj(op: STRIPSOperator, segment: Segment, var_to_obj: V
             # If a relevant contact was found, update the counts
             if manipulated_obj is not None and gripper_cand is not None:
                 contact_counts_per_obj[(manipulated_obj, gripper_cand)] += 1
-        
+
     # Determine the most common (manipulated_obj, gripper_cand) pair
     if not contact_counts_per_obj:
         logging.warning(f"NSRT {op.name}: No gripper contacts with objects {obj1} and {obj2}. Cannot determine OOI/gripper.")
         return None, None
-    
+
     most_common_pair = max(contact_counts_per_obj.items(), key=lambda x: x[1])[0]
-    
+
     manipulated_obj, gripper_obj = most_common_pair
     if obj1 == manipulated_obj:
         ooi_obj = obj2
     else:
         ooi_obj = obj1
-        
+
     # logging.debug(f"NSRT {op.name}: Found gripper ({gripper_obj}) and OOI ({ooi_obj}) from contact analysis.")
     return ooi_obj, gripper_obj
 
@@ -888,7 +891,7 @@ def find_OOI_name(op: STRIPSOperator) -> Tuple[str, bool]:
 #     return obj_of_interest, gripper, True
 
 
-def check_DSPolicy_input_data(
+def plot_DSPolicy_input_data(
     x: List[np.ndarray], x_dot: List[np.ndarray], quat: List[np.ndarray], omega: List[np.ndarray], gripper: List[np.ndarray], visualize: bool = False, save_path: str = None, OOI_type: str = None
 ) -> bool:
     assert len(x) == len(x_dot) == len(quat) == len(omega)
@@ -900,9 +903,6 @@ def check_DSPolicy_input_data(
         assert omega[i].shape[1] == 3
 
     if visualize:
-        import matplotlib.pyplot as plt
-        from mpl_toolkits.mplot3d import Axes3D
-
         fig = plt.figure(figsize=(10, 8))
         ax = fig.add_subplot(111, projection="3d")
 
@@ -918,6 +918,7 @@ def check_DSPolicy_input_data(
         ax.set_ylabel("Y")
         ax.set_zlabel("Z")
         ax.set_title(f"3D Trajectories of Gripper in {OOI_type} Frame")
+        ax.set_aspect("equal")
         ax.legend()
         plt.tight_layout()
         if save_path is not None:
@@ -947,6 +948,8 @@ class _LearnedDSParameterizedOption(ParameterizedOption):
 
     def _precondition_based_initiable(self, state: State, memory: Dict, objects: Sequence[Object], params: Array) -> bool:
         memory["time_step"] = 0
+        if CFG.visualizer:
+            CFG.visualizer.set_demo_trajs(self._ds_policy.x)
 
         return True
         # Check if initiable based on preconditions.
@@ -962,7 +965,7 @@ class _LearnedDSParameterizedOption(ParameterizedOption):
         gripper = None
         left_finger = None
         right_finger = None
-        
+
         cur_nsrt = memory["current_nsrt"]
         effects = cur_nsrt.add_effects | cur_nsrt.delete_effects
         assert len(effects) == 1
@@ -984,7 +987,7 @@ class _LearnedDSParameterizedOption(ParameterizedOption):
                 right_finger = obj
             if base and OOI_obj and gripper and left_finger and right_finger:
                 break
-            
+
         assert base and OOI_obj and gripper and left_finger and right_finger
 
         gripper_pose_OOI_frame = calculate_relative_pose(state, OOI_obj, gripper, "translation", "quaternion")
@@ -1029,6 +1032,10 @@ class _LearnedDSParameterizedOption(ParameterizedOption):
             action_high = np.array([0, 0, 0, 0, 0, 0, 1.0], dtype=np.float32)
         action_arr = np.clip(action_arr, action_low, action_high)
         self.prev_left_right_finger_dist = left_right_finger_dist
+
+        if CFG.visualizer:
+            gripper_quat_in_visualizer_wxyz = np.array([gripper_quat_OOI_frame[3], gripper_quat_OOI_frame[0], gripper_quat_OOI_frame[1], gripper_quat_OOI_frame[2]])
+            CFG.visualizer.update_robot_position(gripper_pos_OOI_frame, gripper_quat_in_visualizer_wxyz)
 
         return Action(action_arr)
 
