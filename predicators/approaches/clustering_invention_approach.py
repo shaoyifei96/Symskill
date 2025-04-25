@@ -226,7 +226,7 @@ class _RelativeFeatureClusterClassifier(_BinaryClassifier):
     def __str__(self) -> str:
         # Keep name format similar, maybe indicate pose explicitly if needed
         prefix = "RelPoseEllipsoidCluster" if self.feature_name == self._pose_feat_name else "RelEllipsoidCluster"
-        return (f"{prefix}-{self.object1_type.name}-{self.object2_type.name}-"
+        return (f"{prefix}-{CFG.robo_kitchen_task}-{self.object2_type.name}-in-{self.object1_type.name}-frame-"
                 f"{self.feature_name}-ID{self.cluster_id}")
 
     def pretty_str(self) -> Tuple[str, str]:
@@ -412,7 +412,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         # # Replace utils.save_to_pickle with direct pkl.dump
         # with open(learned_preds_path, "wb") as f:
         #     pkl.dump(self._learned_predicates, f)
-        
+
         save_path = utils.get_approach_save_path_str()
         learned_preds_path = f"{save_path}_contact2rel_preds.pkl"
         with open(learned_preds_path, "wb") as f:
@@ -769,7 +769,8 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                               kept_clusters_info: Dict[int, Dict],
                               type1_name: str,
                               type2_name: Optional[str], # None for absolute features
-                              feat_name: str) -> None:
+                              feat_name: str,
+                              pred: Predicate) -> None:
         """Helper function to visualize clustering results.
         For 'pose' features, plots 3D translation and centroid frames.
         Uses distinct colors for each kept cluster.
@@ -786,10 +787,10 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         # Determine if relative or absolute for titles/filenames
         if type2_name:
             cluster_type_str = f"Relative Cluster: {type2_name} in {type1_name} frame"
-            fname_prefix = f"rel_cluster_{CFG.robo_kitchen_task}_{type2_name}_in_{type1_name}_frame"
+            fname_prefix = f"rel_cluster_{CFG.robo_kitchen_task}_{pred.name}_{type2_name}_in_{type1_name}_frame"
         else:
             cluster_type_str = f"Absolute Cluster: {type1_name}"
-            fname_prefix = f"abs_cluster_{CFG.robo_kitchen_task}_{type1_name}"
+            fname_prefix = f"abs_cluster_{CFG.robo_kitchen_task}_{pred.name}_{type1_name}"
 
         num_total_clusters = len(unique_labels - {-1})
         num_kept_clusters = len(kept_clusters_info)
@@ -1317,79 +1318,40 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
 
         for i, (ll_traj, atom_seq) in enumerate(ground_atom_dataset):
             if not ll_traj.states: continue # Skip empty trajectories
-            gripper_obj_init = ll_traj.states[0].get_objects(gripper_type)[0]
-            surface_obj_init = ll_traj.states[0].get_objects(surface_type)[0]
             # logging.info(f"Processing trajectory {i} of {len(ground_atom_dataset)}")
 
+            skip_var = len(atom_seq) % 4
             for t in range(1, len(atom_seq), 4): # Start from 1 to compare with t-1, skip every 4
                 state_t = ll_traj.states[t]
                 # state_tm1 = ll_traj.states[t-1] # Not needed for just looking at added atoms
                 atoms_t = atom_seq[t]
                 atoms_tm1 = atom_seq[t-1]
 
-                positive_change = atoms_t - atoms_tm1
+                for atom in atoms_t:
+                    if CFG.clustering_change_only and atom in atoms_tm1: continue
+                    if atom.predicate == in_contact_pred or atom.predicate in env.goal_predicates:
+                        # Ensure the atom involves the gripper type or handle goals correctly
+                        obj1, obj2 = atom.objects
 
-                if CFG.clustering_change_only:
-                    if not positive_change: continue # Skip if no change
-                    for atom in positive_change:
-                        # logging.debug(f"Processing atom {atom} at time {t}") # Reduced logging noise
-                        # Check if the added atom is the InContact predicate we care about or a goal predicate
-                        if atom.predicate == in_contact_pred or atom.predicate in env.goal_predicates:
-                            # Ensure the atom involves the gripper type or handle goals correctly
-                            obj1, obj2 = atom.objects
-                            contact_obj = None
-                            gripper_obj = None
+                        # Calculate relative pose at the moment of contact (state t)
+                        rel_pose_at_contact_obj2_in_obj1_frame = utils.calculate_relative_pose(
+                            state_t, obj1, obj2,
+                            trans_feat_name, quat_feat_name
+                        )
 
-                            if obj2.is_instance(gripper_type) and not obj1.is_instance(gripper_type):
-                                gripper_obj = obj2
-                                contact_obj = obj1
-                            elif not obj1.is_instance(gripper_type) and not obj2.is_instance(gripper_type):
-                                gripper_obj = gripper_obj_init
-                                # contact_obj = obj2 # just using obj1 for goal predicates
-                                contact_obj = surface_obj_init # TODO: this is hardcoded for now
-                                # continue
-                            else:
-                                logging.warning(f"Skipping contact pair {obj1} and {obj2} for {atom}")
-                                continue
+                        if rel_pose_at_contact_obj2_in_obj1_frame is not None:
+                            key = (atom.predicate, obj1.type, obj2.type, "2in1")
+                            relative_pose_dataset_dict[key].append(rel_pose_at_contact_obj2_in_obj1_frame)
 
-                            # Calculate relative pose at the moment of contact (state t)
-                            rel_pose_at_contact = utils.calculate_relative_pose(
-                                state_t, contact_obj, gripper_obj,
-                                trans_feat_name, quat_feat_name
-                            )
+                        rel_pose_at_contact_obj1_in_obj2_frame = utils.calculate_relative_pose(
+                            state_t, obj2, obj1,
+                            trans_feat_name, quat_feat_name
+                        )
 
-                            if rel_pose_at_contact is not None:
-                                key = (atom.predicate, contact_obj.type, gripper_obj.type)
-                                relative_pose_dataset_dict[key].append(rel_pose_at_contact)
-                else:
-                    for atom in atoms_t:
-                        if atom.predicate == in_contact_pred or atom.predicate in env.goal_predicates:
-                            # Ensure the atom involves the gripper type or handle goals correctly
-                            obj1, obj2 = atom.objects
-                            contact_obj = None
-                            gripper_obj = None
+                        if rel_pose_at_contact_obj1_in_obj2_frame is not None:
+                            key = (atom.predicate, obj1.type, obj2.type, "1in2")
+                            relative_pose_dataset_dict[key].append(rel_pose_at_contact_obj1_in_obj2_frame)
 
-                            if obj2.is_instance(gripper_type) and not obj1.is_instance(gripper_type):
-                                gripper_obj = obj2
-                                contact_obj = obj1
-                            elif not obj1.is_instance(gripper_type) and not obj2.is_instance(gripper_type):
-                                gripper_obj = gripper_obj_init
-                                # contact_obj = obj2 # just using obj1 for goal predicates
-                                contact_obj = surface_obj_init  # TODO: this is hardcoded for now
-                                # continue
-                            else:
-                                logging.warning(f"Skipping contact pair {obj1} and {obj2} for {atom}")
-                                continue
-
-                            # Calculate relative pose at the moment of contact (state t)
-                            rel_pose_at_contact = utils.calculate_relative_pose(
-                                state_t, contact_obj, gripper_obj,
-                                trans_feat_name, quat_feat_name
-                            )
-
-                            if rel_pose_at_contact is not None:
-                                key = (atom.predicate, contact_obj.type, gripper_obj.type)
-                                relative_pose_dataset_dict[key].append(rel_pose_at_contact)
         logging.info("Clustering collected relative contact poses...")
         candidates: Dict[Predicate, float] = {}
         # predicate_counter = 0 # To ensure unique cluster IDs
@@ -1404,7 +1366,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         self._last_cluster_fname = None
 
         # Process the collected relative pose data
-        for (pred, type1, type2), data in relative_pose_dataset_dict.items():
+        for (pred, type1, type2, direction), data in relative_pose_dataset_dict.items():
             feat_name = pose_feat_name # We are clustering relative SE(3) poses
             logging.debug(f"Clustering relative feature {feat_name} for ({type1.name}, {type2.name}) from {pred.name} with {len(data)} points.")
 
@@ -1504,11 +1466,18 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
 
             # Optional visualization (now uses stored info)
             if CFG.clustering_debug and data_array.size > 0:
-                self._plot_cluster_results(data_array, labels, unique_labels, kept_clusters_info,
-                                           type1.name, type2.name, feat_name)
-                # Plot relative trajectories after cluster plot for the same type pair
-                self._plot_relative_trajectories(dataset, type1.name, type2.name)
-                # self._plot_relative_trajectories_segmented (traj_dataset_dict, pred,type1, type2)
+                if direction == "2in1":
+                    self._plot_cluster_results(data_array, labels, unique_labels, kept_clusters_info,
+                                            type1.name, type2.name, feat_name, pred)
+                    # Plot relative trajectories after cluster plot for the same type pair
+                    self._plot_relative_trajectories(dataset, type1.name, type2.name, pred)
+                    # self._plot_relative_trajectories_segmented (traj_dataset_dict, pred,type1, type2)
+                elif direction == "1in2":
+                    self._plot_cluster_results(data_array, labels, unique_labels, kept_clusters_info,
+                                            type2.name, type1.name, feat_name, pred)
+                    # Plot relative trajectories after cluster plot for the same type pair
+                    self._plot_relative_trajectories(dataset, type2.name, type1.name, pred)
+                    # self._plot_relative_trajectories_segmented (traj_dataset_dict, pred,type2, type1)
 
             # Sort and select top_k clusters
             valid_kept_clusters = kept_clusters_info
@@ -1895,7 +1864,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 renamed_predicates[p] = cost
         return renamed_predicates 
 
-    def _plot_relative_trajectories(self, dataset: Dataset, type1_name: str, type2_name: str) -> None:
+    def _plot_relative_trajectories(self, dataset: Dataset, type1_name: str, type2_name: str, pred: Predicate) -> None:
         """Plots trajectories of the second object type in the reference frame of the first object type.
         
         For each trajectory in the dataset, transforms positions of type2 objects into
@@ -1942,7 +1911,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             ax.set_ylabel('Y relative')
             ax.set_zlabel('Z relative')
             is_overlay = False
-            fname = f"rel_traj_{type2_name}_in_{type1_name}_frame_.png"
+            fname = f"rel_traj_{CFG.robo_kitchen_task}_{pred.name}_{type2_name}_in_{type1_name}_frame.png"
 
         # Different colors for different trajectories - use brighter colors for trajectories
         colors = plt.cm.rainbow(np.linspace(0, 1, len(dataset.trajectories)))
@@ -2046,7 +2015,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         # Save the visualization
         os.makedirs("feature_data", exist_ok=True)
         plt.tight_layout()
-        plt.show()
+        # plt.show()
         plt.savefig(f"feature_data/{fname}")
         logging.info(f"Saved {'combined cluster and' if is_overlay else ''} relative trajectory visualization to feature_data/{fname}")
         plt.close(fig)

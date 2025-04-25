@@ -72,6 +72,7 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
                     assert set(sub.keys()).issubset(set(pnad.op.parameters))
                     pnad.add_to_datastore((segment, sub, type_to_obj_other))
                     break
+                
             else:
                 # Otherwise, create a new PNAD.
 

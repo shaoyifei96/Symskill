@@ -5,6 +5,7 @@ from __future__ import annotations
 import abc
 import copy
 import logging
+from collections import defaultdict
 from typing import ClassVar, Dict, List, Sequence, Set, Tuple, Any
 
 import numpy as np
@@ -669,15 +670,14 @@ class _DSOptionLearner(_OptionLearnerBase):
             omega = []  # angular velocity trajectories
             gripper_action = []  # gripper state trajectories if available
 
-            OOI_type_name, success = find_OOI_name(op)  # extract OOI type name from predicates
-            if not success:
-                for var in op.parameters:
-                    if var.type.name != "gripper_type":
-                        OOI_type_name = var.type.name
-                        break
-                logging.warning(f"NSRT {op.name} cannot find OOI type in predicates, using {OOI_type_name} in parameters as OOI")
-
             for i, (segment, var_to_obj) in enumerate(datastore):
+
+                OOI_obj, gripper = find_OOI_and_gripper_obj(op, segment, var_to_obj)
+                if OOI_obj is None or gripper is None:
+                    logging.warning(f"NSRT {op.name} cannot find OOI or gripper from var_to_obj, ignoring segment")
+                    continue
+
+                OOI_type_name = OOI_obj.type.name
 
                 gripper_pos_traj_OOI_frame = []
                 gripper_quat_traj_OOI_frame = []
@@ -685,19 +685,11 @@ class _DSOptionLearner(_OptionLearnerBase):
 
                 # Extract position and orientation from states
                 for state, action in zip(segment.states, segment.actions):
-                    gripper = None
-                    obj_of_interest = None
-                    for obj in list(state.data.keys()):
-                        if obj.type.name == "gripper_type":
-                            gripper = obj
-                        if obj.type.name == OOI_type_name:
-                            obj_of_interest = obj
-                        if gripper is not None and obj_of_interest is not None:
-                            break
-                    if gripper is None or obj_of_interest is None:
-                        logging.warning(f"NSRT {op.name} cannot find OOI and gripper from var_to_obj, ignoring current state")
+                    if OOI_obj not in state or gripper not in state:
+                        logging.warning(f"NSRT {op.name} cannot find OOI or gripper in state, ignoring this state")
                         continue
-                    gripper_pose_OOI_frame = calculate_relative_pose(state, obj_of_interest, gripper, "translation", "quaternion")
+
+                    gripper_pose_OOI_frame = calculate_relative_pose(state, OOI_obj, gripper, "translation", "quaternion")
                     gripper_pos_traj_OOI_frame.append(gripper_pose_OOI_frame[:3])
                     gripper_quat_traj_OOI_frame.append(gripper_pose_OOI_frame[3:])
                     option_gripper_action.append(action.arr[6])
@@ -744,8 +736,109 @@ class _DSOptionLearner(_OptionLearnerBase):
         pass
 
 
+def find_OOI_and_gripper_obj(op: STRIPSOperator, segment: Segment, var_to_obj: VarToObjSub) -> Tuple[Optional[Object], Optional[Object]]:
+    """Determine the Object of Interest (OOI) and the gripper object based on
+    operator effects and contact information within the segment.
+
+    Args:
+        op: The STRIPS operator associated with the segment.
+        segment: The trajectory segment.
+        var_to_obj: A mapping from operator variables to ground objects for this segment.
+
+    Returns:
+        A tuple (OOI_object, gripper_object). Returns (None, None) if unable
+        to determine.
+    """
+    # 1. Check Number of Effects
+    effects = op.add_effects | op.delete_effects
+    if len(effects) != 1:
+        logging.warning(f"NSRT {op.name} has {len(effects)} effects (expected 1), cannot determine OOI/gripper reliably.")
+        return None, None
+
+    # 2. Get the Effect Predicate and Variables
+    effect_atom = next(iter(effects))
+    effect_vars = list(effect_atom.variables)
+
+    if len(effect_vars) != 2:
+        logging.warning(f"NSRT {op.name}'s effect {effect_atom.predicate.name} does not have 2 variables, cannot determine OOI/gripper.")
+        return None, None
+
+    var1, var2 = effect_vars
+    obj1 = var_to_obj.get(var1)
+    obj2 = var_to_obj.get(var2)
+
+    if obj1 is None or obj2 is None:
+        logging.warning(f"NSRT {op.name}: Could not map effect variables {var1}, {var2} to objects.")
+        return None, None
+
+    # 3. Check for Gripper Variable in Effect
+    gripper_obj_direct = None
+    ooi_obj_direct = None
+
+    if var1.type.name == "gripper_type":
+        gripper_obj_direct = obj1
+        ooi_obj_direct = obj2
+    elif var2.type.name == "gripper_type":
+        gripper_obj_direct = obj2
+        ooi_obj_direct = obj1
+
+    if gripper_obj_direct is not None:
+        # logging.debug(f"Found gripper ({gripper_obj_direct}) and OOI ({ooi_obj_direct}) directly from effect {effect_atom.predicate.name}.")
+        return ooi_obj_direct, gripper_obj_direct
+
+    # 4. If NO gripper variable is found in the effect, use contact analysis
+    # logging.debug(f"NSRT {op.name}: No gripper in effect {effect_atom.predicate.name}. Analyzing contacts for {obj1} and {obj2}.")
+
+    # Store counts per (non_gripper_obj, gripper_obj) pair
+    contact_counts_per_obj = defaultdict(int)
+
+    # Iterate through states to check contacts
+    for state in segment.states:
+        if not state.items_in_contact:
+            logging.warning(f"NSRT {op.name}: state.items_in_contact is empty. Cannot analyze contacts for this state.")
+            continue  # Skip this state if contact info is missing
+
+        for objA, objB in state.items_in_contact:
+            # Identify which is the potential effect object (obj1/obj2) and which is the gripper
+            manipulated_obj = None
+            gripper_cand = None
+
+            if objA == obj1 and objB.type.name == "gripper_type":
+                manipulated_obj = obj1
+                gripper_cand = objB
+            elif objB == obj1 and objA.type.name == "gripper_type":
+                manipulated_obj = obj1
+                gripper_cand = objA
+            elif objA == obj2 and objB.type.name == "gripper_type":
+                manipulated_obj = obj2
+                gripper_cand = objB
+            elif objB == obj2 and objA.type.name == "gripper_type":
+                manipulated_obj = obj2
+                gripper_cand = objA
+
+            # If a relevant contact was found, update the counts
+            if manipulated_obj is not None and gripper_cand is not None:
+                contact_counts_per_obj[(manipulated_obj, gripper_cand)] += 1
+        
+    # Determine the most common (manipulated_obj, gripper_cand) pair
+    if not contact_counts_per_obj:
+        logging.warning(f"NSRT {op.name}: No gripper contacts with objects {obj1} and {obj2}. Cannot determine OOI/gripper.")
+        return None, None
+    
+    most_common_pair = max(contact_counts_per_obj.items(), key=lambda x: x[1])[0]
+    
+    manipulated_obj, gripper_obj = most_common_pair
+    if obj1 == manipulated_obj:
+        ooi_obj = obj2
+    else:
+        ooi_obj = obj1
+        
+    # logging.debug(f"NSRT {op.name}: Found gripper ({gripper_obj}) and OOI ({ooi_obj}) from contact analysis.")
+    return ooi_obj, gripper_obj
+
+
 def find_OOI_name(op: STRIPSOperator) -> Tuple[str, bool]:
-    """Extract the object of interest name from operator parameters.
+    """Extract the object of interest name from predicates.
 
     Args:
         op: The STRIPS operator
@@ -781,18 +874,18 @@ def find_OOI_name(op: STRIPSOperator) -> Tuple[str, bool]:
     return OOI_type_name, True
 
 
-def find_OOI_and_gripper_obj(var_to_obj: VarToObjSub, OOI_type_name: str) -> Tuple[Object, Object, bool]:
-    obj_of_interest, gripper = None, None
-    for var in var_to_obj.keys():
-        if var.type.name == OOI_type_name:
-            obj_of_interest = var_to_obj[var]
-        elif var.type.name == "gripper_type":
-            gripper = var_to_obj[var]
-        if obj_of_interest is not None and gripper is not None:
-            break
-    if obj_of_interest is None or gripper is None:
-        return None, None, False
-    return obj_of_interest, gripper, True
+# def find_OOI_and_gripper_obj(var_to_obj: VarToObjSub, OOI_type_name: str) -> Tuple[Object, Object, bool]:
+#     obj_of_interest, gripper = None, None
+#     for var in var_to_obj.keys():
+#         if var.type.name == OOI_type_name:
+#             obj_of_interest = var_to_obj[var]
+#         elif var.type.name == "gripper_type":
+#             gripper = var_to_obj[var]
+#         if obj_of_interest is not None and gripper is not None:
+#             break
+#     if obj_of_interest is None or gripper is None:
+#         return None, None, False
+#     return obj_of_interest, gripper, True
 
 
 def check_DSPolicy_input_data(

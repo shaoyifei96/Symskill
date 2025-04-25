@@ -41,7 +41,7 @@ MAX_ROTATION_DISPLACEMENT = 1.0
 class RoboKitchenEnv(BaseEnv):
     """Kitchen environment using robosuite."""
 
-    door_open_thresh = 1.3  # rad
+    door_open_thresh = np.deg2rad(60) # rad
     door_half_open_thresh = 0.4  # rad
     grab_close_distance_thresh = 0.02  # m
     gripper_fingers_distance_thresh = 0.08  # m
@@ -239,11 +239,10 @@ class RoboKitchenEnv(BaseEnv):
 
     def get_objects_of_interest(self, task_name: str) -> List[Object]:
         """Get the object of interest for the task."""
+        # by default, there are robot and gripper objects
         if task_name == "OpenSingleDoor":
             return [self.object_name_to_object("handle")]
-        # by default, there are robot and gripper objects
         elif task_name == "PnPCounterToCab":
-            # warnings.warn("\033[91mPnPCounterToCab is not supported, only using handle as object of interest as a dummy\033[0m")
             return [self.object_name_to_object("obj")]
         elif task_name == "StoreFruit":
             return [self.object_name_to_object("handle"), self.object_name_to_object("obj")]
