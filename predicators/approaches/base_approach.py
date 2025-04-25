@@ -62,7 +62,7 @@ class BaseApproach(abc.ABC):
         """
         return []
 
-    def solve(self, task: Task, timeout: int, stay_close_to_previous_plan: bool = None) -> Callable[[State], Action]:
+    def solve(self, task: Task, timeout: int, stay_close_to_previous_plan: bool = False) -> Callable[[State], Action]:
         """Light wrapper around the abstract self._solve().
 
         Checks that actions are in the action space.

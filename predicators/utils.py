@@ -145,7 +145,7 @@ def calculate_relative_pose(state: State, o1: Object, o2: Object, trans_feat_nam
     except KeyError as e:
         logging.debug(f"Missing feature {e} for relative pose between {o1} and {o2}. Skipping.")
         return None
-    
+
 def combinations_no_self_pairs(iterable, r):
     return [
         combo for combo in combinations_with_replacement(iterable, r)
@@ -1468,7 +1468,7 @@ def nsrt_plan_to_greedy_option_policy(
             raise OptionExecutionFailure(
                 "Executing the NSRT failed to achieve the necessary atoms.")
         cur_nsrt = nsrt_queue.pop(0)
-        cur_option = cur_nsrt.sample_option(state, goal, fail_info, rng)
+        cur_option = cur_nsrt.sample_option(state, goal, fail_info, rng, cur_nsrt)
         logging.debug(f"\033[32mUsing option {cur_option.name}{cur_option.objects}"
                       f"{cur_option.params} from NSRT plan.\033[0m")
         return cur_option

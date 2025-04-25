@@ -1185,8 +1185,8 @@ def run_task_plan_once(
         default_cost: float = 1.0,
         cost_precision: int = 3,
         max_horizon: float = np.inf,
-        previous_plan: Optional[List[_GroundNSRT]] = None,
-        stay_close_to_previous_plan: bool = None,  # None means no preference
+        previous_plan: Optional[List[_GroundNSRT]] = [],
+        stay_close_to_previous_plan: bool = False,
         **kwargs: Any
 ) -> Tuple[List[_GroundNSRT], List[Set[GroundAtom]], Metrics]:
     """Get a single abstract plan for a task.
@@ -1247,41 +1247,43 @@ def run_task_plan_once(
             # print ("\033[95mNo more plans found\033[0m")
 
         # If previous plan exists, prioritize most similar plan
-        if previous_plan is not None and len(plans) > 1:  # only if there are multiple plans
+        if previous_plan and len(plans) > 1:  # only if there are multiple plans
             # Untested!
             # Calculate similarity scores based on matching operators
             similarities = []
             for plan in plans:
                 # Make plans same length by keeping tail of longer one
-                if len(plan) > len(previous_plan):
-                    plan = plan[-len(previous_plan):]
-                else:
-                    previous_plan = previous_plan[-len(plan):]
-                score = sum(1 for a, b in zip(plan, previous_plan)
-                          if a.name == b.name)
+                min_len = min(len(previous_plan), len(plan))
+                tail1 = previous_plan[-min_len:]
+                tail2 = plan[-min_len:]
+                score = sum(1 for nsrt1, nsrt2 in zip(tail1, tail2) if nsrt1.name == nsrt2.name)
                 # TODO: use edit distance instead of simple matching
                 # check if plan is subplan of previous plan's tail, if so, score is high
-
                 similarities.append(score)
-                print(f"Plan [{', '.join(nsrt.name for nsrt in plan)}] has {score} score")
+                logging.debug(f"Plan [{', '.join(nsrt.name for nsrt in plan)}] has {score} score")
 
             # Select plan with highest similarity
 
             # Choose min/max similarity based on whether we want to stay close to previous plan
-            if stay_close_to_previous_plan is None:
-                # Choose random index since stay_close_to_previous_plan is None
-                best_idx = np.random.choice(range(len(similarities)))
-            else:   
+            if stay_close_to_previous_plan:   
                 best_score = max(similarities) if stay_close_to_previous_plan else min(similarities)
                 best_idx = similarities.index(best_score)
+            else:
+                # Choose random index since stay_close_to_previous_plan is False
+                best_idx = np.random.choice(range(len(similarities)))
             plan = plans[best_idx]
             atoms_seq = atoms_seqs[best_idx]
             metrics = metrics_list[best_idx]
         else:
-            # Otherwise take first plan
-            plan = plans[0]
-            atoms_seq = atoms_seqs[0]
-            metrics = metrics_list[0]
+            # Otherwise choose the shortest plan
+            for i in range(len(plans)):
+                logging.debug(f"Plan {i} [{', '.join(nsrt.name for nsrt in plans[i])}] has {len(plans[i])} steps")
+            min_plan_length = min(len(plan) for plan in plans)
+            best_idx = [len(plan) for plan in plans].index(min_plan_length)         
+            logging.debug(f"Best Plan {best_idx} [{', '.join(nsrt.name for nsrt in plans[best_idx])}] has {len(plans[best_idx])} steps")
+            plan = plans[best_idx]
+            atoms_seq = atoms_seqs[best_idx]
+            metrics = metrics_list[best_idx]
         if len(plan) > max_horizon:
             raise PlanningFailure(
                 "Skeleton produced by A-star exceeds horizon!")
