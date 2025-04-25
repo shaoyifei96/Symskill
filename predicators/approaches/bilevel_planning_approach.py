@@ -54,7 +54,7 @@ class BilevelPlanningApproach(BaseApproach):
         self._last_maintain_effects: List[Set[GroundAtom]] = []  # plan WITHOUT sim
         self._last_fail_info: List[OptionFailureInfo] = []  # plan WITHOUT sim
 
-    def _solve(self, task: Task, timeout: int, stay_close_to_previous_plan: bool = None) -> Callable[[State], Action]:
+    def _solve(self, task: Task, timeout: int, stay_close_to_previous_plan: bool = False) -> Callable[[State], Action]:
         self._num_calls += 1
         # ensure random over successive calls
         seed = self._seed + self._num_calls
@@ -129,7 +129,7 @@ class BilevelPlanningApproach(BaseApproach):
     def _run_task_plan(
         self, task: Task, nsrts: Set[NSRT], preds: Set[Predicate],
         timeout: float, seed: int, 
-        stay_close_to_previous_plan: bool = None, 
+        stay_close_to_previous_plan: bool = False, 
         **kwargs: Any
     ) -> Tuple[List[_GroundNSRT], List[Set[GroundAtom]], Metrics]:
 

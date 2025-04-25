@@ -60,7 +60,6 @@ class CogMan:
         self._reset_policy(task)
         self._exec_monitor.update_approach_info(
             self._approach.get_execution_monitoring_info())
-        self._approach._last_nsrt_plan = []
         self._episode_state_history = [task.init]
         self._episode_action_history = []
         self._episode_images = []
@@ -179,7 +178,7 @@ class CogMan:
         return LowLevelTrajectory(self._episode_state_history,
                                   self._episode_action_history)
 
-    def _reset_policy(self, task: Task, stay_close_to_previous_plan: bool = None) -> None:
+    def _reset_policy(self, task: Task, stay_close_to_previous_plan: bool = False) -> None:
         """Call the approach or use the override policy."""
         if isinstance(self._exec_monitor, ExpectedAtomsRobocasaExecutionMonitor):
             self._approach._last_fail_info = self._exec_monitor._failure_memory

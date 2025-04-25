@@ -787,10 +787,10 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         # Determine if relative or absolute for titles/filenames
         if type2_name:
             cluster_type_str = f"Relative Cluster: {type2_name} in {type1_name} frame"
-            fname_prefix = f"rel_cluster_{CFG.robo_kitchen_task}_{pred.name}_{type2_name}_in_{type1_name}_frame"
+            fname_prefix = f"rel_{feat_name}_clusters_{CFG.robo_kitchen_task}_{pred.name}_{type2_name}_in_{type1_name}_frame"
         else:
             cluster_type_str = f"Absolute Cluster: {type1_name}"
-            fname_prefix = f"abs_cluster_{CFG.robo_kitchen_task}_{pred.name}_{type1_name}"
+            fname_prefix = f"abs_{feat_name}_clusters_{CFG.robo_kitchen_task}_{pred.name}_{type1_name}"
 
         num_total_clusters = len(unique_labels - {-1})
         num_kept_clusters = len(kept_clusters_info)
@@ -798,7 +798,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         fig = plt.figure(figsize=(15, 12))
         title = (f"{cluster_type_str} ({feat_name})\n"
                  f"MinRatio={CFG.clustering_min_ratio_of_data}, Kept={num_kept_clusters}/{num_total_clusters}")
-        fname = f"{fname_prefix}_{feat_name}_clusters.png"
+        fname = f"{fname_prefix}.png"
 
         # Store figure reference for potential trajectory overlay
         self._last_cluster_fig = fig
@@ -1191,6 +1191,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             # --- Calculate and Store Axis Limits ---
             xlim = ax.get_xlim()
             ylim = ax.get_ylim()
+            # ax.set_aspect("equal")
             self._last_cluster_xlim = xlim
             self._last_cluster_ylim = ylim
             if is_3d:
@@ -1240,9 +1241,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             # plt.close(fig)
             # self._last_cluster_fig = None
             # self._last_cluster_ax = None
-        else:
-            # Just store the title for later finalization
-            self._last_cluster_title = title
+        self._last_cluster_title = title
 
     def _create_predicate_from_relative_cluster(self,
                                                 type1: Type,
@@ -1320,7 +1319,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             if not ll_traj.states: continue # Skip empty trajectories
             # logging.info(f"Processing trajectory {i} of {len(ground_atom_dataset)}")
 
-            skip_var =max(int(len(atom_seq) / 10),1)
+            skip_var =max(int(len(atom_seq) / 50),1)
             logging.debug(f"Processing trajectory {i+1}/{len(ground_atom_dataset)} with {len(atom_seq)} atoms, skipping every {skip_var} atoms.")
             for t in range(1, len(atom_seq), skip_var): # Start from 1 to compare with t-1, skip every 4
                 state_t = ll_traj.states[t]
@@ -1902,7 +1901,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             ax = self._last_cluster_ax
             logging.info(f"Overlaying trajectories on existing cluster visualization for {type1_name}-{type2_name}")
             is_overlay = True
-            fname = self._last_cluster_fname.replace("clusters", "clusters_with_trajectories")
+            fname = self._last_cluster_fname.replace("frame", "frame_with_traj")
         else:
             # Create a new figure
             fig = plt.figure(figsize=(15, 10))
@@ -2002,6 +2001,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         ax.set_xlim(final_xlim[0], final_xlim[1])
         ax.set_ylim(final_ylim[0], final_ylim[1])
         ax.set_zlim(final_zlim[0], final_zlim[1])
+        # ax.set_aspect("equal")
 
         # Set view angle (consistent for both new and overlaid plots)
         ax.view_init(elev=20., azim=-35) # Example view angle
@@ -2011,11 +2011,11 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
 
         # If we're overlaying, use the stored title from cluster visualization
         if is_overlay and hasattr(self, '_last_cluster_title'):
-            ax.set_title(f"{self._last_cluster_title}\nWith Object Trajectories")
+            ax.set_title(f"{self._last_cluster_title}\nwith Object Trajectories")
 
         # Save the visualization
         os.makedirs("feature_data", exist_ok=True)
-        plt.tight_layout()
+        # plt.tight_layout()
         # plt.show()
         plt.savefig(f"feature_data/{fname}")
         logging.info(f"Saved {'combined cluster and' if is_overlay else ''} relative trajectory visualization to feature_data/{fname}")
