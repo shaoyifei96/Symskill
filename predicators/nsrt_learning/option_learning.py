@@ -712,7 +712,7 @@ class _DSOptionLearner(_OptionLearnerBase):
             check_DSPolicy_input_data(x, x_dot, quat, omega, gripper_action, visualize=True, save_path=f"./feature_data/trajectory_visualization_{op.name}.png")
 
             # Configure DS Policy
-            unified_config = UnifiedModelConfig(mode="se3_lpvds", k_init=1)
+            unified_config = UnifiedModelConfig(mode="se3_lpvds", K_candidates=[1, 2, 3, 4, 5])
 
             # Create DSPolicy
             ds_policy = DSPolicy(x=x, x_dot=x_dot, quat=quat, omega=omega, gripper=gripper, unified_config=unified_config, dt=dt, switch=False)
