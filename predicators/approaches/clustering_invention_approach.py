@@ -1320,8 +1320,9 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             if not ll_traj.states: continue # Skip empty trajectories
             # logging.info(f"Processing trajectory {i} of {len(ground_atom_dataset)}")
 
-            skip_var = len(atom_seq) % 4
-            for t in range(1, len(atom_seq), 4): # Start from 1 to compare with t-1, skip every 4
+            skip_var =max(int(len(atom_seq) / 10),1)
+            logging.debug(f"Processing trajectory {i+1}/{len(ground_atom_dataset)} with {len(atom_seq)} atoms, skipping every {skip_var} atoms.")
+            for t in range(1, len(atom_seq), skip_var): # Start from 1 to compare with t-1, skip every 4
                 state_t = ll_traj.states[t]
                 # state_tm1 = ll_traj.states[t-1] # Not needed for just looking at added atoms
                 atoms_t = atom_seq[t]
