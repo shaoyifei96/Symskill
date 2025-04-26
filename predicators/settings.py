@@ -22,7 +22,7 @@ class GlobalSettings:
 
     clustering_moving_average_window = 5
     clustering_debug = True
-    enable_meshcat = True
+    enable_meshcat = False
     clustering_se3_trans_weight = 10  # 0.05 m # 10 times differnece
     clustering_se3_rot_weight = 0.0  # 30 deg = 0.5236 rad
     clustering_feature_constancy_percentile = 10  # of total number of data points = 13782

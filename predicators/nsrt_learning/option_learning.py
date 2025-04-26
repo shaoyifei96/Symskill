@@ -670,6 +670,8 @@ class _DSOptionLearner(_OptionLearnerBase):
             quat = []  # quaternion trajectories
             omega = []  # angular velocity trajectories
             gripper_action = []  # gripper state trajectories if available
+            set_OOI_type_name = set()
+            set_gripper_type_name = set()
 
             for i, (segment, var_to_obj) in enumerate(datastore):
 
@@ -679,6 +681,9 @@ class _DSOptionLearner(_OptionLearnerBase):
                     continue
 
                 OOI_type_name = OOI_obj.type.name
+                set_OOI_type_name.add(OOI_type_name)
+                gripper_type_name = gripper.type.name
+                set_gripper_type_name.add(gripper_type_name)
 
                 gripper_pos_traj_OOI_frame = []
                 gripper_quat_traj_OOI_frame = []
@@ -710,15 +715,43 @@ class _DSOptionLearner(_OptionLearnerBase):
                 logging.warning(f"NSRT {op.name} has no valid segments, ignoring")
                 continue
 
+
+            # if OOI type and gripper type are clear, use the relative cluster center as the attractor
+            relative_cluster_attractor = None
+            if len(set_OOI_type_name) == 1 and len(set_gripper_type_name) == 1:
+                dict_key = ('InContact', set_OOI_type_name.pop(), set_gripper_type_name.pop())
+                # TODO: Goal can be checked too
+                if dict_key in CFG.dict_contact_predicate_to_rel_pose_predicates:
+                    relative_clusters = CFG.dict_contact_predicate_to_rel_pose_predicates[dict_key]
+                    if len(relative_clusters) == 1:
+                        relative_cluster_attractor = list(relative_clusters)[0]._classifier.cluster_center
+                    else:
+                        logging.warning(f"NSRT {op.name} has multiple relative cluster attractors for {dict_key}, using first one")
+                        relative_cluster_attractor = list(relative_clusters)[0]._classifier.cluster_center
+
+
             plot_DSPolicy_input_data(
-                x, x_dot, quat, omega, gripper_action, visualize=True, save_path=f"./feature_data/option_traj_{op.name}_gripper_in_{OOI_type_name}_frame.png", OOI_type=OOI_type_name
+                x, x_dot, quat, omega, 
+                gripper_action, 
+                visualize=True, 
+                save_path=f"./feature_data/option_traj_{op.name}_gripper_in_{OOI_type_name}_frame.png", 
+                OOI_type=OOI_type_name,
+                relative_cluster_attractor=relative_cluster_attractor
             )
 
             # Configure DS Policy
             unified_config = UnifiedModelConfig(mode="se3_lpvds", K_candidates=[1, 2, 3, 4, 5])
 
             # Create DSPolicy
-            ds_policy = DSPolicy(x=x, x_dot=x_dot, quat=quat, omega=omega, gripper=gripper, unified_config=unified_config, dt=dt, switch=False)
+            ds_policy = DSPolicy(x=x, 
+                                 x_dot=x_dot, 
+                                 quat=quat, 
+                                 omega=omega, 
+                                 gripper=gripper, 
+                                 unified_config=unified_config, 
+                                 dt=dt, 
+                                 switch=False,
+                                 relative_cluster_attractor=relative_cluster_attractor)
             ds_policy.plot_position_vector_field(save_path=f"./feature_data/DS_vector_field_{op.name}_gripper_in_{OOI_type_name}_frame.png")
             # Create a ParameterizedOption that uses DSPolicy
             name = f"{op.name}DSOption"
@@ -892,7 +925,15 @@ def find_OOI_name(op: STRIPSOperator) -> Tuple[str, bool]:
 
 
 def plot_DSPolicy_input_data(
-    x: List[np.ndarray], x_dot: List[np.ndarray], quat: List[np.ndarray], omega: List[np.ndarray], gripper: List[np.ndarray], visualize: bool = False, save_path: str = None, OOI_type: str = None
+    x: List[np.ndarray], 
+    x_dot: List[np.ndarray], 
+    quat: List[np.ndarray], 
+    omega: List[np.ndarray], 
+    gripper: List[np.ndarray], 
+    visualize: bool = False, 
+    save_path: str = None, 
+    OOI_type: str = None,
+    relative_cluster_attractor: np.ndarray = None, 
 ) -> bool:
     assert len(x) == len(x_dot) == len(quat) == len(omega)
     for i in range(len(x)):
@@ -913,6 +954,9 @@ def plot_DSPolicy_input_data(
             # Mark start and end points
             ax.scatter(trajectory[0, 0], trajectory[0, 1], trajectory[0, 2], color="green", s=100, marker="o")
             ax.scatter(trajectory[-1, 0], trajectory[-1, 1], trajectory[-1, 2], color="red", s=100, marker="x")
+
+        if relative_cluster_attractor is not None:
+            ax.scatter(relative_cluster_attractor[0], relative_cluster_attractor[1], relative_cluster_attractor[2], color="blue", s=100, marker="*")
 
         ax.set_xlabel("X")
         ax.set_ylabel("Y")
