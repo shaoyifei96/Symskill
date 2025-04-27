@@ -405,7 +405,8 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             logging.info("Generating candidate predicates via contact clustering method...")
             ground_atom_dataset, candidates, initial_monitor_preds = self._generate_candidate_predicates_contact_goal_clustering(dataset)
             self._learned_predicates = set(candidates.keys()) | initial_monitor_preds
-
+        else:
+            raise ValueError(f"Invalid predicate candidates method: {CFG.predicate_candidates_method}")
             # self._learned_predicates = self._select_predicates_by_beam_search(candidates, dataset, self._train_tasks)
 
         # # Save the learned predicates separately for potential reloading
@@ -1097,16 +1098,16 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                     # If covariance matrix is available, also plot an ellipsoid representing the Mahalanobis distance boundary
                     if 'cluster_cov' in info and 'mahalanobis_threshold' in info:
                         # <<< INSERT START >>>
-                        logging.info(f"--- Ellipsoid Plot Debug (Cluster {label}) ---")
-                        logging.info(f"Cluster Info keys: {info.keys()}")
-                        logging.info(f"Has 'cluster_cov': {'cluster_cov' in info}")
-                        logging.info(f"Has 'mahalanobis_threshold': {'mahalanobis_threshold' in info}")
-                        if 'cluster_cov' in info:
-                            logging.info(f"Cluster Covariance (shape {info['cluster_cov'].shape}):\n{info['cluster_cov']}")
-                        if 'mahalanobis_threshold' in info:
-                            logging.info(f"Mahalanobis Threshold: {info['mahalanobis_threshold']}")
-                        else:
-                            logging.warning(f"Mahalanobis Threshold MISSING in info for cluster {label}")
+                        # logging.info(f"--- Ellipsoid Plot Debug (Cluster {label}) ---")
+                        # logging.info(f"Cluster Info keys: {info.keys()}")
+                        # logging.info(f"Has 'cluster_cov': {'cluster_cov' in info}")
+                        # logging.info(f"Has 'mahalanobis_threshold': {'mahalanobis_threshold' in info}")
+                        # if 'cluster_cov' in info:
+                        #     logging.info(f"Cluster Covariance (shape {info['cluster_cov'].shape}):\n{info['cluster_cov']}")
+                        # if 'mahalanobis_threshold' in info:
+                        #     logging.info(f"Mahalanobis Threshold: {info['mahalanobis_threshold']}")
+                        # else:
+                        #     logging.warning(f"Mahalanobis Threshold MISSING in info for cluster {label}")
                         # <<< INSERT END >>>
 
                         cluster_cov = info['cluster_cov']
@@ -1315,11 +1316,21 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         trans_feat_name = "translation"
         pose_feat_name = "pose"
 
-        logging.info("Extracting relative poses at contact initiation...")
+
+
+
+# 1. process of making contact: how to get to grasp (gripper obj centric DS with goal of cluster in step 2)
+# Atom dataset auto split these
+# 2. process of held contact: how to grasp(gripper obj centric cluster) (Obj Obj frame DS)
+# 2.1 gripper obj centric:Already doing with clustering change only flag off
+# 2.2 obj obj frame:(not sure the object frame yet)
+# 3. instant of removed contact: achieving relative pose between two object (obj obj frame cluster goal )
+        logging.info("Extracting relative poses ...")
 
         for i, (ll_traj, atom_seq) in enumerate(ground_atom_dataset):
             if not ll_traj.states: continue # Skip empty trajectories
             # logging.info(f"Processing trajectory {i} of {len(ground_atom_dataset)}")
+            # We want to eventually treat lost contact as a phase, and use clustering to group the lost contact phases
 
             skip_var =max(int(len(atom_seq) / 50),1)
             logging.debug(f"Processing trajectory {i+1}/{len(ground_atom_dataset)} with {len(atom_seq)} atoms, skipping every {skip_var} atoms.")
@@ -1328,6 +1339,32 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 # state_tm1 = ll_traj.states[t-1] # Not needed for just looking at added atoms
                 atoms_t = atom_seq[t]
                 atoms_tm1 = atom_seq[t-1]
+                lost_atoms = atoms_t - atoms_tm1
+
+                for atom in lost_atoms:
+                    if atom.predicate == in_contact_pred: # this is lost gripper with obj
+                        # meaning obj is achieving its goal wrt to another object
+                        # how to find the other object????
+                        obj1, obj2 = atom.objects
+                        assert obj2.type == gripper_type
+                        found_goal_obj = False
+                        for goal in env.goal_predicates:
+                            if obj1.type in goal.types:
+                                type_to_achieve_goal = next(t for t in goal.types if t != obj1.type)
+                                found_goal_obj = True
+                                break
+                        if not found_goal_obj:
+                            logging.warning(f"No goal object found for {obj1.type} in {env.goal_predicates}")
+                            continue
+                        obj3 = state_t.get_objects(type_to_achieve_goal)[0]
+                        rel_pose_lost_contact_obj3_in_obj1_frame = utils.calculate_relative_pose(
+                            state_t, obj1, obj3,
+                            trans_feat_name, quat_feat_name
+                        )
+                        key = (atom.predicate, obj1.type, obj3.type, "achieve_goal_2in1")
+                        relative_pose_dataset_dict[key].append(rel_pose_lost_contact_obj3_in_obj1_frame)
+
+
 
                 for atom in atoms_t:
                     if CFG.clustering_change_only and atom in atoms_tm1: continue
@@ -1507,7 +1544,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 else:
                     CFG.dict_contact_predicate_to_rel_pose_predicates[(pred.name, type1.name, type2.name)] = set([pred_generated])
 
-        # Rename predicates
+        # Rename predicates for PDDL compatibility
         renamed_candidates = self._rename_predicates_to_remove_incompatible_chars(candidates)
 
         # Optionally Reconsider the atom seq
