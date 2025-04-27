@@ -671,45 +671,45 @@ class _DSOptionLearner(_OptionLearnerBase):
             omega = []  # angular velocity trajectories
             gripper_action = []  # gripper state trajectories if available
             set_OOI_type_name = set()
-            set_gripper_type_name = set()
+            set_gripper_or_obj_type_name = set()
 
             for i, (segment, var_to_obj) in enumerate(datastore):
-
-                OOI_obj, gripper = find_OOI_and_gripper_obj(op, segment, var_to_obj)
-                if OOI_obj is None or gripper is None:
+                OOI_obj, gripper_or_obj = find_two_objects(op, segment, var_to_obj, CFG.learn_option_between_gripper_obj)
+                if OOI_obj is None or gripper_or_obj is None:
                     logging.warning(f"NSRT {op.name} cannot find OOI or gripper from var_to_obj, ignoring segment")
                     continue
 
                 OOI_type_name = OOI_obj.type.name
                 set_OOI_type_name.add(OOI_type_name)
-                gripper_type_name = gripper.type.name
-                set_gripper_type_name.add(gripper_type_name)
+                gripper_or_obj_type_name = gripper_or_obj.type.name
+                set_gripper_or_obj_type_name.add(gripper_or_obj_type_name)
 
-                gripper_pos_traj_OOI_frame = []
-                gripper_quat_traj_OOI_frame = []
+                gripper_or_obj_pos_traj_OOI_frame = []
+                gripper_or_obj_quat_traj_OOI_frame = []
                 option_gripper_action = []
+
 
                 # Extract position and orientation from states
                 for state, action in zip(segment.states, segment.actions):
-                    if OOI_obj not in state or gripper not in state:
+                    if OOI_obj not in state or gripper_or_obj not in state:
                         logging.warning(f"NSRT {op.name} cannot find OOI or gripper in state, ignoring this state")
                         continue
 
-                    gripper_pose_OOI_frame = calculate_relative_pose(state, OOI_obj, gripper, "translation", "quaternion")
-                    gripper_pos_traj_OOI_frame.append(gripper_pose_OOI_frame[:3])
-                    gripper_quat_traj_OOI_frame.append(gripper_pose_OOI_frame[3:])
+                    gripper_or_obj_pose_OOI_frame = calculate_relative_pose(state, OOI_obj, gripper_or_obj, "translation", "quaternion")
+                    gripper_or_obj_pos_traj_OOI_frame.append(gripper_or_obj_pose_OOI_frame[:3])
+                    gripper_or_obj_quat_traj_OOI_frame.append(gripper_or_obj_pose_OOI_frame[3:])
                     option_gripper_action.append(action.arr[6])
 
-                gripper_pos_traj_OOI_frame = np.array(gripper_pos_traj_OOI_frame)
-                gripper_quat_traj_OOI_frame = np.array(gripper_quat_traj_OOI_frame)
-                gripper_rot_traj_OOI_frame = np.array([R.from_quat(q).as_matrix() for q in gripper_quat_traj_OOI_frame])
-                gripper_vel_traj_OOI_frame, gripper_ang_vel_traj_OOI_frame = compute_vel_traj(gripper_pos_traj_OOI_frame, gripper_rot_traj_OOI_frame, dt)
+                gripper_or_obj_pos_traj_OOI_frame = np.array(gripper_or_obj_pos_traj_OOI_frame)
+                gripper_or_obj_quat_traj_OOI_frame = np.array(gripper_or_obj_quat_traj_OOI_frame)
+                gripper_or_obj_rot_traj_OOI_frame = np.array([R.from_quat(q).as_matrix() for q in gripper_or_obj_quat_traj_OOI_frame])
+                gripper_or_obj_vel_traj_OOI_frame, gripper_or_obj_ang_vel_traj_OOI_frame = compute_vel_traj(gripper_or_obj_pos_traj_OOI_frame, gripper_or_obj_rot_traj_OOI_frame, dt)
 
                 # Add segment data to overall dataset
-                x.append(gripper_pos_traj_OOI_frame)
-                x_dot.append(gripper_vel_traj_OOI_frame)
-                quat.append(gripper_quat_traj_OOI_frame)
-                omega.append(gripper_ang_vel_traj_OOI_frame)
+                x.append(gripper_or_obj_pos_traj_OOI_frame)
+                x_dot.append(gripper_or_obj_vel_traj_OOI_frame)
+                quat.append(gripper_or_obj_quat_traj_OOI_frame)
+                omega.append(gripper_or_obj_ang_vel_traj_OOI_frame)
 
             if len(x) == 0:
                 logging.warning(f"NSRT {op.name} has no valid segments, ignoring")
@@ -717,17 +717,17 @@ class _DSOptionLearner(_OptionLearnerBase):
 
 
             # if OOI type and gripper type are clear, use the relative cluster center as the attractor
+            assert len(set_OOI_type_name) == 1 and len(set_gripper_or_obj_type_name) == 1
             relative_cluster_attractor = None
-            if len(set_OOI_type_name) == 1 and len(set_gripper_type_name) == 1:
-                dict_key = ('InContact', set_OOI_type_name.pop(), set_gripper_type_name.pop())
-                # TODO: Goal can be checked too
-                if dict_key in CFG.dict_contact_predicate_to_rel_pose_predicates:
-                    relative_clusters = CFG.dict_contact_predicate_to_rel_pose_predicates[dict_key]
-                    if len(relative_clusters) == 1:
-                        relative_cluster_attractor = list(relative_clusters)[0]._classifier.cluster_center
-                    else:
-                        logging.warning(f"NSRT {op.name} has multiple relative cluster attractors for {dict_key}, using first one")
-                        relative_cluster_attractor = list(relative_clusters)[0]._classifier.cluster_center
+            dict_key = ('InContact', set_OOI_type_name.pop(), set_gripper_or_obj_type_name.pop())
+            # TODO: Goal can be checked too
+            if dict_key in CFG.dict_contact_predicate_to_rel_pose_predicates:
+                relative_clusters = CFG.dict_contact_predicate_to_rel_pose_predicates[dict_key]
+                if len(relative_clusters) == 1:
+                    relative_cluster_attractor = list(relative_clusters)[0]._classifier.cluster_center
+                else:
+                    logging.warning(f"NSRT {op.name} has multiple relative cluster attractors for {dict_key}, using first one")
+                    relative_cluster_attractor = list(relative_clusters)[0]._classifier.cluster_center
 
 
             plot_DSPolicy_input_data(
@@ -747,7 +747,7 @@ class _DSOptionLearner(_OptionLearnerBase):
                                  x_dot=x_dot, 
                                  quat=quat, 
                                  omega=omega, 
-                                 gripper=gripper, 
+                                 gripper=gripper_or_obj, 
                                  unified_config=unified_config, 
                                  dt=dt, 
                                  switch=False,
@@ -756,7 +756,7 @@ class _DSOptionLearner(_OptionLearnerBase):
             # Create a ParameterizedOption that uses DSPolicy
             name = f"{op.name}DSOption"
             parameterized_option = _LearnedDSParameterizedOption(
-                name, op, ds_policy, OOI_type_name, gripper_action=1.0 if np.mean(option_gripper_action) > 0.0 else -1.0, is_parameterized=self._is_parameterized
+                name, op, ds_policy, OOI_type_name, gripper_or_obj_type_name, gripper_action=1.0 if np.mean(option_gripper_action) > 0.0 else -1.0, is_parameterized=self._is_parameterized
             )
 
             option_specs.append((parameterized_option, list(op.parameters)))
@@ -772,7 +772,7 @@ class _DSOptionLearner(_OptionLearnerBase):
         pass
 
 
-def find_OOI_and_gripper_obj(op: STRIPSOperator, segment: Segment, var_to_obj: VarToObjSub) -> Tuple[Optional[Object], Optional[Object]]:
+def find_two_objects(op: STRIPSOperator, segment: Segment, var_to_obj: VarToObjSub, learn_option_between_gripper_obj: bool = False) -> Tuple[Optional[Object], Optional[Object]]:
     """Determine the Object of Interest (OOI) and the gripper object based on
     operator effects and contact information within the segment.
 
@@ -866,11 +866,16 @@ def find_OOI_and_gripper_obj(op: STRIPSOperator, segment: Segment, var_to_obj: V
     manipulated_obj, gripper_obj = most_common_pair
     if obj1 == manipulated_obj:
         ooi_obj = obj2
+        ref_obj = obj1
     else:
         ooi_obj = obj1
+        ref_obj = obj2
 
     # logging.debug(f"NSRT {op.name}: Found gripper ({gripper_obj}) and OOI ({ooi_obj}) from contact analysis.")
-    return ooi_obj, gripper_obj
+    if learn_option_between_gripper_obj:
+        return ooi_obj, gripper_obj
+    else:
+        return ooi_obj, ref_obj
 
 
 def find_OOI_name(op: STRIPSOperator) -> Tuple[str, bool]:
@@ -979,12 +984,13 @@ class _LearnedDSParameterizedOption(ParameterizedOption):
 
     prev_left_right_finger_dist = 0.0
 
-    def __init__(self, name: str, operator: STRIPSOperator, ds_policy: DSPolicy, ooi_type_name: str, gripper_action: float, is_parameterized: bool = True) -> None:  # DSPolicy object
+    def __init__(self, name: str, operator: STRIPSOperator, ds_policy: DSPolicy, ooi_type_name: str, gripper_or_obj_type: str, gripper_action: float, is_parameterized: bool = True) -> None:  # DSPolicy object
         types = [v.type for v in operator.parameters]
         self.operator = operator
         self._ds_policy = ds_policy
         self._is_parameterized = is_parameterized
         self._ooi_type = ooi_type_name
+        self._gripper_or_obj_type = gripper_or_obj_type
         self._gripper_action = gripper_action
         super().__init__(
             name, types, params_space=Box(0, 1, (0,), dtype=np.float32), policy=self._DS_based_policy, initiable=self._precondition_based_initiable, terminal=self._optimized_effect_based_terminal
@@ -1006,7 +1012,7 @@ class _LearnedDSParameterizedOption(ParameterizedOption):
         memory["time_step"] += 1
         base = None
         OOI_obj = None
-        gripper = None
+        gripper_or_obj = None
         left_finger = None
         right_finger = None
 
@@ -1021,29 +1027,31 @@ class _LearnedDSParameterizedOption(ParameterizedOption):
 
         # Assume the only have one robot with one arm
         for obj in state.data:
-            if obj.type.name == "gripper_type":
-                gripper = obj
+            if obj.type.name == self._gripper_or_obj_type:
+                gripper_or_obj = obj
             if obj.type.name == "base_type":
                 base = obj
             if obj.type.name == "left_finger_type":
                 left_finger = obj
             if obj.type.name == "right_finger_type":
                 right_finger = obj
-            if base and OOI_obj and gripper and left_finger and right_finger:
+            if base and OOI_obj and gripper_or_obj and left_finger and right_finger:
                 break
 
-        assert base and OOI_obj and gripper and left_finger and right_finger
+        assert base and OOI_obj and gripper_or_obj and left_finger and right_finger
 
-        gripper_pose_OOI_frame = calculate_relative_pose(state, OOI_obj, gripper, "translation", "quaternion")
+        gripper_or_obj_pose_OOI_frame = calculate_relative_pose(state, OOI_obj, gripper_or_obj, "translation", "quaternion")
         left_right_finger_dist = calculate_relative_pose(state, left_finger, right_finger, "translation", "quaternion")
         left_right_finger_dist = np.linalg.norm(left_right_finger_dist[:3])
-        gripper_pos_OOI_frame = gripper_pose_OOI_frame[:3]
-        gripper_quat_OOI_frame = gripper_pose_OOI_frame[3:]
 
         # Get action from DS Policy
         action = self._ds_policy.get_action(
-            np.concatenate([gripper_pos_OOI_frame, gripper_quat_OOI_frame]), clf=True, alpha_V=10.0, lookahead=5  # Use Control Lyapunov Function  # CLF parameter  # Number of steps to look ahead
+            np.concatenate([gripper_or_obj_pose_OOI_frame[:3], gripper_or_obj_pose_OOI_frame[3:]]), clf=True, alpha_V=10.0, lookahead=5  # Use Control Lyapunov Function  # CLF parameter  # Number of steps to look ahead
         )
+
+        # here we no longer assume motion is between gripper and OOI.
+        # so if gripper_or_obj is not gripper, we need to compute the motion of gripper
+
         OOI_rot = R.from_quat(state.get(OOI_obj, "quaternion")).as_matrix()
         base_rot = R.from_quat(state.get(base, "quaternion")).as_matrix()
         pos_vel_OOI_frame = action[:3]
@@ -1078,8 +1086,9 @@ class _LearnedDSParameterizedOption(ParameterizedOption):
         self.prev_left_right_finger_dist = left_right_finger_dist
 
         if CFG.visualizer:
-            gripper_quat_in_visualizer_wxyz = np.array([gripper_quat_OOI_frame[3], gripper_quat_OOI_frame[0], gripper_quat_OOI_frame[1], gripper_quat_OOI_frame[2]])
-            CFG.visualizer.update_robot_position(gripper_pos_OOI_frame, gripper_quat_in_visualizer_wxyz)
+            pass
+            # gripper_quat_in_visualizer_wxyz = np.array([gripper_quat_OOI_frame[3], gripper_quat_OOI_frame[0], gripper_quat_OOI_frame[1], gripper_quat_OOI_frame[2]])
+            # CFG.visualizer.update_robot_position(gripper_pos_OOI_frame, gripper_quat_in_visualizer_wxyz)
 
         return Action(action_arr)
 

@@ -1322,9 +1322,10 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
 # 1. process of making contact: how to get to grasp (gripper obj centric DS with goal of cluster in step 2)
 # Atom dataset auto split these
 # 2. process of held contact: how to grasp(gripper obj centric cluster) (Obj Obj frame DS)
-# 2.1 gripper obj centric:Already doing with clustering change only flag off
-# 2.2 obj obj frame:(not sure the object frame yet)
+# 2.1 gripper obj centric: Already doing with clustering change only flag off
+# 2.2 obj obj frame:(using goal predicate to find the other object)
 # 3. instant of removed contact: achieving relative pose between two object (obj obj frame cluster goal )
+# done
         logging.info("Extracting relative poses ...")
 
         for i, (ll_traj, atom_seq) in enumerate(ground_atom_dataset):
@@ -1344,7 +1345,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 for atom in lost_atoms:
                     if atom.predicate == in_contact_pred: # this is lost gripper with obj
                         # meaning obj is achieving its goal wrt to another object
-                        # how to find the other object????
+                        # Cheating here: using goal predicate to find the other object
                         obj1, obj2 = atom.objects
                         assert obj2.type == gripper_type
                         found_goal_obj = False
@@ -1361,7 +1362,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                             state_t, obj1, obj3,
                             trans_feat_name, quat_feat_name
                         )
-                        key = (atom.predicate, obj1.type, obj3.type, "achieve_goal_2in1")
+                        key = (atom.predicate, obj1.type, obj3.type, "lost_contact_2in1")
                         relative_pose_dataset_dict[key].append(rel_pose_lost_contact_obj3_in_obj1_frame)
 
 
