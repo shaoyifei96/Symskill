@@ -18,6 +18,7 @@ class RoboKitchenPerceiver(BasePerceiver):
 
         pred_name_to_pred = RoboKitchenEnv.create_predicates()
 
+        Dummy = pred_name_to_pred["Dummy"]
         DoorOpen = pred_name_to_pred["DoorOpen"]
         OnSurface = pred_name_to_pred["OnSurface"]
 
@@ -37,6 +38,14 @@ class RoboKitchenPerceiver(BasePerceiver):
         elif goal_desc == 'StoreFruit':
             goal = {
                 GroundAtom(OnSurface, [obj, bottom]),
+            }
+        elif goal_desc == 'TurnOnMicrowave':
+            goal = {
+                GroundAtom(Dummy, [])
+            }
+        elif goal_desc == 'TurnOnStove':
+            goal = {
+                GroundAtom(Dummy, [])
             }
         else:
             raise NotImplementedError(f"Unrecognized goal: {goal_desc}")

@@ -49,6 +49,7 @@ class RoboKitchenEnv(BaseEnv):
 
     # Types
     object_type = Type("object_type", ["translation", "quaternion"])
+    door_type = Type("door_type", ["translation", "quaternion"], parent=object_type)
     grab_type = Type("grab_type", ["translation", "quaternion"], parent=object_type)
     base_type = Type("base_type", ["translation", "quaternion"], parent=object_type)
     gripper_type = Type("gripper_type", ["translation", "quaternion"], parent=object_type)
@@ -62,7 +63,10 @@ class RoboKitchenEnv(BaseEnv):
     obj_name_to_type = {
         "handle": handle_type,
         "left_door_handle": handle_type,
-        # "right_door_handle": handle_type,
+        "right_door_handle": handle_type,
+        "door": door_type,
+        "leftdoor": door_type,
+        "rightdoor": door_type,
         "gripper": gripper_type,
         "left_finger": left_finger_type,
         "right_finger": right_finger_type,
@@ -455,6 +459,7 @@ class RoboKitchenEnv(BaseEnv):
     def create_predicates(cls) -> Dict[str, Predicate]:
         """Exposed for perceiver."""
         preds = {
+            Predicate("Dummy", [], cls._Dummy_holds),
             Predicate("ReadyGrabObj", [cls.gripper_type, cls.object_type], cls._ReadyGrabObj_holds),
             Predicate("GripperOpen", [cls.left_finger_type, cls.right_finger_type], cls._GripperOpen_holds),
             Predicate("GripperClosed", [cls.left_finger_type, cls.right_finger_type], cls._GripperClosed_holds),
@@ -600,6 +605,7 @@ class RoboKitchenEnv(BaseEnv):
             self.surface_type,
             self.thing_type,
             self.grab_type,
+            self.door_type,
         }
 
     def get_observation(self) -> Observation:
@@ -647,6 +653,11 @@ class RoboKitchenEnv(BaseEnv):
         state.items_in_contact = contact_set  # when defaults, it means Not populated, when empty means no contact
         cls._current_state = state
         return state
+    
+    @classmethod
+    def _Dummy_holds(cls, state: State, objects: Sequence[Object]) -> bool:
+        """Dummy predicate for testing."""
+        return True
 
     @classmethod
     def _ReadyGrabObj_holds(cls, state: State, objects: Sequence[Object]) -> bool:
