@@ -1086,9 +1086,14 @@ class _LearnedDSParameterizedOption(ParameterizedOption):
         self.prev_left_right_finger_dist = left_right_finger_dist
 
         if CFG.visualizer:
-            pass
-            # gripper_quat_in_visualizer_wxyz = np.array([gripper_quat_OOI_frame[3], gripper_quat_OOI_frame[0], gripper_quat_OOI_frame[1], gripper_quat_OOI_frame[2]])
-            # CFG.visualizer.update_robot_position(gripper_pos_OOI_frame, gripper_quat_in_visualizer_wxyz)
+            rel_gripper_visualizer_rot = np.array([[0, 0, 1], # NOTE: this is a "correction" term: to rotate gripper's frame to visualize in the way we want
+                                                          [1, 0, 0],
+                                                          [0, 1, 0]])
+            rot_in_OOI_frame = R.from_quat(gripper_or_obj_pose_OOI_frame[3:]).as_matrix()
+            gripper_quat_in_visualizer_xyzw = R.from_matrix(rot_in_OOI_frame @ rel_gripper_visualizer_rot).as_quat()
+            gripper_quat_in_visualizer_wxyz = np.array([gripper_quat_in_visualizer_xyzw[3], gripper_quat_in_visualizer_xyzw[0], gripper_quat_in_visualizer_xyzw[1], gripper_quat_in_visualizer_xyzw[2]])
+            CFG.visualizer.update_robot_position(gripper_or_obj_pose_OOI_frame[:3], gripper_quat_in_visualizer_wxyz)
+            CFG.visualizer.update_robot_velocity(action_arr[:3])
 
         return Action(action_arr)
 

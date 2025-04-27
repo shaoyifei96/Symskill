@@ -111,7 +111,7 @@ class MeshcatVisualizer:
             self.vis["ref_point"]["marker"].set_transform(marker_transform)
 
         if self.demo_trajs is not None:
-            self.demo_traj_scores = rescale(self.demo_traj_scores)
+            self.demo_traj_scores = rescale(self.demo_traj_scores) if self.traj_follower else None
             for i in range(len(self.demo_trajs)):
                 if self.traj_follower and self.demo_traj_scores is not None:
                     # Interpolate between purple (low prob) and orange (high prob)
@@ -152,7 +152,7 @@ class MeshcatVisualizer:
         if self.traj_follower:
             self.demo_traj_scores = demo_traj_scores if demo_traj_scores is not None else np.ones(len(demo_trajs))
         if self.demo_trajs is not None:
-            self.demo_traj_scores = rescale(self.demo_traj_scores)
+            self.demo_traj_scores = rescale(self.demo_traj_scores) if self.traj_follower else None
             for i in range(len(self.demo_trajs)):
                 if self.traj_follower and self.demo_traj_scores is not None:
                     # Interpolate between purple (low prob) and orange (high prob)

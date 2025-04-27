@@ -24,7 +24,7 @@ class GlobalSettings:
 
     clustering_moving_average_window = 5
     clustering_debug = True
-    enable_meshcat = False
+    enable_meshcat = True
     clustering_se3_trans_weight = 10  # 0.05 m # 10 times differnece
     clustering_se3_rot_weight = 0.0  # 30 deg = 0.5236 rad
     clustering_feature_constancy_percentile = 10  # of total number of data points = 13782
@@ -71,7 +71,7 @@ class GlobalSettings:
     make_test_videos = False
     loglevel = 10
     if enable_meshcat:
-        visualizer = MeshcatVisualizer()
+        visualizer = MeshcatVisualizer(mode="se3_lpvds")
     else:
         visualizer = None
     option_to_init_pose: Dict[str, List[np.ndarray]] = {}
