@@ -14,7 +14,7 @@ from predicators.meshcat_visualizer import MeshcatVisualizer
 
 class GlobalSettings:
 
-    learn_option_between_gripper_obj = False
+    learn_option_between_gripper_obj = True
 
     dict_contact_predicate_to_rel_pose_predicates = {}  # key: contact predicate, value: set of rel_pose predicates
     # clustering_invention approach parameters

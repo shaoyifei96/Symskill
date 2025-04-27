@@ -1093,7 +1093,7 @@ class _LearnedDSParameterizedOption(ParameterizedOption):
             gripper_quat_in_visualizer_xyzw = R.from_matrix(rot_in_OOI_frame @ rel_gripper_visualizer_rot).as_quat()
             gripper_quat_in_visualizer_wxyz = np.array([gripper_quat_in_visualizer_xyzw[3], gripper_quat_in_visualizer_xyzw[0], gripper_quat_in_visualizer_xyzw[1], gripper_quat_in_visualizer_xyzw[2]])
             CFG.visualizer.update_robot_position(gripper_or_obj_pose_OOI_frame[:3], gripper_quat_in_visualizer_wxyz)
-            CFG.visualizer.update_robot_velocity(action_arr[:3])
+            CFG.visualizer.update_robot_velocity(pos_vel_OOI_frame)
 
         return Action(action_arr)
 
