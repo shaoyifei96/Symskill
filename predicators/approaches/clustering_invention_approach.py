@@ -1410,7 +1410,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             feat_name = pose_feat_name # We are clustering relative SE(3) poses
             logging.debug(f"Clustering relative feature {feat_name} for ({type1.name}, {type2.name}) from {pred.name} with {len(data)} points.")
 
-            if not data: continue # Skip if no data collected
+            if len(data) < 10: continue # Skip if no data collected
 
             # Save feature data (optional, copied from _generate_candidate_predicates)
             # feature_key = f"contact_{type1.name}_{type2.name}_{feat_name}"
