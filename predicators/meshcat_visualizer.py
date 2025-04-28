@@ -66,6 +66,7 @@ class MeshcatVisualizer:
         else:
             raise ValueError(f"Invalid mode: {mode}")
 
+        self.robot_transform = tf.identity_matrix() # Store robot transform
         self.demo_trajs = demo_trajs
         if self.traj_follower:
             self.demo_traj_scores = demo_traj_scores if demo_traj_scores is not None else np.ones(len(demo_trajs))
@@ -97,13 +98,14 @@ class MeshcatVisualizer:
                                              g.MeshBasicMaterial(color=color_array_to_hex(self.robot_color)))
         self.vis["robot"]["marker"].set_transform(marker_transform)
         
-        # Add velocity arrow
-        self.vis["robot"]["velocity_arrow"].set_object(
-            g.Cylinder(0.1, 0.005),  # Start with a default length
+        # Add velocity arrow at the top level
+        # Initialize with default length and make it invisible initially
+        initial_arrow_length = 0.1
+        self.vis["velocity_arrow"].set_object(
+            g.Cylinder(initial_arrow_length, 0.005), 
             g.MeshBasicMaterial(color=color_array_to_hex(self.velocity_color))
         )
-        # Initially hide the velocity arrow until we get a velocity update
-        self.vis["robot"]["velocity_arrow"].set_property("visible", False)
+        self.vis["velocity_arrow"].set_property("visible", False)
         
         if self.traj_follower:
             self.vis["ref_point"]["marker"].set_object(g.Box([3*box_size, box_size, box_size]),
@@ -180,6 +182,7 @@ class MeshcatVisualizer:
         else:
             transform = translation
         self.vis["robot"].set_transform(transform)
+        self.robot_transform = transform # Store the transform
 
     def update_robot_velocity(self, pos_vel: np.ndarray, ang_vel: Optional[np.ndarray] = None):
         """
@@ -189,71 +192,72 @@ class MeshcatVisualizer:
             pos_vel: 3D velocity vector [vx, vy, vz]
             ang_vel: Optional angular velocity (not used currently)
         """
-        # Show velocity arrow if velocity is non-zero
         vel_magnitude = np.linalg.norm(pos_vel)
         if vel_magnitude > 1e-6:
             # Make arrow visible
-            self.vis["robot"]["velocity_arrow"].set_property("visible", True)
+            self.vis["velocity_arrow"].set_property("visible", True)
             
             # Scale the arrow length based on velocity magnitude
-            # Use a scale factor to make the arrow an appropriate size
             scale_factor = 0.5
             arrow_length = vel_magnitude * scale_factor
             
-            # Create the arrow as a scaled cylinder
-            self.vis["robot"]["velocity_arrow"].set_object(
+            # Update the arrow geometry (length)
+            self.vis["velocity_arrow"].set_object(
                 g.Cylinder(arrow_length, 0.005),
                 g.MeshBasicMaterial(color=color_array_to_hex(self.velocity_color))
             )
             
-            # Calculate rotation to align with velocity direction
-            # Default cylinder orientation is along Y-axis, so we need to rotate from Y to velocity direction
+            # --- Calculate Global Transform ---
+            # Get robot's current global position from stored transform
+            robot_transform = self.robot_transform
+            robot_position = robot_transform[:3, 3]
+
+            # Calculate global rotation to align default Y-axis cylinder with global velocity direction
             vel_normalized = pos_vel / vel_magnitude
-            
-            # Find rotation from y-axis [0,1,0] to velocity direction
             y_axis = np.array([0, 1, 0])
             rotation_axis = np.cross(y_axis, vel_normalized)
             rotation_axis_norm = np.linalg.norm(rotation_axis)
             
             if rotation_axis_norm > 1e-6:
-                # There is a non-zero rotation needed
                 rotation_axis = rotation_axis / rotation_axis_norm
                 angle = np.arccos(np.dot(y_axis, vel_normalized))
-                
-                # Convert to quaternion
                 qw = np.cos(angle/2)
                 qx, qy, qz = rotation_axis * np.sin(angle/2)
-                rotation = tf.quaternion_matrix([qw, qx, qy, qz])
+                # This rotation aligns the cylinder's axis (Y) with the global velocity vector
+                global_rotation = tf.quaternion_matrix([qw, qx, qy, qz]) 
             else:
-                # Velocity is aligned with y-axis (or opposite to it)
-                if vel_normalized[1] < 0:
-                    # Pointing in -y direction, rotate 180 degrees around x-axis
-                    rotation = tf.quaternion_matrix([0, 1, 0, 0])
-                else:
-                    # Already aligned with y-axis, no rotation needed
-                    rotation = np.eye(4)
+                if vel_normalized[1] < 0: # Aligned with -Y
+                    global_rotation = tf.quaternion_matrix([0, 1, 0, 0]) # Rotate 180 deg around X
+                else: # Aligned with +Y
+                    global_rotation = np.eye(4)
             
-            # Position arrow to start from center
-            # In meshcat, cylinders extend equally in both directions from their center
-            # We need a half-arrow-length offset in the direction of the velocity to make it start from center
-            # Apply half the offset in the right direction (after rotation is applied)
+            # Calculate offset to position the cylinder's base at the origin (0,0,0) of its frame
+            # The default cylinder is centered at origin; we need to shift it by half its length 
+            # along its *new* orientation (which matches the global velocity direction).
             
-            # Get the direction of the y-axis after rotation (which will match velocity direction)
-            # The 2nd column of the rotation matrix is the transformed y-axis
-            transformed_y = rotation[0:3, 1]
+            # Get the direction of the cylinder's axis (Y) after global_rotation is applied
+            # This is the second column of the rotation matrix, which is also vel_normalized
+            arrow_direction_global = global_rotation[0:3, 1] 
             
-            # Calculate the offset to position the cylinder so it starts from the robot center
-            # and extends in the velocity direction
             half_length = arrow_length / 2.0
-            translation = half_length * transformed_y
-            offset_translation = tf.translation_matrix(translation)
+            # Calculate the desired CENTER position of the arrow in the global frame
+            arrow_center_position = robot_position + half_length * arrow_direction_global # arrow_direction_global is vel_normalized
+
+            # Combine transformations:
+            # 1. Apply global rotation (rotates the cylinder around its own origin)
+            # 2. Translate the rotated cylinder to the desired center position
+            # concatenate_matrices(A, B) applies B then A. So we want T(center) @ R
+            final_transform = tf.concatenate_matrices(
+                tf.translation_matrix(arrow_center_position), 
+                global_rotation
+            )
             
-            # Combine rotation and translation
-            arrow_transform = tf.concatenate_matrices(offset_translation, rotation)
-            self.vis["robot"]["velocity_arrow"].set_transform(arrow_transform)
+            self.vis["velocity_arrow"].set_transform(final_transform)
+            # --- End Global Transform Calculation ---
+
         else:
             # Hide arrow if velocity is zero
-            self.vis["robot"]["velocity_arrow"].set_property("visible", False)
+            self.vis["velocity_arrow"].set_property("visible", False)
 
     def update_demo_traj_colors(self, demo_traj_scores: list[float]):
         """
@@ -388,7 +392,7 @@ if __name__ == "__main__":
         # Velocity magnitude increases with position for better visualization
         velocity_scale = 0.1 + robot_x_pos[i] * 0.3  # Scale from 0.1 to 0.4
         velocity = np.array([np.cos(angle), np.sin(angle), 0]) * velocity_scale
-        visualizer.update_robot_velocity(velocity)
+        visualizer.update_robot_velocity(np.array([1, 0, 0]))
 
         # Sleep to simulate real-time updates
         time.sleep(dt)
