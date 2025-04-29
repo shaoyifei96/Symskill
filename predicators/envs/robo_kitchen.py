@@ -41,7 +41,9 @@ MAX_ROTATION_DISPLACEMENT = 1.0
 class RoboKitchenEnv(BaseEnv):
     """Kitchen environment using robosuite."""
 
-    door_open_thresh = np.deg2rad(70) # rad
+    door_open_thresh = 0.9 # rad
+    door_close_thresh = 0.05 # rad
+    knob_on_thresh = 0.35  # rad
     door_half_open_thresh = 0.4  # rad
     grab_close_distance_thresh = 0.02  # m
     gripper_fingers_distance_thresh = 0.08  # m
@@ -49,8 +51,9 @@ class RoboKitchenEnv(BaseEnv):
 
     # Types
     object_type = Type("object_type", ["translation", "quaternion"])
-    door_type = Type("door_type", ["translation", "quaternion"], parent=object_type)
     grab_type = Type("grab_type", ["translation", "quaternion"], parent=object_type)
+    knob_type = Type("knob_type", ["translation", "quaternion"], parent=grab_type)
+    door_type = Type("door_type", ["translation", "quaternion"], parent=object_type)
     base_type = Type("base_type", ["translation", "quaternion"], parent=object_type)
     gripper_type = Type("gripper_type", ["translation", "quaternion"], parent=object_type)
     left_finger_type = Type("left_finger_type", ["translation", "quaternion"], parent=object_type)
@@ -59,6 +62,7 @@ class RoboKitchenEnv(BaseEnv):
     handle_type = Type("handle_type", ["translation", "quaternion"], parent=grab_type)
     surface_type = Type("surface_type", ["translation", "quaternion"], parent=object_type)
     thing_type = Type("thing_type", ["translation", "quaternion"], parent=grab_type)
+    stove_type = Type("stove_type", ["translation", "quaternion"], parent=object_type)
 
     obj_name_to_type = {
         "handle": handle_type,
@@ -74,6 +78,8 @@ class RoboKitchenEnv(BaseEnv):
         "robot0_base": base_type,
         "obj": thing_type,
         "bottom": surface_type,
+        "knob": knob_type,
+        "stovetop": stove_type,
     }
 
     tasks_extended = [
@@ -246,10 +252,18 @@ class RoboKitchenEnv(BaseEnv):
         # by default, there are robot and gripper objects
         if task_name == "OpenSingleDoor":
             return [self.object_name_to_object("handle")]
+        elif task_name == "OpenDoubleDoor":
+            return [self.object_name_to_object("left_door_handle"), self.object_name_to_object("right_door_handle")]
+        elif task_name == "CloseSingleDoor":
+            return [self.object_name_to_object("handle")]
+        elif task_name == "CloseDoubleDoor":
+            return [self.object_name_to_object("left_door_handle"), self.object_name_to_object("right_door_handle")]
         elif task_name == "PnPCounterToCab":
             return [self.object_name_to_object("obj")]
         elif task_name == "StoreFruit":
             return [self.object_name_to_object("handle"), self.object_name_to_object("obj")]
+        elif task_name == "TurnOnStove":
+            return [self.object_name_to_object("knob")]
         else:
             raise ValueError(f"Task {task_name} not supported")
 
@@ -347,10 +361,32 @@ class RoboKitchenEnv(BaseEnv):
             cabinet = self.object_name_to_object("cabinet")
             if self._DoorOpen_holds(state, [handle, cabinet]):
                 return True
+        elif goal_desc == "OpenDoubleDoor":
+            left_handle = self.object_name_to_object("left_door_handle")
+            right_handle = self.object_name_to_object("right_door_handle")
+            cabinet = self.object_name_to_object("cabinet")
+            if self._DoorOpen_holds(state, [left_handle, cabinet]) and self._DoorOpen_holds(state, [right_handle, cabinet]):
+                return True
+        elif goal_desc == "CloseSingleDoor":
+            handle = self.object_name_to_object("handle")
+            cabinet = self.object_name_to_object("cabinet")
+            if self._DoorClosed_holds(state, [handle, cabinet]):
+                return True
+        elif goal_desc == "CloseDoubleDoor":
+            left_handle = self.object_name_to_object("left_door_handle")
+            right_handle = self.object_name_to_object("right_door_handle")
+            cabinet = self.object_name_to_object("cabinet")
+            if self._DoorClosed_holds(state, [left_handle, cabinet]) and self._DoorClosed_holds(state, [right_handle, cabinet]):
+                return True
         elif goal_desc == "PnPCounterToCab" or goal_desc == "StoreFruit":
             obj = self.object_name_to_object("obj")
             bottom = self.object_name_to_object("bottom")
             if self._OnSurface_holds(state, [obj, bottom]):
+                return True
+        elif goal_desc == "TurnOnStove":
+            knob = self.object_name_to_object("knob")
+            stove = self.object_name_to_object("stovetop")
+            if self._KnobTurnedOn_holds(state, [knob, stove]):
                 return True
         # elif goal_desc == "StoreFruit":
         #     handle = self.object_name_to_object("handle")
@@ -468,6 +504,7 @@ class RoboKitchenEnv(BaseEnv):
             Predicate("InContact", [cls.object_type, cls.object_type], cls._InContact_holds),
             Predicate("OnSurface", [cls.thing_type, cls.surface_type], cls._OnSurface_holds),
             Predicate("DoorHalfOpen", [cls.handle_type, cls.cabinet_type], cls._DoorHalfOpen_holds),
+            Predicate("KnobTurnedOn", [cls.knob_type, cls.stove_type], cls._KnobTurnedOn_holds),
         }
 
         return {p.name: p for p in preds}
@@ -497,6 +534,8 @@ class RoboKitchenEnv(BaseEnv):
         self.viz_type_frames(self.grab_type)
         self.viz_type_frames(self.surface_type)
         self.viz_type_frames(self.cabinet_type)
+        self.viz_type_frames(self.stove_type)
+        self.viz_type_frames(self.knob_type)
 
         if CFG.use_teleop:
             input_ac_dict = self.device.input2action(mirror_actions=True)
@@ -568,6 +607,7 @@ class RoboKitchenEnv(BaseEnv):
         return {
             self._pred_name_to_pred["DoorOpen"], 
             self._pred_name_to_pred["OnSurface"],
+            self._pred_name_to_pred["KnobTurnedOn"],
         }
         goal_desc = self.task_selected
         goal_preds = set()
@@ -606,6 +646,8 @@ class RoboKitchenEnv(BaseEnv):
             self.thing_type,
             self.grab_type,
             self.door_type,
+            self.knob_type,
+            self.stove_type,
         }
 
     def get_observation(self) -> Observation:
@@ -629,6 +671,7 @@ class RoboKitchenEnv(BaseEnv):
 
     @classmethod
     def state_info_to_state(cls, state_info: Dict[str, Any], contact_set: set[Tuple[Object, Object]] = None) -> State:
+
         state_dict = {}
 
         # Process any other objects with standard format
@@ -653,7 +696,7 @@ class RoboKitchenEnv(BaseEnv):
         state.items_in_contact = contact_set  # when defaults, it means Not populated, when empty means no contact
         cls._current_state = state
         return state
-    
+
     @classmethod
     def _Dummy_holds(cls, state: State, objects: Sequence[Object]) -> bool:
         """Dummy predicate for testing."""
@@ -750,7 +793,7 @@ class RoboKitchenEnv(BaseEnv):
         rot_vec = rel_rot.as_rotvec()
         rotation_value = np.linalg.norm(rot_vec)  # Total rotation angle in radians
 
-        return rotation_value <= cls.door_open_thresh
+        return rotation_value <= cls.door_close_thresh
 
     @classmethod
     def _DoorHalfOpen_holds(cls, state: State, objects: Sequence[Object]) -> bool:
@@ -794,6 +837,32 @@ class RoboKitchenEnv(BaseEnv):
         near_surface = obj_pos_in_surface[2] <= cls.place_close_distance_thresh
         in_surface = abs(obj_pos_in_surface[0]) <= 0.1 and abs(obj_pos_in_surface[1]) <= 0.1
         return near_surface and in_surface
+
+    @classmethod
+    def _KnobTurnedOn_holds(cls, state: State, objects: Sequence[Object]) -> bool:
+        """Check if knob is on stove."""
+        knob, stove = objects
+
+        # Get quaternions from the objects passed in
+        knob_quat = state.get(knob, "quaternion")
+        stove_quat = state.get(stove, "quaternion")
+
+        # Convert quaternions to rotation matrices
+        from scipy.spatial.transform import Rotation
+
+        knob_rot = Rotation.from_quat(knob_quat)
+        stove_rot = Rotation.from_quat(stove_quat)
+
+        # Calculate relative rotation
+        rel_rot = stove_rot.inv() * knob_rot
+
+        # Extract rotation value (approximation for hinge rotation)
+        rot_vec = rel_rot.as_rotvec()
+        rotation_value = np.linalg.norm(rot_vec)
+
+        is_on = cls.knob_on_thresh <= np.abs(rotation_value) <= 2 * np.pi - cls.knob_on_thresh
+
+        return is_on
 
 
 def frame_transform(pos_in_init: np.ndarray, quat_in_init: np.ndarray, target_pos: np.ndarray, target_rot: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:

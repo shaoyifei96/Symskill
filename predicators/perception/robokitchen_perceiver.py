@@ -20,16 +20,37 @@ class RoboKitchenPerceiver(BasePerceiver):
 
         Dummy = pred_name_to_pred["Dummy"]
         DoorOpen = pred_name_to_pred["DoorOpen"]
+        DoorClosed = pred_name_to_pred["DoorClosed"]
         OnSurface = pred_name_to_pred["OnSurface"]
+        KnobTurnedOn = pred_name_to_pred["KnobTurnedOn"]
 
         handle = RoboKitchenEnv.object_name_to_object("handle")
+        left_handle = RoboKitchenEnv.object_name_to_object("left_door_handle")
+        right_handle = RoboKitchenEnv.object_name_to_object("right_door_handle")
         cabinet = RoboKitchenEnv.object_name_to_object("cabinet")
         obj = RoboKitchenEnv.object_name_to_object("obj")
         bottom = RoboKitchenEnv.object_name_to_object("bottom")
+        stove = RoboKitchenEnv.object_name_to_object("stovetop")
+        knob = RoboKitchenEnv.object_name_to_object("knob")
+
         goal_desc = env_task.goal_description
         if goal_desc == 'OpenSingleDoor':
             goal = {
                 GroundAtom(DoorOpen, [handle, cabinet]),
+            }
+        elif goal_desc == 'OpenDoubleDoor':
+            goal = {
+                GroundAtom(DoorOpen, [left_handle, cabinet]),
+                GroundAtom(DoorOpen, [right_handle, cabinet]),
+            }
+        elif goal_desc == "CloseSingleDoor":
+            goal = {
+                GroundAtom(DoorClosed, [handle, cabinet]),
+            }
+        elif goal_desc == "CloseDoubleDoor":
+            goal = {
+                GroundAtom(DoorClosed, [left_handle, cabinet]),
+                GroundAtom(DoorClosed, [right_handle, cabinet]),
             }
         elif goal_desc == 'PnPCounterToCab':
             goal = {
@@ -45,7 +66,7 @@ class RoboKitchenPerceiver(BasePerceiver):
             }
         elif goal_desc == 'TurnOnStove':
             goal = {
-                GroundAtom(Dummy, [])
+                GroundAtom(KnobTurnedOn, [knob, stove]),
             }
         else:
             raise NotImplementedError(f"Unrecognized goal: {goal_desc}")
