@@ -98,14 +98,14 @@ def move_to_init_pose_policy(state: State, memory: Dict, objects: Sequence[Objec
 
     return action
 
-MoveToInitPoseOption = ParameterizedOption(
-    "MoveToInitPoseOption",
-    types=[gripper, base],
-    params_space=Box(-5, 5, (1,)),
-    policy=move_to_init_pose_policy,
-    initiable=_move_to_init_pose_option_initiable,
-    terminal=_move_to_init_pose_option_terminal,
-)
+# MoveToInitPoseOption = ParameterizedOption(
+#     "MoveToInitPoseOption",
+#     types=[gripper, base],
+#     params_space=Box(-5, 5, (1,)),
+#     policy=move_to_init_pose_policy,
+#     initiable=_move_to_init_pose_option_initiable,
+#     terminal=_move_to_init_pose_option_terminal,
+# )
 
 """---------------------------------- MoveToInitPoseOption Ends ----------------------------------"""
 class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):

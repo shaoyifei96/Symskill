@@ -418,6 +418,7 @@ def _run_testing(env: BaseEnv, cogman: CogMan) -> Metrics:
             metrics[f"PER_TASK_task{test_task_idx}_options_executed"] = num_opt
             exec_time = execution_metrics["policy_call_time"]
             metrics[f"PER_TASK_task{test_task_idx}_exec_time"] = exec_time
+            metrics[f"Replan_Count_Task_{test_task_idx}"] = execution_metrics["num_replans"]
             if CFG.refinement_data_include_execution_cost:
                 total_low_level_action_cost += (
                     len(traj[1]) *
