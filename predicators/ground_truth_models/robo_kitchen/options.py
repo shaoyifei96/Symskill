@@ -383,8 +383,7 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
             """
             gripper, base = objects
 
-            in_origin = RoboKitchenEnv._GripperOpen_holds(state, [gripper, base])
-            
+            in_origin = RoboKitchenEnv._InOrigin_holds(state, [gripper, base])
             return in_origin
 
         def move_to_init_pose_policy(state: State, memory: Dict, objects: Sequence[Object], params: Array) -> Action:
@@ -430,7 +429,7 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
             action_low = np.array([-1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0], dtype=np.float32)
             action_high = np.array([1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0], dtype=np.float32)
             action = np.clip(action, action_low, action_high)
-            
+
             return Action(action)
 
         MoveToInitPoseOption = ParameterizedOption(

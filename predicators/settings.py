@@ -29,7 +29,7 @@ class GlobalSettings:
 
     clustering_moving_average_window = 5
     clustering_debug = True
-    enable_meshcat = False
+    enable_meshcat = True
     clustering_se3_trans_weight = 10  # 0.05 m # 10 times differnece
     clustering_se3_rot_weight = 0.0  # 30 deg = 0.5236 rad
     clustering_feature_constancy_percentile = 10  # of total number of data points = 13782
@@ -65,8 +65,8 @@ class GlobalSettings:
     # robo_kitchen env parameters
     robo_kitchen_randomize_init_state = True  # not used
     # robo_kitchen_task = "PnPCounterToCab"
-    robo_kitchen_task = "OpenSingleDoor"
-    # robo_kitchen_task = "StoreFruit"
+    # robo_kitchen_task = "OpenSingleDoor"
+    robo_kitchen_task = "StoreFruit"
     # robo_kitchen_viz_debug = False # i think the use_gui flag covers this
     robo_kitchen_contact_smoothing_window = 21
     robo_kitchen_load_dataset = True  # this has priority, if False, then save flag is considered

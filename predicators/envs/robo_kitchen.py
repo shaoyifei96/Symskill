@@ -48,7 +48,7 @@ class RoboKitchenEnv(BaseEnv):
     gripper_fingers_distance_thresh = 0.08  # m
     place_close_distance_thresh = 0.1  # m
 
-    online_door_open_thresh = np.deg2rad(50)  # rad
+    online_door_open_thresh = np.deg2rad(60)  # rad
     online_place_close_distance_thresh = 0.2  # m
 
     # Types
@@ -636,7 +636,7 @@ class RoboKitchenEnv(BaseEnv):
     @classmethod
     def state_info_to_state(cls, state_info: Dict[str, Any], contact_set: set[Tuple[Object, Object]] = None) -> State:
 
-        if hasattr(CFG, "load_approach"):
+        if hasattr(CFG, "load_approach") and CFG.load_approach:
             cls.door_open_thresh = cls.online_door_open_thresh  # rad
             cls.place_close_distance_thresh = cls.online_place_close_distance_thresh  # m
 
