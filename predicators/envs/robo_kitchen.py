@@ -504,6 +504,7 @@ class RoboKitchenEnv(BaseEnv):
         self.viz_type_frames(self.grab_type)
         self.viz_type_frames(self.surface_type)
         self.viz_type_frames(self.cabinet_type)
+        self.viz_type_frames(self.base_type)
 
         if CFG.use_teleop:
             input_ac_dict = self.device.input2action(mirror_actions=True)

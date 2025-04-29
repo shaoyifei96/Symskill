@@ -395,6 +395,8 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
             gripper_quat = state.get(gripper, "quaternion")
             base_pos = state.get(base, "translation")
             base_quat = state.get(base, "quaternion")
+            gripper_pos_in_base, gripper_rot_in_base = frame_transform(gripper_pos, gripper_quat, base_pos, R.from_quat(base_quat).as_matrix())
+            gripper_quat_in_base = R.from_matrix(gripper_rot_in_base).as_quat()
 
             K_pos = 2.0
             K_rot = 0.5
@@ -405,20 +407,14 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
             # --- Calculate world frame velocities ---
 
             # Linear velocity
-            pos_error_world = init_pos - gripper_pos
-            linear_vel_world = K_pos * pos_error_world
+            pos_error_world = init_pos - gripper_pos_in_base
+            linear_vel_base = K_pos * pos_error_world
 
             # Angular velocity
             target_rot = R.from_quat(init_quat)
-            current_rot = R.from_quat(gripper_quat)
+            current_rot = R.from_quat(gripper_quat_in_base)
             error_rot = target_rot * current_rot.inv()
-            angular_vel_world = K_rot * error_rot.as_rotvec()
-
-            # --- Transform velocities to base frame ---
-            base_rot_matrix = R.from_quat(base_quat).as_matrix()
-
-            linear_vel_base = base_rot_matrix.T @ linear_vel_world
-            angular_vel_base = base_rot_matrix.T @ angular_vel_world
+            angular_vel_base = K_rot * error_rot.as_rotvec()
 
             # --- Construct action ---
             action = np.zeros(7, dtype=np.float32)
