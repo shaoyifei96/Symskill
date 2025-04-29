@@ -362,6 +362,7 @@ def _run_testing(env: BaseEnv, cogman: CogMan) -> Metrics:
     metrics: Metrics = defaultdict(float)
     curr_num_nodes_created = 0.0
     curr_num_nodes_expanded = 0.0
+    replan_total_count = 0
     for test_task_idx, env_task in enumerate(test_tasks):
         solve_start = time.perf_counter()
         try:
@@ -418,7 +419,8 @@ def _run_testing(env: BaseEnv, cogman: CogMan) -> Metrics:
             metrics[f"PER_TASK_task{test_task_idx}_options_executed"] = num_opt
             exec_time = execution_metrics["policy_call_time"]
             metrics[f"PER_TASK_task{test_task_idx}_exec_time"] = exec_time
-            metrics[f"Replan_Count_Task_{test_task_idx}"] = execution_metrics["num_replans"]
+            metrics[f"replan_count_task_{test_task_idx}"] = execution_metrics["num_replans"]
+            replan_total_count += execution_metrics["num_replans"]
             if CFG.refinement_data_include_execution_cost:
                 total_low_level_action_cost += (
                     len(traj[1]) *
@@ -489,6 +491,8 @@ def _run_testing(env: BaseEnv, cogman: CogMan) -> Metrics:
     metrics["num_solve_failures"] = total_num_solve_failures
     metrics["num_execution_timeouts"] = total_num_execution_timeouts
     metrics["num_execution_failures"] = total_num_execution_failures
+    metrics["replan_total_count"] = replan_total_count
+    metrics["replan_total_count_per_task"] = replan_total_count / len(test_tasks)
     # Handle computing averages of total cogman metrics wrt the
     # number of found policies. Note: this is different from computing
     # an average wrt the number of solved tasks, which might be more
