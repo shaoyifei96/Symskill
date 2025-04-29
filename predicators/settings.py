@@ -41,7 +41,7 @@ class GlobalSettings:
     test_noise_level = 0.05  # Noise standard deviation for clusters
     test_cluster_separation = 0.1  # Distance between cluster centers
 
-    clustering_mahalanobis_confidence = 0.90
+    clustering_mahalanobis_confidence = 0.80
     clustering_translation_epsilon = 0.3  # set dbscane to be different
     clustering_quaternion_epsilon = 0.7
     clustering_dbscan_ratio = 0.1  # dbscan is 10 times smaller than this
@@ -81,7 +81,7 @@ class GlobalSettings:
     """Unchanging settings."""
     # global parameters
     num_train_tasks = 10  # in robocasa, either the max demo number or num_train_tasks will be used
-    num_test_tasks = 1
+    num_test_tasks = 2
     # Perform online learning for this many cycles or until this many
     # transitions have been collected, whichever happens first.
     num_online_learning_cycles = 10

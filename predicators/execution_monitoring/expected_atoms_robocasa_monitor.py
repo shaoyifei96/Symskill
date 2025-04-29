@@ -156,18 +156,11 @@ class ExpectedAtomsRobocasaExecutionMonitor(BaseExecutionMonitor):
             
         non_vlm_unsat_atoms = set()
         
-
+        
         # converting contact predicates to rel_pose predicates
         for atom in next_expected_atoms - next_expected_vlm_atoms:
             if (atom.predicate.name, atom.entities[0].type.name, atom.entities[1].type.name) in CFG.dict_contact_predicate_to_rel_pose_predicates:
-                rel_pose_preds = CFG.dict_contact_predicate_to_rel_pose_predicates[(atom.predicate.name, atom.entities[0].type.name, atom.entities[1].type.name)]
-                atom_holds = False
-                for rel_pose_pred in rel_pose_preds:
-                    rel_pose_pred_atom = GroundAtom(rel_pose_pred, atom.entities)
-                    if rel_pose_pred_atom.holds(state):
-                        atom_holds = True
-                        break
-                if not atom_holds:
+                if not utils.check_dict_contact_predicate_to_rel_pose_predicates(atom, state):
                     non_vlm_unsat_atoms.add(atom)
         
         # {

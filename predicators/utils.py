@@ -76,6 +76,17 @@ if "CUDA_VISIBLE_DEVICES" in os.environ:  # pragma: no cover
         cuda_visible_devices[0] = "0"
         os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(cuda_visible_devices)
 
+
+def check_dict_contact_predicate_to_rel_pose_predicates(atom: GroundAtom, state: State) -> bool:
+    rel_pose_preds = CFG.dict_contact_predicate_to_rel_pose_predicates[(atom.predicate.name, atom.entities[0].type.name, atom.entities[1].type.name)]
+    atom_holds = False
+    for rel_pose_pred in rel_pose_preds:
+        rel_pose_pred_atom = GroundAtom(rel_pose_pred, atom.entities)
+        if rel_pose_pred_atom.holds(state):
+            atom_holds = True
+            break
+    return atom_holds
+
 def calculate_se3_distance(pose_vec1: np.ndarray, pose_vec2: np.ndarray, 
                                 trans_weight: float, rot_weight: float) -> float:
     """Calculates a weighted SE(3) distance between two 7D pose vectors."""
@@ -130,6 +141,10 @@ def calculate_relative_pose(state: State, o1: Object, o2: Object, trans_feat_nam
         trans_o2 = state.get(o2, trans_feat_name)
         quat_o1 = state.get(o1, quat_feat_name)
         quat_o2 = state.get(o2, quat_feat_name)
+        if o1.type.name == "thing_type":
+            quat_o1 = np.array([0.0, 0.0, 0.0, 1.0], dtype=np.float32)
+        if o2.type.name == "thing_type":
+            quat_o2 = np.array([0.0, 0.0, 0.0, 1.0], dtype=np.float32)
 
         rot_o1 = Rotation.from_quat(quat_o1)
         rot_o2 = Rotation.from_quat(quat_o2)

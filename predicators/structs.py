@@ -217,7 +217,7 @@ class State:
             return False
         for obj in self.data:
             # if not np.allclose(self.data[obj], other.data[obj], atol=1e-3):
-            if not self.compare_nested_arrays(self.data[obj], other.data[obj], atol=1e-3):
+            if not self.compare_nested_arrays(self.data[obj], other.data[obj], atol=0.001):
                 return False
         return True
 

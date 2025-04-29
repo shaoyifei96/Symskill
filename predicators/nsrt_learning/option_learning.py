@@ -7,9 +7,11 @@ import copy
 import logging
 from collections import defaultdict
 from typing import ClassVar, Dict, List, Sequence, Set, Tuple, Any, Optional
+import warnings
 import matplotlib.pyplot as plt
 
 import numpy as np
+from predicators.utils import check_dict_contact_predicate_to_rel_pose_predicates
 import pybullet as p
 from gym.spaces import Box
 
@@ -1083,6 +1085,7 @@ class _LearnedDSParameterizedOption(ParameterizedOption):
             action_low = np.array([0, 0, 0, 0, 0, 0, -1.0], dtype=np.float32)
             action_high = np.array([0, 0, 0, 0, 0, 0, 1.0], dtype=np.float32)
         action_arr = np.clip(action_arr, action_low, action_high)
+        print(f"action_arr: {action_arr}")
         self.prev_left_right_finger_dist = left_right_finger_dist
 
         if CFG.visualizer:
@@ -1116,9 +1119,10 @@ class _LearnedDSParameterizedOption(ParameterizedOption):
         # Check if state has not changed for 10 steps
         if len(memory["state_history"]) == 10:
             if all(memory["state_history"][0].allclose(s) for s in memory["state_history"][1:]):
+                warnings.warn("Disabled effect-based terminal check, this is due to velocity-based ")
                 return True
-        if terminate:
-            return True
+        # if terminate:
+        #     return True
         memory["last_state"] = state
         return False
 
@@ -1127,9 +1131,17 @@ class _LearnedDSParameterizedOption(ParameterizedOption):
         been reached."""
         # NOTE: based on effect_based_terminal in _LearnedNeuralParameterizedOption
         grounded_op = self.operator.ground(tuple(objects))
-        if all(e.holds(state) for e in grounded_op.add_effects) and not any(e.holds(state) for e in grounded_op.delete_effects):
-            return True
-        return False
+
+        for e in grounded_op.add_effects:
+            if (e.predicate.name, e.entities[0].type.name, e.entities[1].type.name) in CFG.dict_contact_predicate_to_rel_pose_predicates:
+                if not check_dict_contact_predicate_to_rel_pose_predicates(e, state):
+                    return False
+            elif not e.holds(state):
+                return False
+        for e in grounded_op.delete_effects:
+            if e.holds(state):
+                return False
+        return True
 
 
 class _ImplicitBehaviorCloningOptionLearner(_BehaviorCloningOptionLearner):

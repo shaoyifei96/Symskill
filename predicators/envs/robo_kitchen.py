@@ -41,11 +41,11 @@ MAX_ROTATION_DISPLACEMENT = 1.0
 class RoboKitchenEnv(BaseEnv):
     """Kitchen environment using robosuite."""
 
-    door_open_thresh = np.deg2rad(70) # rad
+    door_open_thresh = 0.95#np.deg2rad(70) # rad
     door_half_open_thresh = 0.4  # rad
     grab_close_distance_thresh = 0.02  # m
     gripper_fingers_distance_thresh = 0.08  # m
-    place_close_distance_thresh = 0.05  # m
+    place_close_distance_thresh = 0.1  # m
 
     # Types
     object_type = Type("object_type", ["translation", "quaternion"])
@@ -62,7 +62,7 @@ class RoboKitchenEnv(BaseEnv):
     obj_name_to_type = {
         "handle": handle_type,
         "left_door_handle": handle_type,
-        # "right_door_handle": handle_type,
+        "right_door_handle": handle_type,
         "gripper": gripper_type,
         "left_finger": left_finger_type,
         "right_finger": right_finger_type,
@@ -714,7 +714,7 @@ class RoboKitchenEnv(BaseEnv):
         # Extract rotation value (approximation for hinge rotation)
         rot_vec = rel_rot.as_rotvec()
         rotation_value = np.linalg.norm(rot_vec)  # Total rotation angle in radians
-
+        # print(f"rotation_value: {rotation_value}")
         return rotation_value > cls.door_open_thresh
 
     @classmethod
@@ -781,7 +781,9 @@ class RoboKitchenEnv(BaseEnv):
         surface_quat = state.get(surface, "quaternion")
         obj_pos_in_surface, _ = frame_transform(obj_pos, obj_quat, surface_pos, R.from_quat(surface_quat).as_matrix())
         near_surface = obj_pos_in_surface[2] <= cls.place_close_distance_thresh
-        in_surface = abs(obj_pos_in_surface[0]) <= 0.1 and abs(obj_pos_in_surface[1]) <= 0.1
+        in_surface = abs(obj_pos_in_surface[0]) <= 0.13 and abs(obj_pos_in_surface[1]) <= 0.13
+        # print(obj_pos_in_surface[0], obj_pos_in_surface[1])
+        # print(near_surface, in_surface)
         return near_surface and in_surface
 
 
