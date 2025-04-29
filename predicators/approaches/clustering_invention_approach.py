@@ -366,7 +366,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         # Filter dataset to only keep specific trajectory indices
         if CFG.robo_kitchen_task == "OpenSingleDoor":
             keep_indices = [0, 2, 3, 4, 6, 7, 8, 9, 10, 12, 14, 15, 16, 17, 19, 21, 25, 32, 33, 35, 36, 38, 39, 40, 42, 44, 45, 47, 48, 49]
-            #               1  2  3  4  5  6  7  8  
+            #               1  2  3  4  5  6  7  8
             # keep_indices = [3,4,8,9] # single cluster for handle & cabinet
             dataset._trajectories = [dataset._trajectories[i] for i in keep_indices if i < len(dataset._trajectories)]
 
@@ -1300,14 +1300,15 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
 
         # Identify the InContact predicate and the gripper type
         in_contact_pred = next(p for p in env.predicates if "InContact" in p.name)
+        in_origin_pred = next(p for p in env.predicates if "InOrigin" in p.name)
         gripper_type = next(t for t in self._types if "gripper" in t.name) # Assumes gripper type name contains "gripper"
-        surface_type = next(t for t in self._types if "surface" in t.name) # Assumes surface type name contains "surface"
+
         if not gripper_type:
             logging.warning("Gripper type not found. Cannot generate contact-based predicates.")
             return {}, {} # Return empty dicts if gripper type is not found
 
         # Combine InContact and goal predicates for atom dataset creation
-        predicates_to_monitor = {in_contact_pred} | env.goal_predicates
+        predicates_to_monitor = {in_contact_pred, in_origin_pred} | env.goal_predicates
         ground_atom_dataset = utils.create_ground_atom_dataset(dataset.trajectories, predicates_to_monitor)
 
         relative_pose_dataset_dict = defaultdict(list) # Maps (atom_pred, type1, type2) -> List[rel_pose]
@@ -1316,22 +1317,36 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         trans_feat_name = "translation"
         pose_feat_name = "pose"
 
-
-
-
-# 1. process of making contact: how to get to grasp (gripper obj centric DS with goal of cluster in step 2)
-# Atom dataset auto split these
-# 2. process of held contact: how to grasp(gripper obj centric cluster) (Obj Obj frame DS)
-# 2.1 gripper obj centric: Already doing with clustering change only flag off
-# 2.2 obj obj frame:(using goal predicate to find the other object)
-# 3. instant of removed contact: achieving relative pose between two object (obj obj frame cluster goal )
-# done
+        # 1. process of making contact: how to get to grasp (gripper obj centric DS with goal of cluster in step 2)
+        # Atom dataset auto split these
+        # 2. process of held contact: how to grasp(gripper obj centric cluster) (Obj Obj frame DS)
+        # 2.1 gripper obj centric: Already doing with clustering change only flag off
+        # 2.2 obj obj frame:(using goal predicate to find the other object)
+        # 3. instant of removed contact: achieving relative pose between two object (obj obj frame cluster goal )
+        # done
         logging.info("Extracting relative poses ...")
 
         for i, (ll_traj, atom_seq) in enumerate(ground_atom_dataset):
             if not ll_traj.states: continue # Skip empty trajectories
             # logging.info(f"Processing trajectory {i} of {len(ground_atom_dataset)}")
             # We want to eventually treat lost contact as a phase, and use clustering to group the lost contact phases
+            init_atoms = None
+            init_atoms_pred = []
+            finish_adding_init_atoms = False
+            for t in range(1, len(atom_seq)):
+                atoms_t = atom_seq[t]
+                atoms_tm1 = atom_seq[t - 1]
+                if t == 1 and len(atoms_tm1) > 0 and any(atom.predicate == in_origin_pred for atom in atoms_tm1):
+                    init_atoms = atoms_tm1
+                    init_atoms_pred = [atom.predicate for atom in atoms_tm1]
+                assert init_atoms is not None, "No InOrigin predicate found in the first state of the trajectory."
+                if len(atoms_t) > 0 and any(atom.predicate not in init_atoms_pred for atom in atoms_t):
+                    finish_adding_init_atoms = True
+                if not finish_adding_init_atoms:
+                    ground_atom_dataset[i][1][t] = init_atoms
+                elif any(atom.predicate == in_origin_pred for atom in atoms_t):
+                    ground_atom_dataset[i][1][t] = set([atom for atom in atoms_t if atom.predicate != in_origin_pred])
+                    
 
             skip_var =max(int(len(atom_seq) / 50),1)
             logging.debug(f"Processing trajectory {i+1}/{len(ground_atom_dataset)} with {len(atom_seq)} atoms, skipping every {skip_var} atoms.")
@@ -1364,8 +1379,6 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                         )
                         key = (atom.predicate, obj1.type, obj3.type, "lost_contact_2in1")
                         relative_pose_dataset_dict[key].append(rel_pose_lost_contact_obj3_in_obj1_frame)
-
-
 
                 for atom in atoms_t:
                     if CFG.clustering_change_only and atom in atoms_tm1: continue

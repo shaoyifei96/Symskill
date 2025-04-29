@@ -8,22 +8,23 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 import numpy as np
 from gym.spaces import Box
 
-from predicators.nsrt_learning.option_learning import \
-    KnownOptionsOptionLearner, _OptionLearnerBase, create_option_learner
+from predicators.nsrt_learning.option_learning import KnownOptionsOptionLearner, _OptionLearnerBase, create_option_learner
 from predicators.nsrt_learning.sampler_learning import learn_samplers
 from predicators.nsrt_learning.segmentation import segment_trajectory
 from predicators.nsrt_learning.strips_learning import learn_strips_operators
 from predicators.settings import CFG
-from predicators.structs import NSRT, PNAD, GroundAtomTrajectory, \
-    LowLevelTrajectory, ParameterizedOption, Predicate, Segment, Task
+from predicators.structs import NSRT, PNAD, GroundAtomTrajectory, LowLevelTrajectory, ParameterizedOption, Predicate, Segment, Task
 
 
 def learn_nsrts_from_data(
-    trajectories: List[LowLevelTrajectory], train_tasks: List[Task],
-    predicates: Set[Predicate], known_options: Set[ParameterizedOption],
+    trajectories: List[LowLevelTrajectory],
+    train_tasks: List[Task],
+    predicates: Set[Predicate],
+    known_options: Set[ParameterizedOption],
     action_space: Box,
     ground_atom_dataset: Optional[List[GroundAtomTrajectory]],
-    sampler_learner: str, annotations: Optional[List[Any]]
+    sampler_learner: str,
+    annotations: Optional[List[Any]],
 ) -> Tuple[Set[NSRT], List[List[Segment]], Dict[Segment, NSRT]]:
     """Learn NSRTs from the given dataset of low-level transitions, using the
     given set of predicates.
@@ -43,32 +44,23 @@ def learn_nsrts_from_data(
     # only do one iteration, because all other approaches are
     # data order invariant.
     smallest_pnads = None
-    smallest_pnad_complexity = float('inf')
+    smallest_pnad_complexity = float("inf")
     rng = np.random.default_rng(CFG.seed)
     for _ in range(CFG.data_orderings_to_search):
         # Step 0: Shuffle dataset to learn from.
         if CFG.data_orderings_to_search > 1:
-            random_data_indices = sorted(
-                [int(i) for i in range(len(trajectories))],
-                key=lambda _: rng.random())
+            random_data_indices = sorted([int(i) for i in range(len(trajectories))], key=lambda _: rng.random())
             trajectories = [trajectories[i] for i in random_data_indices]
             if ground_atom_dataset is not None:
-                ground_atom_dataset = [
-                    ground_atom_dataset[i] for i in random_data_indices
-                ]
+                ground_atom_dataset = [ground_atom_dataset[i] for i in random_data_indices]
         # STEP 1: Segment each trajectory in the dataset based on changes in
         #         either predicates or options. If we are doing option learning,
         #         then the data will not contain options, so this segmenting
         #         procedure only uses the predicates.
         if ground_atom_dataset is None:
-            segmented_trajs = [
-                segment_trajectory(traj, predicates, low_speed_only=False, low_speed_threshold=0.001) for traj in trajectories
-            ]
+            segmented_trajs = [segment_trajectory(traj, predicates, low_speed_only=False, low_speed_threshold=0.001) for traj in trajectories]
         else:
-            segmented_trajs = [
-                segment_trajectory(traj, predicates, atom_seq=atom_seq)
-                for traj, atom_seq in ground_atom_dataset
-            ]
+            segmented_trajs = [segment_trajectory(traj, predicates, atom_seq=atom_seq) for traj, atom_seq in ground_atom_dataset]
         # If performing goal-conditioned sampler learning, we need to attach the
         # goals to the segments.
         if CFG.sampler_learning_use_goals:
@@ -85,14 +77,7 @@ def learn_nsrts_from_data(
         #         produce PNAD objects. Each PNAD
         #         contains a STRIPSOperator, Datastore, and OptionSpec. The
         #         samplers will be filled in on a later step.
-        pnads = learn_strips_operators(
-            trajectories,
-            train_tasks,
-            predicates,
-            segmented_trajs,
-            verify_harmlessness=True,
-            verbose=(CFG.option_learner != "no_learning"),
-            annotations=annotations)
+        pnads = learn_strips_operators(trajectories, train_tasks, predicates, segmented_trajs, verify_harmlessness=True, verbose=(CFG.option_learner != "no_learning"), annotations=annotations)
 
         # Save least complex learned PNAD set across data orderings.
         pnads_complexity = sum(pnad.op.get_complexity() for pnad in pnads)
@@ -101,11 +86,17 @@ def learn_nsrts_from_data(
             smallest_pnads = pnads
         assert smallest_pnads is not None  # smallest pnads should be set here
 
-        if CFG.strips_learner != 'backchaining':
+        if CFG.strips_learner != "backchaining":
             break
 
     assert smallest_pnads is not None
     pnads = smallest_pnads
+
+    # cleaned_pnads = []
+    # for pnad in pnads:
+    #     if len(pnad.datastore) < 5:
+    #         logging.warning(f"PNAD {pnad.op.name} has only {len(pnad.datastore)} segments, which is less than 5. This may be too few for learning. Skipping.")
+    #         continue
 
     # We delete ground_atom_dataset because it's prone to causing bugs --
     # we should rarely care about the low-level ground atoms sequence after
@@ -116,8 +107,7 @@ def learn_nsrts_from_data(
     # In the special case where all NSRT learning components are oracle, skip
     # this step, because there may be empty PNADs, and option learning assumes
     # in several places that the PNADs are not empty.
-    if CFG.strips_learner != "oracle" or CFG.sampler_learner != "oracle" or \
-       CFG.option_learner != "no_learning":
+    if CFG.strips_learner != "oracle" or CFG.sampler_learner != "oracle" or CFG.option_learner != "no_learning":
         # Updates the PNADs in-place.
         _learn_pnad_options(pnads, known_options, action_space)
 
@@ -130,7 +120,7 @@ def learn_nsrts_from_data(
     for pnad in pnads:
         nsrt = pnad.make_nsrt()
         nsrts.append(nsrt)
-        for (seg, _) in pnad.datastore:
+        for seg, _ in pnad.datastore:
             assert seg not in seg_to_nsrt
             seg_to_nsrt[seg] = nsrt
     logging.info("\nLearned NSRTs:")
@@ -141,9 +131,7 @@ def learn_nsrts_from_data(
     return set(nsrts), segmented_trajs, seg_to_nsrt
 
 
-def _learn_pnad_options(pnads: List[PNAD],
-                        known_options: Set[ParameterizedOption],
-                        action_space: Box) -> None:
+def _learn_pnad_options(pnads: List[PNAD], known_options: Set[ParameterizedOption], action_space: Box) -> None:
     logging.info("\nDoing option learning...")
     # Separate the PNADs into two groups: those with known options, and those
     # without. By assumption, for each PNAD, either all actions should have the
@@ -151,13 +139,13 @@ def _learn_pnad_options(pnads: List[PNAD],
     known_option_pnads, unknown_option_pnads = [], []
     for pnad in pnads:
         assert pnad.datastore
-        example_segment, _= pnad.datastore[0]
+        example_segment, _ = pnad.datastore[0]
         example_action = example_segment.actions[0]
         pnad_options_known = example_action.has_option()
         # Sanity check the assumption described above.
         if pnad_options_known:
             assert example_action.get_option().parent in known_options
-        for (segment, _) in pnad.datastore:
+        for segment, _ in pnad.datastore:
             for action in segment.actions:
                 if pnad_options_known:
                     assert action.has_option()
@@ -178,15 +166,13 @@ def _learn_pnad_options(pnads: List[PNAD],
     for pnad in known_option_pnads:
         logging.info(pnad)
     # Learn the unknown options.
-    _learn_pnad_options_with_learner(unknown_option_pnads,
-                                     unknown_option_learner)
+    _learn_pnad_options_with_learner(unknown_option_pnads, unknown_option_learner)
     logging.info("\nLearned operators with option specs:")
     for pnad in unknown_option_pnads:
         logging.info(pnad)
 
 
-def _learn_pnad_options_with_learner(
-        pnads: List[PNAD], option_learner: _OptionLearnerBase) -> None:
+def _learn_pnad_options_with_learner(pnads: List[PNAD], option_learner: _OptionLearnerBase) -> None:
     """Helper for _learn_pnad_options()."""
     strips_ops = []
     datastores = []
@@ -203,7 +189,7 @@ def _learn_pnad_options_with_learner(
         parameterized_option.params_space.seed(CFG.seed)
     # Update the segments to include which option is being executed.
     for datastore, spec in zip(datastores, option_specs):
-        for (segment, _) in datastore:
+        for segment, _ in datastore:
             # Modifies segment in-place.
             option_learner.update_segment_from_option_spec(segment, spec)
 
@@ -220,8 +206,7 @@ def _learn_pnad_samplers(pnads: List[PNAD], sampler_learner: str) -> None:
     if CFG.option_learner == "ds_policy":
         samplers = [None] * len(strips_ops)
     else:
-        samplers = learn_samplers(strips_ops, datastores, option_specs,
-                                sampler_learner)
+        samplers = learn_samplers(strips_ops, datastores, option_specs, sampler_learner)
     assert len(samplers) == len(strips_ops)
     # Replace the samplers in the PNADs.
     for pnad, sampler in zip(pnads, samplers):

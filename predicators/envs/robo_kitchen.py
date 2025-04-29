@@ -42,11 +42,14 @@ MAX_ROTATION_DISPLACEMENT = 1.0
 class RoboKitchenEnv(BaseEnv):
     """Kitchen environment using robosuite."""
 
-    door_open_thresh = 0.95#np.deg2rad(70) # rad
+    door_open_thresh = np.deg2rad(80) # rad
     door_half_open_thresh = 0.4  # rad
     grab_close_distance_thresh = 0.02  # m
     gripper_fingers_distance_thresh = 0.08  # m
     place_close_distance_thresh = 0.1  # m
+
+    online_door_open_thresh = np.deg2rad(50)  # rad
+    online_place_close_distance_thresh = 0.2  # m
 
     # Types
     object_type = Type("object_type", ["translation", "quaternion"])
@@ -422,6 +425,7 @@ class RoboKitchenEnv(BaseEnv):
         initial_eef_pos_in_base = self._env.robots[0]._hand_pos["right"]
         initial_eef_orn_mat_in_base = self._env.robots[0]._hand_orn["right"]
         initial_eef_quat_in_base = T.mat2quat(initial_eef_orn_mat_in_base)
+        # CFG.init_pose = np.concatenate([initial_eef_pos_in_base, initial_eef_quat_in_base])
         self.initial_eef_pos_quat = np.concatenate([initial_eef_pos_in_base, initial_eef_quat_in_base])
 
         # Return observation
@@ -631,6 +635,11 @@ class RoboKitchenEnv(BaseEnv):
 
     @classmethod
     def state_info_to_state(cls, state_info: Dict[str, Any], contact_set: set[Tuple[Object, Object]] = None) -> State:
+
+        if hasattr(CFG, "load_approach"):
+            cls.door_open_thresh = cls.online_door_open_thresh  # rad
+            cls.place_close_distance_thresh = cls.online_place_close_distance_thresh  # m
+
         state_dict = {}
 
         # Process any other objects with standard format
@@ -662,8 +671,8 @@ class RoboKitchenEnv(BaseEnv):
         gripper, base = objects
 
         # Get the predefined initial relative pose (stored as class variables)
-        initial_pos_rel = cls.initial_eef_pos_quat[:3]  # Extract position part
-        initial_quat_rel = cls.initial_eef_pos_quat[3:]  # Extract quaternion part
+        initial_pos_rel = CFG.init_pose[:3]
+        initial_quat_rel = CFG.init_pose[3:]
         initial_rot_rel = R.from_quat(initial_quat_rel)
 
         gripper_pos_world = state.get(gripper, "translation")
@@ -682,8 +691,8 @@ class RoboKitchenEnv(BaseEnv):
         current_rot_rel = base_rot_world.inv() * gripper_rot_world
 
         # Define tolerances
-        pos_tolerance = 0.03  # meters (e.g., 3 cm)
-        angle_tolerance = np.deg2rad(5)  # radians (e.g., 10 degrees)
+        pos_tolerance = 0.1  # meters
+        angle_tolerance = np.deg2rad(20)  # radians
 
         # Check position distance
         pos_diff = np.linalg.norm(current_pos_rel - initial_pos_rel)
@@ -696,7 +705,7 @@ class RoboKitchenEnv(BaseEnv):
         ori_close = angle_diff < angle_tolerance
 
         return pos_close and ori_close
-    
+
     @classmethod
     def _ReadyGrabObj_holds(cls, state: State, objects: Sequence[Object]) -> bool:
         """Check if gripper is ready to grip handle."""

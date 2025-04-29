@@ -51,6 +51,7 @@ class RoboKitchenGroundTruthNSRTFactory(GroundTruthNSRTFactory):
         ReachBehindandPull_option = options["ReachBehindandPull_option"]
         PnPCounterToCab_Pick_option = options["PnPCounterToCab_Pick_option"]
         PnPCounterToCab_Place_option = options["PnPCounterToCab_Place_option"]
+        MoveToInitPoseOption = options["MoveToInitPoseOption"]
         # Predicates
         ReadyGrabObj = predicates["ReadyGrabObj"]
         GripperClosed = predicates["GripperClosed"]
@@ -63,7 +64,7 @@ class RoboKitchenGroundTruthNSRTFactory(GroundTruthNSRTFactory):
         InOrigin = predicates["InOrigin"]
 
         nsrts = set()
-        
+
         # ToInitialState
         parameters = [gripper, base]
         preconditions = set()
@@ -71,6 +72,23 @@ class RoboKitchenGroundTruthNSRTFactory(GroundTruthNSRTFactory):
         add_effects = {LiftedAtom(InOrigin, [gripper, base])}
         delete_effects = set()
         ignore_effects = set()
+        option = MoveToInitPoseOption
+        option_vars = [gripper, base]
+        
+        def to_initial_state_sampler(state: State, memory: dict, objects: Sequence[Object], params: Array) -> Array:
+            return np.array([0], dtype=np.float32)
+        to_initial_state_nsrt = NSRT(
+            "ToInitialState",
+            parameters,
+            preconditions,
+            add_effects,
+            delete_effects,
+            ignore_effects,
+            option,
+            option_vars,
+            to_initial_state_sampler,
+            maintain_effects,
+        )
 
         # ReachBehindandPull
         parameters = [gripper, handle, base, cabinet, left_finger, right_finger]
@@ -314,5 +332,6 @@ class RoboKitchenGroundTruthNSRTFactory(GroundTruthNSRTFactory):
         nsrts.add(pull_open_door_nsrt)
         # nsrts.add(reach_behind_and_pull_nsrt)
         nsrts.add(place_thing_on_surface)
+        nsrts.add(to_initial_state_nsrt)
 
         return nsrts

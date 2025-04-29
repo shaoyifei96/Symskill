@@ -7,8 +7,7 @@ import copy
 import itertools
 from dataclasses import dataclass, field
 from functools import cached_property, lru_cache
-from typing import Any, Callable, Collection, DefaultDict, Dict, Iterator, \
-    List, Optional, Sequence, Set, Tuple, TypeVar, Union, cast
+from typing import Any, Callable, Collection, DefaultDict, Dict, Iterator, List, Optional, Sequence, Set, Tuple, TypeVar, Union, cast
 
 import numpy as np
 import PIL.Image
@@ -24,8 +23,9 @@ from predicators.settings import CFG
 @dataclass(frozen=True, order=True)
 class OptionFailureInfo:
     """Struct to store information about option failures."""
+
     option_name: str
-    # objects: Tuple[Object, ...] # currently monitor not seeing what objects are used, 
+    # objects: Tuple[Object, ...] # currently monitor not seeing what objects are used,
     # since it uses state and is called before policy, so all it knows is where things are
     # the option is also from last iteration. but maybe the option has objects names?
     # there is extra info in option that can be populated
@@ -37,6 +37,7 @@ class OptionFailureInfo:
 @dataclass(frozen=True, order=True)
 class Type:
     """Struct defining a type."""
+
     name: str
     feature_names: Sequence[str] = field(repr=False)
     parent: Optional[Type] = field(default=None, repr=False)
@@ -73,6 +74,7 @@ class _TypedEntity:
 
     Should not be instantiated externally.
     """
+
     name: str
     type: Type
 
@@ -132,6 +134,7 @@ class Variable(_TypedEntity):
 @dataclass
 class State:
     """Struct defining the low-level state of the world."""
+
     data: Dict[Object, Array]
     # Some environments will need to store additional simulator state, so
     # this field is provided.
@@ -182,8 +185,7 @@ class State:
         new_data = {}
         for obj in self:
             new_data[obj] = self._copy_state_value(self.data[obj])
-        return State(new_data,
-                     simulator_state=copy.deepcopy(self.simulator_state))
+        return State(new_data, simulator_state=copy.deepcopy(self.simulator_state))
 
     def _copy_state_value(self, val: Any) -> Any:
         if val is None or isinstance(val, (float, bool, int, str)):
@@ -192,7 +194,7 @@ class State:
             return type(val)(self._copy_state_value(v) for v in val)
         assert hasattr(val, "copy")
         return val.copy()
-    
+
     def compare_nested_arrays(self, a, b, atol=1e-3):
         """Helper function to compare potentially nested arrays with tolerance."""
         # Special Case: Both are numpy arrays with object data (contains other arrays)
@@ -206,11 +208,9 @@ class State:
     def allclose(self, other: State) -> bool:
         """Return whether this state is close enough to another one, i.e., its
         objects are the same, and the features are close."""
-        if self.simulator_state is not None or \
-            other.simulator_state is not None:
+        if self.simulator_state is not None or other.simulator_state is not None:
             if not CFG.allow_state_allclose_comparison_despite_simulator_state:
-                raise NotImplementedError("Cannot use allclose when "
-                                          "simulator_state is not None.")
+                raise NotImplementedError("Cannot use allclose when " "simulator_state is not None.")
             if self.simulator_state != other.simulator_state:
                 return False
         if not sorted(self.data) == sorted(other.data):
@@ -227,16 +227,13 @@ class State:
         for obj in self:
             if obj.type not in type_to_table:
                 type_to_table[obj.type] = []
-            type_to_table[obj.type].append([obj.name] + \
-                                            list(map(str, self[obj])))
+            type_to_table[obj.type].append([obj.name] + list(map(str, self[obj])))
         table_strs = []
         for t in sorted(type_to_table):
             headers = ["type: " + t.name] + list(t.feature_names)
             table_strs.append(tabulate(type_to_table[t], headers=headers))
-        ll = max(
-            len(line) for table in table_strs for line in table.split("\n"))
-        prefix = "#" * (ll // 2 - 3) + " STATE " + "#" * (ll - ll // 2 -
-                                                          4) + "\n"
+        ll = max(len(line) for table in table_strs for line in table.split("\n"))
+        prefix = "#" * (ll // 2 - 3) + " STATE " + "#" * (ll - ll // 2 - 4) + "\n"
         suffix = "\n" + "#" * ll + "\n"
         return prefix + "\n\n".join(table_strs) + suffix
 
@@ -258,7 +255,7 @@ class State:
         dict_str = spaces + "{"
         n_keys = len(state_dict.keys())
         for i, (key, value) in enumerate(state_dict.items()):
-            value_str = ', '.join(f"'{k}': {v}" for k, v in value.items())
+            value_str = ", ".join(f"'{k}': {v}" for k, v in value.items())
             if i == 0:
                 dict_str += f"'{key}': {{{value_str}}},\n"
             elif i == n_keys - 1:
@@ -275,27 +272,28 @@ DefaultState = State({})
 @dataclass(frozen=True, order=False, repr=False)
 class Predicate:
     """Struct defining a predicate (a lifted classifier over states)."""
+
     name: str
     types: Sequence[Type]
     # The classifier takes in a complete state and a sequence of objects
     # representing the arguments. These objects should be the only ones
     # treated "specially" by the classifier.
-    _classifier: Callable[[State, Sequence[Object]],
-                          bool] = field(compare=False)
+    _classifier: Callable[[State, Sequence[Object]], bool] = field(compare=False)
 
     def __call__(self, entities: Sequence[_TypedEntity]) -> _Atom:
         """Convenience method for generating Atoms."""
         if self.arity == 0:
-            raise ValueError("Cannot use __call__ on a 0-arity predicate, "
-                             "since we can't determine whether it becomes a "
-                             "LiftedAtom or a GroundAtom. Use the LiftedAtom "
-                             "or GroundAtom constructors directly instead")
+            raise ValueError(
+                "Cannot use __call__ on a 0-arity predicate, "
+                "since we can't determine whether it becomes a "
+                "LiftedAtom or a GroundAtom. Use the LiftedAtom "
+                "or GroundAtom constructors directly instead"
+            )
         if all(isinstance(ent, Variable) for ent in entities):
             return LiftedAtom(self, entities)
         if all(isinstance(ent, Object) for ent in entities):
             return GroundAtom(self, entities)
-        raise ValueError("Cannot instantiate Atom with mix of "
-                         "variables and objects")
+        raise ValueError("Cannot instantiate Atom with mix of " "variables and objects")
 
     @cached_property
     def _hash(self) -> int:
@@ -336,12 +334,8 @@ class Predicate:
             pretty_str_f = getattr(self._classifier, "pretty_str")
             return pretty_str_f()
         # This is a known predicate, not from the predicate grammar.
-        vars_str = ", ".join(
-            f"{CFG.grammar_search_classifier_pretty_str_names[i]}:{t.name}"
-            for i, t in enumerate(self.types))
-        vars_str_no_types = ", ".join(
-            f"{CFG.grammar_search_classifier_pretty_str_names[i]}"
-            for i in range(self.arity))
+        vars_str = ", ".join(f"{CFG.grammar_search_classifier_pretty_str_names[i]}:{t.name}" for i, t in enumerate(self.types))
+        vars_str_no_types = ", ".join(f"{CFG.grammar_search_classifier_pretty_str_names[i]}" for i in range(self.arity))
         body_str = f"{self.name}({vars_str_no_types})"
         return vars_str, body_str
 
@@ -350,17 +344,14 @@ class Predicate:
         file."""
         if self.arity == 0:
             return f"({self.name})"
-        vars_str = " ".join(f"?x{i} - {t.name}"
-                            for i, t in enumerate(self.types))
+        vars_str = " ".join(f"?x{i} - {t.name}" for i, t in enumerate(self.types))
         return f"({self.name} {vars_str})"
 
     def get_negation(self) -> Predicate:
         """Return a negated version of this predicate."""
-        return Predicate("NOT-" + self.name, self.types,
-                         self._negated_classifier)
+        return Predicate("NOT-" + self.name, self.types, self._negated_classifier)
 
-    def _negated_classifier(self, state: State,
-                            objects: Sequence[Object]) -> bool:
+    def _negated_classifier(self, state: State, objects: Sequence[Object]) -> bool:
         # Separate this into a named function for pickling reasons.
         return not self._classifier(state, objects)
 
@@ -377,8 +368,8 @@ class VLMPredicate(Predicate):
     classifier (i.e., one that returns simply raises some kind of error instead
     of actually outputting a value of any kind).
     """
-    get_vlm_query_str: Callable[[Sequence[Object]], str]
 
+    get_vlm_query_str: Callable[[Sequence[Object]], str]
 
 
 @dataclass(frozen=True, repr=False, eq=False)
@@ -388,13 +379,13 @@ class _Atom:
 
     Should not be instantiated externally.
     """
+
     predicate: Predicate
     entities: Sequence[_TypedEntity]
 
     def __post_init__(self) -> None:
         if isinstance(self.entities, _TypedEntity):
-            raise ValueError("Atoms expect a sequence of entities, not a "
-                             "single entity.")
+            raise ValueError("Atoms expect a sequence of entities, not a " "single entity.")
         assert len(self.entities) == self.predicate.arity
         for ent, pred_type in zip(self.entities, self.predicate.types):
             assert ent.is_instance(pred_type)
@@ -432,12 +423,12 @@ class _Atom:
         assert isinstance(other, _Atom)
         return str(self) < str(other)
 
+
 @dataclass(frozen=True, repr=False, eq=False)
 class LiftedAtom_VarType(_Atom):
     def __post_init__(self) -> None:
         if isinstance(self.entities, _TypedEntity):
-            raise ValueError("Atoms expect a sequence of entities, not a "
-                             "single entity.")
+            raise ValueError("Atoms expect a sequence of entities, not a " "single entity.")
         assert len(self.entities) == self.predicate.arity
         for ent, pred_type in zip(self.entities, self.predicate.types):
             if isinstance(ent, Variable):
@@ -446,7 +437,7 @@ class LiftedAtom_VarType(_Atom):
                 assert ent in pred_type.get_ancestors() or pred_type in ent.get_ancestors()
             else:
                 raise ValueError(f"Unexpected entity type: {type(ent)}")
-            
+
     def convert_to_lifted_atom(self, type_to_var_map: dict[Type, Variable]) -> LiftedAtom:
         new_entities = []
         for entity in self.entities:
@@ -455,10 +446,12 @@ class LiftedAtom_VarType(_Atom):
             else:
                 new_entities.append(entity)
         return LiftedAtom(self.predicate, new_entities)
+
     @cached_property
     def _str(self) -> str:
-        return (str(self.predicate) + "(" +
-                ", ".join(map(str, self.entities)) + ")")
+        return str(self.predicate) + "(" + ", ".join(map(str, self.entities)) + ")"
+
+
 @dataclass(frozen=True, repr=False, eq=False)
 class LiftedAtom(_Atom):
     """Struct defining a lifted atom (a predicate applied to variables)."""
@@ -473,8 +466,7 @@ class LiftedAtom(_Atom):
 
     @cached_property
     def _str(self) -> str:
-        return (str(self.predicate) + "(" +
-                ", ".join(map(str, self.variables)) + ")")
+        return str(self.predicate) + "(" + ", ".join(map(str, self.variables)) + ")"
 
     def ground(self, sub: VarToObjSub) -> GroundAtom:
         """Create a GroundAtom with a given substitution."""
@@ -501,14 +493,13 @@ class GroundAtom(_Atom):
 
     @cached_property
     def _str(self) -> str:
-        return (str(self.predicate) + "(" + ", ".join(map(str, self.objects)) +
-                ")")
+        return str(self.predicate) + "(" + ", ".join(map(str, self.objects)) + ")"
 
     def lift(self, sub: ObjToVarSub) -> LiftedAtom:
         """Create a LiftedAtom with a given substitution."""
         assert set(self.objects).issubset(set(sub.keys()))
         return LiftedAtom(self.predicate, [sub[o] for o in self.objects])
-    
+
     def lift_mix_var_type(self, sub: ObjToVarTypeSub) -> LiftedAtom:
         """Create a LiftedAtom with a given substitution."""
         assert set(self.objects).issubset(set(sub.keys()))
@@ -528,6 +519,7 @@ class GroundAtom(_Atom):
 @dataclass(frozen=True, eq=False)
 class Task:
     """Struct defining a task, which is an initial state and goal."""
+
     init: State
     goal: Set[GroundAtom]
     # Sometimes we want the task presented to the agent to have goals described
@@ -542,15 +534,9 @@ class Task:
         for atom in self.goal:
             assert isinstance(atom, GroundAtom)
 
-    def goal_holds(
-        self,
-        state: State,
-        vlm: Optional[
-            predicators.pretrained_model_interface.VisionLanguageModel] = None
-    ) -> bool:
+    def goal_holds(self, state: State, vlm: Optional[predicators.pretrained_model_interface.VisionLanguageModel] = None) -> bool:
         """Return whether the goal of this task holds in the given state."""
-        vlm_atoms = set(atom for atom in self.goal
-                        if isinstance(atom.predicate, VLMPredicate))
+        vlm_atoms = set(atom for atom in self.goal if isinstance(atom.predicate, VLMPredicate))
         for atom in self.goal:
             if atom not in vlm_atoms:
                 if not atom.holds(state):
@@ -583,6 +569,7 @@ class EnvironmentTask:
     goal_description will be a Set[GroundAtom]. For convenience, we can
     convert an EnvironmentTask into a Task in those cases.
     """
+
     init_obs: Observation
     goal_description: GoalDescription
     # See Task._alt_goal for the reason for this field.
@@ -618,8 +605,7 @@ class EnvironmentTask:
     def goal(self) -> Set[GroundAtom]:
         """Convenience method for environment tasks that are fully observed."""
         assert isinstance(self.goal_description, set)
-        assert not self.goal_description or isinstance(
-            next(iter(self.goal_description)), GroundAtom)
+        assert not self.goal_description or isinstance(next(iter(self.goal_description)), GroundAtom)
         return self.goal_description
 
     def replace_goal_with_alt_goal(self) -> EnvironmentTask:
@@ -630,8 +616,7 @@ class EnvironmentTask:
         function.
         """
         if self.alt_goal_desc is not None:
-            return EnvironmentTask(self.init_obs,
-                                   goal_description=self.alt_goal_desc)
+            return EnvironmentTask(self.init_obs, goal_description=self.alt_goal_desc)
         return self
 
 
@@ -648,6 +633,7 @@ class ParameterizedOption:
     conditions. For a parameterized option, all of these are conditioned
     on parameters.
     """
+
     name: str
     types: Sequence[Type]
     params_space: Box = field(repr=False)
@@ -701,12 +687,12 @@ class ParameterizedOption:
             parent=self,
             objects=objects,
             params=params,
-            memory=memory)
+            memory=memory,
+        )
 
     def pddl_str(self) -> str:
         """Turn this option into a string that is PDDL-like."""
-        params_str = " ".join(f"?x{i} - {t.name}"
-                              for i, t in enumerate(self.types))
+        params_str = " ".join(f"?x{i} - {t.name}" for i, t in enumerate(self.types))
         return f"{self.name}({params_str})"
 
 
@@ -717,6 +703,7 @@ class _Option:
 
     Should not be instantiated externally.
     """
+
     name: str
     # A policy maps a state to an action.
     _policy: Callable[[State], Action] = field(repr=False)
@@ -734,6 +721,7 @@ class _Option:
     params: Array
     # The memory dictionary for this option.
     memory: Dict = field(repr=False)
+
     def policy(self, state: State) -> Action:
         """Call the policy and set the action's option."""
         action = self._policy(state)
@@ -741,10 +729,7 @@ class _Option:
         return action
 
 
-DummyParameterizedOption: _Option = ParameterizedOption(
-    "DummyOption", [], Box(0, 1,
-                           (1, )), lambda s, m, o, p: Action(np.array([0.0])),
-    lambda s, m, o, p: False, lambda s, m, o, p: True)
+DummyParameterizedOption: _Option = ParameterizedOption("DummyOption", [], Box(0, 1, (1,)), lambda s, m, o, p: Action(np.array([0.0])), lambda s, m, o, p: False, lambda s, m, o, p: True)
 
 DummyOption = DummyParameterizedOption.ground([], np.array([0.0]))
 DummyOption.parent.params_space.seed(0)  # for reproducibility
@@ -758,6 +743,7 @@ class STRIPSOperator:
     add_effects and delete_effects - are universally
     quantified over all possible groundings.
     """
+
     name: str
     parameters: Sequence[Variable]
     preconditions: Set[LiftedAtom]
@@ -765,20 +751,26 @@ class STRIPSOperator:
     delete_effects: Set[LiftedAtom]
     ignore_effects: Set[Predicate]
 
-    def make_nsrt(
-        self,
-        option: ParameterizedOption,
-        option_vars: Sequence[Variable],
-        sampler: NSRTSampler = field(repr=False)
-    ) -> NSRT:
+    def make_nsrt(self, option: ParameterizedOption, option_vars: Sequence[Variable], sampler: NSRTSampler = field(repr=False)) -> NSRT:
         """Make an NSRT out of this STRIPSOperator object, given the necessary
         additional fields."""
-        return NSRT(self.name, self.parameters, self.preconditions,
-                    self.add_effects, self.delete_effects, self.ignore_effects,
-                    option, option_vars, sampler, 
-                    # NOTE: we're using the preconditions as maintain effects. may not be correct for tasks that involve losing contact
-                    maintain_effects=self.preconditions
-                    ) 
+        maintain_effects = copy.deepcopy(self.preconditions)
+        # Filter out InOrigin from maintain_effects if present
+        maintain_effects = {atom for atom in maintain_effects if atom.predicate.name != "InOrigin"}
+
+        return NSRT(
+            self.name,
+            self.parameters,
+            self.preconditions,
+            self.add_effects,
+            self.delete_effects,
+            self.ignore_effects,
+            option,
+            option_vars,
+            sampler,
+            # NOTE: we're using the preconditions as maintain effects. may not be correct for tasks that involve losing contact
+            maintain_effects=maintain_effects,
+        )
 
     @lru_cache(maxsize=None)
     def ground(self, objects: Tuple[Object]) -> _GroundSTRIPSOperator:
@@ -788,14 +780,12 @@ class STRIPSOperator:
         """
         assert isinstance(objects, tuple)
         assert len(objects) == len(self.parameters)
-        assert all(
-            o.is_instance(p.type) for o, p in zip(objects, self.parameters))
+        assert all(o.is_instance(p.type) for o, p in zip(objects, self.parameters))
         sub = dict(zip(self.parameters, objects))
         preconditions = {atom.ground(sub) for atom in self.preconditions}
         add_effects = {atom.ground(sub) for atom in self.add_effects}
         delete_effects = {atom.ground(sub) for atom in self.delete_effects}
-        return _GroundSTRIPSOperator(self, list(objects), preconditions,
-                                     add_effects, delete_effects)
+        return _GroundSTRIPSOperator(self, list(objects), preconditions, add_effects, delete_effects)
 
     @cached_property
     def _str(self) -> str:
@@ -819,27 +809,19 @@ class STRIPSOperator:
     def pddl_str(self) -> str:
         """Get a string representation suitable for writing out to a PDDL
         file."""
-        params_str = " ".join(f"{p.name} - {p.type.name}"
-                              for p in self.parameters)
-        preconds_str = "\n        ".join(
-            atom.pddl_str() for atom in sorted(self.preconditions))
-        effects_str = "\n        ".join(atom.pddl_str()
-                                        for atom in sorted(self.add_effects))
+        params_str = " ".join(f"{p.name} - {p.type.name}" for p in self.parameters)
+        preconds_str = "\n        ".join(atom.pddl_str() for atom in sorted(self.preconditions))
+        effects_str = "\n        ".join(atom.pddl_str() for atom in sorted(self.add_effects))
         if self.delete_effects:
             effects_str += "\n        "
-            effects_str += "\n        ".join(
-                f"(not {atom.pddl_str()})"
-                for atom in sorted(self.delete_effects))
+            effects_str += "\n        ".join(f"(not {atom.pddl_str()})" for atom in sorted(self.delete_effects))
         if self.ignore_effects:
             if len(effects_str) != 0:
                 effects_str += "\n        "
             for pred in sorted(self.ignore_effects):
-                pred_types_str = " ".join(f"?x{i} - {t.name}"
-                                          for i, t in enumerate(pred.types))
-                pred_eff_variables_str = " ".join(f"?x{i}"
-                                                  for i in range(pred.arity))
-                effects_str += f"(forall ({pred_types_str})" +\
-                    f" (not ({pred.name} {pred_eff_variables_str})))"
+                pred_types_str = " ".join(f"?x{i} - {t.name}" for i, t in enumerate(pred.types))
+                pred_eff_variables_str = " ".join(f"?x{i}" for i in range(pred.arity))
+                effects_str += f"(forall ({pred_types_str})" + f" (not ({pred.name} {pred_eff_variables_str})))"
                 effects_str += "\n        "
         return f"""(:action {self.name}
     :parameters ({params_str})
@@ -865,21 +847,16 @@ class STRIPSOperator:
     def copy_with(self, **kwargs: Any) -> STRIPSOperator:
         """Create a copy of the operator, optionally while replacing any of the
         arguments."""
-        default_kwargs = dict(name=self.name,
-                              parameters=self.parameters,
-                              preconditions=self.preconditions,
-                              add_effects=self.add_effects,
-                              delete_effects=self.delete_effects,
-                              ignore_effects=self.ignore_effects)
+        default_kwargs = dict(
+            name=self.name, parameters=self.parameters, preconditions=self.preconditions, add_effects=self.add_effects, delete_effects=self.delete_effects, ignore_effects=self.ignore_effects
+        )
         assert set(kwargs.keys()).issubset(default_kwargs.keys())
         default_kwargs.update(kwargs)
         # mypy is known to have issues with this pattern:
         # https://github.com/python/mypy/issues/5382
         return STRIPSOperator(**default_kwargs)  # type: ignore
 
-    def effect_to_ignore_effect(self, effect: LiftedAtom,
-                                option_vars: Sequence[Variable],
-                                add_or_delete: str) -> STRIPSOperator:
+    def effect_to_ignore_effect(self, effect: LiftedAtom, option_vars: Sequence[Variable], add_or_delete: str) -> STRIPSOperator:
         """Return a new STRIPS operator resulting from turning the given effect
         (either add or delete) into an ignore effect."""
         assert add_or_delete in ("add", "delete")
@@ -893,15 +870,9 @@ class STRIPSOperator:
             new_delete_effects = self.delete_effects - {effect}
         # Since we are removing an effect, it could be the case
         # that parameters need to be removed from the operator.
-        remaining_params = {
-            p
-            for atom in self.preconditions | new_add_effects
-            | new_delete_effects for p in atom.variables
-        } | set(option_vars)
+        remaining_params = {p for atom in self.preconditions | new_add_effects | new_delete_effects for p in atom.variables} | set(option_vars)
         new_params = [p for p in self.parameters if p in remaining_params]
-        return STRIPSOperator(self.name, new_params, self.preconditions,
-                              new_add_effects, new_delete_effects,
-                              self.ignore_effects | {effect.predicate})
+        return STRIPSOperator(self.name, new_params, self.preconditions, new_add_effects, new_delete_effects, self.ignore_effects | {effect.predicate})
 
     def get_complexity(self) -> float:
         """Get the complexity of this operator.
@@ -910,7 +881,7 @@ class STRIPSOperator:
         affects grounding. We'll use 2^arity as a measure of grounding
         effort.
         """
-        return float(2**len(self.parameters))
+        return float(2 ** len(self.parameters))
 
 
 @dataclass(frozen=True, repr=False, eq=False)
@@ -919,6 +890,7 @@ class _GroundSTRIPSOperator:
 
     Should not be instantiated externally.
     """
+
     parent: STRIPSOperator
     objects: Sequence[Object]
     preconditions: Set[GroundAtom]
@@ -984,6 +956,7 @@ class NSRT:
     "NSRT" stands for "Neuro-Symbolic Relational Transition Model".
     Paper: https://arxiv.org/abs/2105.14074
     """
+
     name: str
     parameters: Sequence[Variable]
     preconditions: Set[LiftedAtom]
@@ -1017,9 +990,7 @@ class NSRT:
     @property
     def op(self) -> STRIPSOperator:
         """Return the STRIPSOperator associated with this NSRT."""
-        return STRIPSOperator(self.name, self.parameters, self.preconditions,
-                              self.add_effects, self.delete_effects,
-                              self.ignore_effects)
+        return STRIPSOperator(self.name, self.parameters, self.preconditions, self.add_effects, self.delete_effects, self.ignore_effects)
 
     def __str__(self) -> str:
         return self._str
@@ -1037,15 +1008,11 @@ class NSRT:
         new predicate names for any invented predicates."""
         out = ""
         out += f"{self.name}:\n\tParameters: {self.parameters}"
-        for name, atoms in [("Preconditions", self.preconditions),
-                            ("Maintain Effects", self.maintain_effects),
-                            ("Add Effects", self.add_effects),
-                            ("Delete Effects", self.delete_effects)]:
+        for name, atoms in [("Preconditions", self.preconditions), ("Maintain Effects", self.maintain_effects), ("Add Effects", self.add_effects), ("Delete Effects", self.delete_effects)]:
             out += f"\n\t{name}:"
             for atom in atoms:
                 pretty_pred = atom.predicate.pretty_str()[1]
-                new_name = (name_map[pretty_pred] if pretty_pred in name_map
-                            else str(atom.predicate))
+                new_name = name_map[pretty_pred] if pretty_pred in name_map else str(atom.predicate)
                 var_str = ", ".join(map(str, atom.variables))
                 out += f"\n\t\t{new_name}({var_str})"
         option_var_strs = [str(v) for v in self.option_vars]
@@ -1075,17 +1042,14 @@ class NSRT:
     def ground(self, objects: Sequence[Object]) -> _GroundNSRT:
         """Ground into a _GroundNSRT, given objects."""
         assert len(objects) == len(self.parameters)
-        assert all(
-            o.is_instance(p.type) for o, p in zip(objects, self.parameters))
+        assert all(o.is_instance(p.type) for o, p in zip(objects, self.parameters))
         sub = dict(zip(self.parameters, objects))
         preconditions = {atom.ground(sub) for atom in self.preconditions}
         maintain_effects = {atom.ground(sub) for atom in self.maintain_effects}
         add_effects = {atom.ground(sub) for atom in self.add_effects}
         delete_effects = {atom.ground(sub) for atom in self.delete_effects}
         option_objs = [sub[v] for v in self.option_vars]
-        return _GroundNSRT(self, objects, preconditions,add_effects,
-                           delete_effects, self.option, option_objs,
-                           self._sampler, maintain_effects)
+        return _GroundNSRT(self, objects, preconditions, add_effects, delete_effects, self.option, option_objs, self._sampler, maintain_effects)
 
     def filter_predicates(self, kept: Collection[Predicate]) -> NSRT:
         """Keep only the given predicates in the preconditions, add effects,
@@ -1097,14 +1061,9 @@ class NSRT:
         preconditions = {a for a in self.preconditions if a.predicate in kept}
         add_effects = {a for a in self.add_effects if a.predicate in kept}
         maintain_effects = {a for a in self.maintain_effects if a.predicate in kept}
-        delete_effects = {
-            a
-            for a in self.delete_effects if a.predicate in kept
-        }
+        delete_effects = {a for a in self.delete_effects if a.predicate in kept}
         ignore_effects = {a for a in self.ignore_effects if a in kept}
-        return NSRT(self.name, self.parameters, preconditions, add_effects,
-                    delete_effects, ignore_effects, self.option,
-                    self.option_vars, self._sampler, maintain_effects)
+        return NSRT(self.name, self.parameters, preconditions, add_effects, delete_effects, ignore_effects, self.option, self.option_vars, self._sampler, maintain_effects)
 
 
 @dataclass(frozen=True, repr=False, eq=False)
@@ -1113,6 +1072,7 @@ class _GroundNSRT:
 
     Should not be instantiated externally.
     """
+
     parent: NSRT
     objects: Sequence[Object]
     preconditions: Set[GroundAtom]
@@ -1181,8 +1141,7 @@ class _GroundNSRT:
         assert isinstance(other, _GroundNSRT)
         return str(self) > str(other)
 
-    def sample_option(self, state: State, goal: Set[GroundAtom], fail_info: List[OptionFailureInfo],
-                      rng: np.random.Generator, cur_nsrt: _GroundNSRT) -> _Option:
+    def sample_option(self, state: State, goal: Set[GroundAtom], fail_info: List[OptionFailureInfo], rng: np.random.Generator, cur_nsrt: _GroundNSRT) -> _Option:
         """Sample an _Option for this ground NSRT, by invoking the contained
         sampler.
 
@@ -1204,15 +1163,17 @@ class _GroundNSRT:
     def copy_with(self, **kwargs: Any) -> _GroundNSRT:
         """Create a copy of the ground NSRT, optionally while replacing any of
         the arguments."""
-        default_kwargs = dict(parent=self.parent,
-                              objects=self.objects,
-                              preconditions=self.preconditions,
-                              maintain_effects=self.maintain_effects,
-                              add_effects=self.add_effects,
-                              delete_effects=self.delete_effects,
-                              option=self.option,
-                              option_objs=self.option_objs,
-                              _sampler=self._sampler)
+        default_kwargs = dict(
+            parent=self.parent,
+            objects=self.objects,
+            preconditions=self.preconditions,
+            maintain_effects=self.maintain_effects,
+            add_effects=self.add_effects,
+            delete_effects=self.delete_effects,
+            option=self.option,
+            option_objs=self.option_objs,
+            _sampler=self._sampler,
+        )
         assert set(kwargs.keys()).issubset(default_kwargs.keys())
         default_kwargs.update(kwargs)
         # mypy is known to have issues with this pattern:
@@ -1227,6 +1188,7 @@ class Action:
     This is a light wrapper around a numpy float array that can
     optionally store the option which produced it.
     """
+
     _arr: Array
     _option: _Option = field(repr=False, default=DummyOption)
     # In rare cases, we want to associate additional information with an action
@@ -1273,11 +1235,12 @@ class LowLevelTrajectory:
     Invariant 2: The length of the state sequence is always one greater than
     the length of the action sequence.
     """
+
     _states: List[State]
     _actions: List[Action]
     _is_demo: bool = field(default=False)
     _train_task_idx: Optional[int] = field(default=None)
-    _raw_robosuite_states: Optional[Any] = field(default=None) # the following 3 for robocasa
+    _raw_robosuite_states: Optional[Any] = field(default=None)  # the following 3 for robocasa
     _model_file: Optional[Any] = field(default=None)
     _ep_meta: Optional[Any] = field(default=None)
 
@@ -1304,8 +1267,7 @@ class LowLevelTrajectory:
     @property
     def train_task_idx(self) -> int:
         """The index of the train task."""
-        assert self._train_task_idx is not None, \
-            "This trajectory doesn't contain a train task idx!"
+        assert self._train_task_idx is not None, "This trajectory doesn't contain a train task idx!"
         return self._train_task_idx
 
 
@@ -1322,6 +1284,7 @@ class ImageOptionTrajectory:
     train task idx. Invariant 2: The length of the state images sequence
     is always one greater than the length of the action sequence.
     """
+
     _objects: Collection[Object]
     _state_imgs: List[List[PIL.Image.Image]]
     _cropped_state_imgs: List[List[PIL.Image.Image]]
@@ -1377,6 +1340,7 @@ class Dataset:
     learning Dataset would be of type List[Set[GroundAtom]] (with
     predicate classifiers deleted).
     """
+
     _trajectories: List[LowLevelTrajectory]
     _annotations: Optional[List[Any]] = field(default=None)
 
@@ -1400,9 +1364,7 @@ class Dataset:
         assert self._annotations is not None
         return self._annotations
 
-    def append(self,
-               trajectory: LowLevelTrajectory,
-               annotation: Optional[Any] = None) -> None:
+    def append(self, trajectory: LowLevelTrajectory, annotation: Optional[Any] = None) -> None:
         """Append one more trajectory and annotation to the dataset."""
         if annotation is None:
             assert self._annotations is None
@@ -1422,6 +1384,7 @@ class Segment:
     Segments are used during learning, when we don't necessarily know
     the option associated with the trajectory yet.
     """
+
     trajectory: LowLevelTrajectory
     init_atoms: Set[GroundAtom]
     final_atoms: Set[GroundAtom]
@@ -1496,6 +1459,7 @@ class PNAD:
     we don't want to clutter the NSRT class with a datastore, since data
     is only used for learning and is not part of the representation itself.
     """
+
     # The symbolic components of the NSRT.
     op: STRIPSOperator
     # The datastore, a list of segments that are covered by the
@@ -1510,9 +1474,7 @@ class PNAD:
     sampler: Optional[NSRTSampler] = field(init=False, default=None)
     # A container for the possible keep effects for this PNAD.
     poss_keep_effects: Set[LiftedAtom] = field(init=False, default_factory=set)
-    seg_to_keep_effects_sub: Dict[Segment,
-                                  VarToObjSub] = field(init=False,
-                                                       default_factory=dict)
+    seg_to_keep_effects_sub: Dict[Segment, VarToObjSub] = field(init=False, default_factory=dict)
 
     def add_to_datastore(self, data_item: Tuple[Segment, VarToObjSub]) -> None:
         """Add a single data item to the datastore."""
@@ -1567,6 +1529,7 @@ class InteractionRequest:
     Note: the act_policy will not be called on the state where the
     termination_function returns True, but the query_policy will be.
     """
+
     train_task_idx: int
     act_policy: Callable[[State], Action]
     query_policy: Callable[[State], Optional[Query]]  # query can be None
@@ -1580,6 +1543,7 @@ class InteractionResult:
 
     Invariant: len(states) == len(responses) == len(actions) + 1
     """
+
     states: List[State]
     actions: List[Action]
     responses: List[Optional[Response]]
@@ -1604,12 +1568,14 @@ class Response(abc.ABC):
 
     All responses contain the Query object itself, for convenience.
     """
+
     query: Query
 
 
 @dataclass(frozen=True, eq=False, repr=False)
 class GroundAtomsHoldQuery(Query):
     """A query for whether ground atoms hold in the state."""
+
     ground_atoms: Collection[GroundAtom]
 
     @property
@@ -1624,6 +1590,7 @@ class GroundAtomsHoldQuery(Query):
 @dataclass(frozen=True, eq=False, repr=False)
 class GroundAtomsHoldResponse(Response):
     """A response to a GroundAtomsHoldQuery, providing boolean answers."""
+
     holds: Dict[GroundAtom, bool]
 
     def __str__(self) -> str:
@@ -1639,6 +1606,7 @@ class GroundAtomsHoldResponse(Response):
 @dataclass(frozen=True, eq=False, repr=False)
 class DemonstrationQuery(Query):
     """A query requesting a demonstration to finish a train task."""
+
     train_task_idx: int
     info: Optional[Dict] = field(default=None)
 
@@ -1656,12 +1624,14 @@ class DemonstrationQuery(Query):
 class DemonstrationResponse(Response):
     """A response to a DemonstrationQuery; provides a LowLevelTrajectory if one
     can be found by the teacher, otherwise returns None."""
+
     teacher_traj: Optional[LowLevelTrajectory]
 
 
 @dataclass(frozen=True, eq=False, repr=False)
 class PathToStateQuery(Query):
     """A query requesting a trajectory that reaches a specific state."""
+
     goal_state: State
 
     @property
@@ -1673,12 +1643,14 @@ class PathToStateQuery(Query):
 class PathToStateResponse(Response):
     """A response to a PathToStateQuery; provides a LowLevelTrajectory if one
     can be found by the teacher, otherwise returns None."""
+
     teacher_traj: Optional[LowLevelTrajectory]
 
 
 @dataclass(frozen=True, repr=False, eq=False)
 class LDLRule:
     """A lifted decision list rule."""
+
     name: str
     parameters: Sequence[Variable]  # a superset of the NSRT parameters
     pos_state_preconditions: Set[LiftedAtom]  # a superset of the NSRT preconds
@@ -1691,8 +1663,7 @@ class LDLRule:
         assert self.pos_state_preconditions.issuperset(self.nsrt.preconditions)
         # The preconditions and goal preconditions should only use variables in
         # the rule parameters.
-        for atom in self.pos_state_preconditions | \
-            self.neg_state_preconditions | self.goal_preconditions:
+        for atom in self.pos_state_preconditions | self.neg_state_preconditions | self.goal_preconditions:
             assert all(v in self.parameters for v in atom.variables)
 
     @lru_cache(maxsize=None)
@@ -1703,33 +1674,25 @@ class LDLRule:
         """
         assert isinstance(objects, tuple)
         assert len(objects) == len(self.parameters)
-        assert all(
-            o.is_instance(p.type) for o, p in zip(objects, self.parameters))
+        assert all(o.is_instance(p.type) for o, p in zip(objects, self.parameters))
         sub = dict(zip(self.parameters, objects))
         pos_pre = {atom.ground(sub) for atom in self.pos_state_preconditions}
         neg_pre = {atom.ground(sub) for atom in self.neg_state_preconditions}
         goal_pre = {atom.ground(sub) for atom in self.goal_preconditions}
         nsrt_objects = [sub[v] for v in self.nsrt.parameters]
         ground_nsrt = self.nsrt.ground(nsrt_objects)
-        return _GroundLDLRule(self, list(objects), pos_pre, neg_pre, goal_pre,
-                              ground_nsrt)
+        return _GroundLDLRule(self, list(objects), pos_pre, neg_pre, goal_pre, ground_nsrt)
 
     @cached_property
     def _str(self) -> str:
-        parameter_str = "(" + " ".join(
-            [f"{p.name} - {p.type.name}" for p in self.parameters]) + ")"
+        parameter_str = "(" + " ".join([f"{p.name} - {p.type.name}" for p in self.parameters]) + ")"
 
         def _atom_to_str(atom: LiftedAtom) -> str:
             args_str = " ".join([v.name for v in atom.variables])
             return f"({atom.predicate.name} {args_str})"
 
-        inner_preconditions_strs = [
-            _atom_to_str(a) for a in sorted(self.pos_state_preconditions)
-        ]
-        inner_preconditions_strs += [
-            "(not " + _atom_to_str(a) + ")"
-            for a in sorted(self.neg_state_preconditions)
-        ]
+        inner_preconditions_strs = [_atom_to_str(a) for a in sorted(self.pos_state_preconditions)]
+        inner_preconditions_strs += ["(not " + _atom_to_str(a) + ")" for a in sorted(self.neg_state_preconditions)]
         preconditions_str = " ".join(inner_preconditions_strs)
         if len(inner_preconditions_strs) > 1:
             preconditions_str = "(and " + preconditions_str + ")"
@@ -1782,6 +1745,7 @@ class _GroundLDLRule:
 
     Should not be instantiated externally.
     """
+
     parent: LDLRule
     objects: Sequence[Object]
     pos_state_preconditions: Set[GroundAtom]
@@ -1837,6 +1801,7 @@ class LiftedDecisionList:
 
     The logic described above is implemented in utils.query_ldl().
     """
+
     rules: Sequence[LDLRule]
 
     @cached_property
@@ -1860,6 +1825,7 @@ class LiftedDecisionList:
 @dataclass(frozen=True, repr=False, eq=False)
 class Macro:
     """A macro is a sequence of NSRTs with shared parameters."""
+
     parameters: Sequence[Variable]
     nsrts: Sequence[NSRT]
     nsrt_to_macro_params: Sequence[VarToVarSub]
@@ -1935,6 +1901,7 @@ class Macro:
 @dataclass(frozen=True, repr=False, eq=False)
 class GroundMacro:
     """A sequence of ground NSRTs with shared objects."""
+
     parent: Macro
     objects: Sequence[Object]
 
@@ -1944,8 +1911,7 @@ class GroundMacro:
             assert o.type == p.type
 
     @classmethod
-    def from_ground_nsrts(cls,
-                          ground_nsrts: Sequence[_GroundNSRT]) -> GroundMacro:
+    def from_ground_nsrts(cls, ground_nsrts: Sequence[_GroundNSRT]) -> GroundMacro:
         """Create a GroundMacro from a sequence of _GroundNSRTs."""
         obj_to_macro_param: ObjToVarSub = {}
         nsrts: List[NSRT] = []
@@ -1991,8 +1957,7 @@ class GroundMacro:
         """Get the next ground NSRT and the remaining ground macro."""
         ground_nsrt_queue = list(self.ground_nsrts)
         next_ground_nsrt = ground_nsrt_queue.pop(0)
-        remaining_ground_macro = GroundMacro.from_ground_nsrts(
-            ground_nsrt_queue)
+        remaining_ground_macro = GroundMacro.from_ground_nsrts(ground_nsrt_queue)
         return next_ground_nsrt, remaining_ground_macro
 
     @cached_property
@@ -2050,25 +2015,18 @@ VarToObjSub = Dict[Variable, Object]
 VarToVarSub = Dict[Variable, Variable]
 EntToEntSub = Dict[_TypedEntity, _TypedEntity]
 Datastore = List[Tuple[Segment, VarToObjSub]]
-NSRTSampler = Callable[
-    [State, Set[GroundAtom], np.random.Generator, Sequence[Object]], Array]
+NSRTSampler = Callable[[State, Set[GroundAtom], np.random.Generator, Sequence[Object]], Array]
 # NSRT Sampler that also returns a boolean indicating whether the sample was
 # generated randomly (for exploration) or from the current learned
 # distribution.
-NSRTSamplerWithEpsilonIndicator = Callable[
-    [State, Set[GroundAtom], np.random.Generator, Sequence[Object]],
-    Tuple[Array, bool]]
+NSRTSamplerWithEpsilonIndicator = Callable[[State, Set[GroundAtom], np.random.Generator, Sequence[Object]], Tuple[Array, bool]]
 Metrics = DefaultDict[str, float]
-LiftedOrGroundAtom = TypeVar("LiftedOrGroundAtom", LiftedAtom, GroundAtom,
-                             _Atom)
+LiftedOrGroundAtom = TypeVar("LiftedOrGroundAtom", LiftedAtom, GroundAtom, _Atom)
 NSRTOrSTRIPSOperator = TypeVar("NSRTOrSTRIPSOperator", NSRT, STRIPSOperator)
-GroundNSRTOrSTRIPSOperator = TypeVar("GroundNSRTOrSTRIPSOperator", _GroundNSRT,
-                                     _GroundSTRIPSOperator)
+GroundNSRTOrSTRIPSOperator = TypeVar("GroundNSRTOrSTRIPSOperator", _GroundNSRT, _GroundSTRIPSOperator)
 ObjectOrVariable = TypeVar("ObjectOrVariable", bound=_TypedEntity)
-SamplerDatapoint = Tuple[State, VarToObjSub, _Option,
-                         Optional[Set[GroundAtom]]]
-RefinementDatapoint = Tuple[Task, List[_GroundNSRT], List[Set[GroundAtom]],
-                            bool, List[float], List[int]]
+SamplerDatapoint = Tuple[State, VarToObjSub, _Option, Optional[Set[GroundAtom]]]
+RefinementDatapoint = Tuple[Task, List[_GroundNSRT], List[Set[GroundAtom]], bool, List[float], List[int]]
 # For PDDLEnv environments, given a desired number of problems and an rng,
 # returns a list of that many PDDL problem strings.
 PDDLProblemGenerator = Callable[[int, np.random.Generator], List[str]]
@@ -2079,8 +2037,7 @@ ExplorationStrategy = Tuple[Callable[[State], Action], Callable[[State], bool]]
 ParameterizedPolicy = Callable[[State, Dict, Sequence[Object], Array], Action]
 ParameterizedInitiable = Callable[[State, Dict, Sequence[Object], Array], bool]
 ParameterizedTerminal = Callable[[State, Dict, Sequence[Object], Array], bool]
-AbstractPolicy = Callable[[Set[GroundAtom], Set[Object], Set[GroundAtom]],
-                          Optional[_GroundNSRT]]
+AbstractPolicy = Callable[[Set[GroundAtom], Set[Object], Set[GroundAtom]], Optional[_GroundNSRT]]
 RGBA = Tuple[float, float, float, float]
 BridgePolicy = Callable[[State, Set[GroundAtom], List[_Option]], _Option]
 BridgeDataset = List[Tuple[Set[_Option], _GroundNSRT, Set[GroundAtom], State]]

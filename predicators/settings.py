@@ -14,6 +14,11 @@ from predicators.meshcat_visualizer import MeshcatVisualizer
 
 class GlobalSettings:
 
+    min_data_for_nsrt = 5
+
+    init_pose = np.array([0.24844874, 0.00726439, 0.59251043, 0.98900046, 0.05834797, 0.13247817, -0.0303833])
+    # [0.21157339360837069, -0.004757503173138833, 1.3895575386300745, -0.9884290099143982, -0.051291853189468384, -0.14036346971988678, 0.025989433750510216]
+
     learn_option_between_gripper_obj = True
 
     dict_contact_predicate_to_rel_pose_predicates = {}  # key: contact predicate, value: set of rel_pose predicates
@@ -24,7 +29,7 @@ class GlobalSettings:
 
     clustering_moving_average_window = 5
     clustering_debug = True
-    enable_meshcat = True
+    enable_meshcat = False
     clustering_se3_trans_weight = 10  # 0.05 m # 10 times differnece
     clustering_se3_rot_weight = 0.0  # 30 deg = 0.5236 rad
     clustering_feature_constancy_percentile = 10  # of total number of data points = 13782
@@ -59,8 +64,8 @@ class GlobalSettings:
 
     # robo_kitchen env parameters
     robo_kitchen_randomize_init_state = True  # not used
-    robo_kitchen_task = "PnPCounterToCab"
-    # robo_kitchen_task = "OpenSingleDoor"
+    # robo_kitchen_task = "PnPCounterToCab"
+    robo_kitchen_task = "OpenSingleDoor"
     # robo_kitchen_task = "StoreFruit"
     # robo_kitchen_viz_debug = False # i think the use_gui flag covers this
     robo_kitchen_contact_smoothing_window = 21
@@ -558,7 +563,7 @@ class GlobalSettings:
     teacher_dataset_num_examples = 1
 
     # NSRT learning parameters
-    min_data_for_nsrt = 0
+    # min_data_for_nsrt = 5
     min_perc_data_for_nsrt = 0
     data_orderings_to_search = 1  # NSRT learning data ordering parameters
     # STRIPS learning algorithm. See get_name() functions in the directory

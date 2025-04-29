@@ -141,10 +141,10 @@ def calculate_relative_pose(state: State, o1: Object, o2: Object, trans_feat_nam
         trans_o2 = state.get(o2, trans_feat_name)
         quat_o1 = state.get(o1, quat_feat_name)
         quat_o2 = state.get(o2, quat_feat_name)
-        if o1.type.name == "thing_type":
-            quat_o1 = np.array([0.0, 0.0, 0.0, 1.0], dtype=np.float32)
-        if o2.type.name == "thing_type":
-            quat_o2 = np.array([0.0, 0.0, 0.0, 1.0], dtype=np.float32)
+        # if o1.type.name == "thing_type":
+        #     quat_o1 = np.array([0.0, 0.0, 0.0, 1.0], dtype=np.float32)
+        # if o2.type.name == "thing_type":
+        #     quat_o2 = np.array([0.0, 0.0, 0.0, 1.0], dtype=np.float32)
 
         rot_o1 = Rotation.from_quat(quat_o1)
         rot_o2 = Rotation.from_quat(quat_o2)

@@ -690,7 +690,6 @@ class _DSOptionLearner(_OptionLearnerBase):
                 gripper_or_obj_quat_traj_OOI_frame = []
                 option_gripper_action = []
 
-
                 # Extract position and orientation from states
                 for state, action in zip(segment.states, segment.actions):
                     if OOI_obj not in state or gripper_or_obj not in state:
@@ -717,11 +716,10 @@ class _DSOptionLearner(_OptionLearnerBase):
                 logging.warning(f"NSRT {op.name} has no valid segments, ignoring")
                 continue
 
-
             # if OOI type and gripper type are clear, use the relative cluster center as the attractor
             assert len(set_OOI_type_name) == 1 and len(set_gripper_or_obj_type_name) == 1
             relative_cluster_attractor = None
-            dict_key = ('InContact', set_OOI_type_name.pop(), set_gripper_or_obj_type_name.pop())
+            dict_key = ("InContact", set_OOI_type_name.pop(), set_gripper_or_obj_type_name.pop())
             # TODO: Goal can be checked too
             if dict_key in CFG.dict_contact_predicate_to_rel_pose_predicates:
                 relative_clusters = CFG.dict_contact_predicate_to_rel_pose_predicates[dict_key]
@@ -731,29 +729,25 @@ class _DSOptionLearner(_OptionLearnerBase):
                     logging.warning(f"NSRT {op.name} has multiple relative cluster attractors for {dict_key}, using first one")
                     relative_cluster_attractor = list(relative_clusters)[0]._classifier.cluster_center
 
-
             plot_DSPolicy_input_data(
-                x, x_dot, quat, omega, 
-                gripper_action, 
-                visualize=True, 
-                save_path=f"./feature_data/option_traj_{op.name}_gripper_in_{OOI_type_name}_frame.png", 
+                x,
+                x_dot,
+                quat,
+                omega,
+                gripper_action,
+                visualize=True,
+                save_path=f"./feature_data/option_traj_{op.name}_gripper_in_{OOI_type_name}_frame.png",
                 OOI_type=OOI_type_name,
-                relative_cluster_attractor=relative_cluster_attractor
+                relative_cluster_attractor=relative_cluster_attractor,
             )
 
             # Configure DS Policy
             unified_config = UnifiedModelConfig(mode="se3_lpvds", K_candidates=[1])
 
             # Create DSPolicy
-            ds_policy = DSPolicy(x=x, 
-                                 x_dot=x_dot, 
-                                 quat=quat, 
-                                 omega=omega, 
-                                 gripper=gripper_or_obj, 
-                                 unified_config=unified_config, 
-                                 dt=dt, 
-                                 switch=False,
-                                 relative_cluster_attractor=relative_cluster_attractor)
+            ds_policy = DSPolicy(
+                x=x, x_dot=x_dot, quat=quat, omega=omega, gripper=gripper_or_obj, unified_config=unified_config, dt=dt, switch=False, relative_cluster_attractor=relative_cluster_attractor
+            )
             ds_policy.plot_position_vector_field(save_path=f"./feature_data/DS_vector_field_{op.name}_gripper_in_{OOI_type_name}_frame.png")
             # Create a ParameterizedOption that uses DSPolicy
             name = f"{op.name}DSOption"
@@ -788,7 +782,11 @@ def find_two_objects(op: STRIPSOperator, segment: Segment, var_to_obj: VarToObjS
         to determine.
     """
     # 1. Check Number of Effects
-    effects = op.add_effects | op.delete_effects
+    
+    effects = set()
+    for e in op.add_effects | op.delete_effects:
+        if e.predicate.name != "InOrigin":
+            effects.add(e)
     if len(effects) != 1:
         logging.warning(f"NSRT {op.name} has {len(effects)} effects (expected 1), cannot determine OOI/gripper reliably.")
         return None, None
@@ -890,17 +888,17 @@ def find_OOI_name(op: STRIPSOperator) -> Tuple[str, bool]:
         Tuple of (object_of_interest_type_name, success_flag)
     """
     # Check if operator has exactly one predicate in add_effects + delete_effects
-    if len(op.add_effects) + len(op.delete_effects) != 1:
-        logging.warning(f"NSRT {op.name} has {len(op.add_effects)} + {len(op.delete_effects)} != 1 predicates, ignoring segment")
+    effects = set()
+    for e in op.add_effects | op.delete_effects:
+        if e.predicate.name != "InOrigin":
+            effects.add(e)
+    if len(effects) != 1:
+        logging.warning(f"NSRT {op.name} has {len(effects)} != 1 predicates, ignoring segment")
         return None, False
 
     # Get predicate types
-    if op.add_effects:
-        predicate_type1 = list(op.add_effects)[0].entities[0].type
-        predicate_type2 = list(op.add_effects)[0].entities[1].type
-    else:
-        predicate_type1 = list(op.delete_effects)[0].entities[0].type
-        predicate_type2 = list(op.delete_effects)[0].entities[1].type
+    predicate_type1 = list(effects)[0].entities[0].type
+    predicate_type2 = list(effects)[0].entities[1].type
 
     predicate_types = [predicate_type1, predicate_type2]
     assert len(predicate_types) == 2
@@ -932,15 +930,15 @@ def find_OOI_name(op: STRIPSOperator) -> Tuple[str, bool]:
 
 
 def plot_DSPolicy_input_data(
-    x: List[np.ndarray], 
-    x_dot: List[np.ndarray], 
-    quat: List[np.ndarray], 
-    omega: List[np.ndarray], 
-    gripper: List[np.ndarray], 
-    visualize: bool = False, 
-    save_path: str = None, 
+    x: List[np.ndarray],
+    x_dot: List[np.ndarray],
+    quat: List[np.ndarray],
+    omega: List[np.ndarray],
+    gripper: List[np.ndarray],
+    visualize: bool = False,
+    save_path: str = None,
     OOI_type: str = None,
-    relative_cluster_attractor: np.ndarray = None, 
+    relative_cluster_attractor: np.ndarray = None,
 ) -> bool:
     assert len(x) == len(x_dot) == len(quat) == len(omega)
     for i in range(len(x)):
@@ -986,7 +984,9 @@ class _LearnedDSParameterizedOption(ParameterizedOption):
 
     prev_left_right_finger_dist = 0.0
 
-    def __init__(self, name: str, operator: STRIPSOperator, ds_policy: DSPolicy, ooi_type_name: str, gripper_or_obj_type: str, gripper_action: float, is_parameterized: bool = True) -> None:  # DSPolicy object
+    def __init__(
+        self, name: str, operator: STRIPSOperator, ds_policy: DSPolicy, ooi_type_name: str, gripper_or_obj_type: str, gripper_action: float, is_parameterized: bool = True
+    ) -> None:  # DSPolicy object
         types = [v.type for v in operator.parameters]
         self.operator = operator
         self._ds_policy = ds_policy
@@ -1019,7 +1019,10 @@ class _LearnedDSParameterizedOption(ParameterizedOption):
         right_finger = None
 
         cur_nsrt = memory["current_nsrt"]
-        effects = cur_nsrt.add_effects | cur_nsrt.delete_effects
+        effects = set()
+        for e in cur_nsrt.add_effects | cur_nsrt.delete_effects:
+            if e.predicate.name != "InOrigin":
+                effects.add(e)
         assert len(effects) == 1
         effect_objs = next(iter(effects)).objects
         assert len(effect_objs) == 2
@@ -1048,7 +1051,10 @@ class _LearnedDSParameterizedOption(ParameterizedOption):
 
         # Get action from DS Policy
         action = self._ds_policy.get_action(
-            np.concatenate([gripper_or_obj_pose_OOI_frame[:3], gripper_or_obj_pose_OOI_frame[3:]]), clf=True, alpha_V=10.0, lookahead=5  # Use Control Lyapunov Function  # CLF parameter  # Number of steps to look ahead
+            np.concatenate([gripper_or_obj_pose_OOI_frame[:3], gripper_or_obj_pose_OOI_frame[3:]]),
+            clf=True,
+            alpha_V=10.0,
+            lookahead=5,  # Use Control Lyapunov Function  # CLF parameter  # Number of steps to look ahead
         )
 
         # here we no longer assume motion is between gripper and OOI.
@@ -1085,13 +1091,11 @@ class _LearnedDSParameterizedOption(ParameterizedOption):
             action_low = np.array([0, 0, 0, 0, 0, 0, -1.0], dtype=np.float32)
             action_high = np.array([0, 0, 0, 0, 0, 0, 1.0], dtype=np.float32)
         action_arr = np.clip(action_arr, action_low, action_high)
-        print(f"action_arr: {action_arr}")
+        # print(f"action_arr: {action_arr}")
         self.prev_left_right_finger_dist = left_right_finger_dist
 
         if CFG.visualizer:
-            rel_gripper_visualizer_rot = np.array([[0, 0, 1], # NOTE: this is a "correction" term: to rotate gripper's frame to visualize in the way we want
-                                                    [1, 0, 0],
-                                                    [0, 1, 0]])
+            rel_gripper_visualizer_rot = np.array([[0, 0, 1], [1, 0, 0], [0, 1, 0]])  # NOTE: this is a "correction" term: to rotate gripper's frame to visualize in the way we want
             rot_in_OOI_frame = R.from_quat(gripper_or_obj_pose_OOI_frame[3:]).as_matrix()
             gripper_quat_in_visualizer_xyzw = R.from_matrix(rot_in_OOI_frame @ rel_gripper_visualizer_rot).as_quat()
             gripper_quat_in_visualizer_wxyz = np.array([gripper_quat_in_visualizer_xyzw[3], gripper_quat_in_visualizer_xyzw[0], gripper_quat_in_visualizer_xyzw[1], gripper_quat_in_visualizer_xyzw[2]])
