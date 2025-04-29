@@ -25,6 +25,89 @@ from scipy.spatial.transform import Rotation as R
 
 import warnings
 
+
+"""---------------------------------- MoveToInitPoseOption Starts ----------------------------------"""
+"""This is a global option to move the gripper to the initial pose"""
+
+def _move_to_init_pose_option_initiable(state: State, memory: Dict, objects: Sequence[Object], params: Array) -> bool:
+    return True
+
+def _move_to_init_pose_option_terminal(state: State, memory: Dict, objects: Sequence[Object], params: Array) -> bool:
+    """
+    Note: objects contains gripper and base (in this order)
+    """
+    gripper, base = objects
+    gripper_pos = state.get(gripper, "translation")
+    gripper_quat = state.get(gripper, "quaternion")
+    base_pos = state.get(base, "translation")
+    base_quat = state.get(base, "quaternion")
+
+    init_pos = CFG.init_pose[:3]
+    init_quat = CFG.init_pose[3:7]  # Assuming wxyz format
+
+    pos_error_world = init_pos - gripper_pos
+    rot_error_world = R.from_quat(init_quat) * R.from_quat(gripper_quat).inv()
+    # Get angle in radians from rotation error
+    rot_error_angle = np.abs(rot_error_world.magnitude())
+
+    return np.linalg.norm(pos_error_world) < 0.05 and rot_error_angle < 0.05
+
+def move_to_init_pose_policy(state: State, memory: Dict, objects: Sequence[Object], params: Array) -> Action:
+    """
+    Note: objects contains gripper and base (in this order)
+    """
+    gripper, base = objects
+    gripper_pos = state.get(gripper, "translation")
+    gripper_quat = state.get(gripper, "quaternion")
+    base_pos = state.get(base, "translation")
+    base_quat = state.get(base, "quaternion")
+
+    K_pos = 2.0
+    K_rot = 0.5
+
+    init_pos = CFG.init_pose[:3]
+    init_quat = CFG.init_pose[3:7]  # Assuming wxyz format
+
+    # --- Calculate world frame velocities ---
+
+    # Linear velocity
+    pos_error_world = init_pos - gripper_pos
+    linear_vel_world = K_pos * pos_error_world
+
+    # Angular velocity
+    target_rot = R.from_quat(init_quat)
+    current_rot = R.from_quat(gripper_quat)
+    error_rot = target_rot * current_rot.inv()
+    angular_vel_world = K_rot * error_rot.as_rotvec()
+
+    # --- Transform velocities to base frame ---
+    base_rot_matrix = R.from_quat(base_quat).as_matrix()
+
+    linear_vel_base = base_rot_matrix.T @ linear_vel_world
+    angular_vel_base = base_rot_matrix.T @ angular_vel_world
+
+    # --- Construct action ---
+    action = np.zeros(7, dtype=np.float32)
+    action[:3] = linear_vel_base
+    action[3:6] = angular_vel_base
+    action[6] = 0.0  # Keep gripper state unchanged
+
+    action_low = np.array([-1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0], dtype=np.float32)
+    action_high = np.array([1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0], dtype=np.float32)
+    action = np.clip(action, action_low, action_high)
+
+    return action
+
+MoveToInitPoseOption = ParameterizedOption(
+    "MoveToInitPoseOption",
+    types=[gripper, base],
+    params_space=Box(-5, 5, (1,)),
+    policy=move_to_init_pose_policy,
+    initiable=_move_to_init_pose_option_initiable,
+    terminal=_move_to_init_pose_option_terminal,
+)
+
+"""---------------------------------- MoveToInitPoseOption Ends ----------------------------------"""
 class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
     """Ground-truth options for the RoboKitchen environment."""
 
