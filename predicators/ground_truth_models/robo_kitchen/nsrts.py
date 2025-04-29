@@ -60,8 +60,17 @@ class RoboKitchenGroundTruthNSRTFactory(GroundTruthNSRTFactory):
         InContact = predicates["InContact"]
         DoorHalfOpen = predicates["DoorHalfOpen"]
         OnSurface = predicates["OnSurface"]
+        InOrigin = predicates["InOrigin"]
 
         nsrts = set()
+        
+        # ToInitialState
+        parameters = [gripper, base]
+        preconditions = set()
+        maintain_effects = set()
+        add_effects = {LiftedAtom(InOrigin, [gripper, base])}
+        delete_effects = set()
+        ignore_effects = set()
 
         # ReachBehindandPull
         parameters = [gripper, handle, base, cabinet, left_finger, right_finger]

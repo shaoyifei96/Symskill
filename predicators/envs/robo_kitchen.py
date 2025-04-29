@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional, Sequence, Set, Tuple, cast
 import numpy as np
 from gym.spaces import Box
 import robosuite
+import robosuite.utils.transform_utils as T
 from robosuite.controllers import load_composite_controller_config
 from robosuite.wrappers import VisualizationWrapper
 import robocasa.macros as macros
@@ -417,6 +418,12 @@ class RoboKitchenEnv(BaseEnv):
         # Get contact information
         contact_set = self.get_object_level_contacts()
 
+        # Get initial gripper in base pose
+        initial_eef_pos_in_base = self._env.robots[0]._hand_pos["right"]
+        initial_eef_orn_mat_in_base = self._env.robots[0]._hand_orn["right"]
+        initial_eef_quat_in_base = T.mat2quat(initial_eef_orn_mat_in_base)
+        self.initial_eef_pos_quat = np.concatenate([initial_eef_pos_in_base, initial_eef_quat_in_base])
+
         # Return observation
         return {"state_info": obs, "obs_images": [], "contact_set": contact_set}
 
@@ -463,6 +470,7 @@ class RoboKitchenEnv(BaseEnv):
             Predicate("InContact", [cls.object_type, cls.object_type], cls._InContact_holds),
             Predicate("OnSurface", [cls.thing_type, cls.surface_type], cls._OnSurface_holds),
             Predicate("DoorHalfOpen", [cls.handle_type, cls.cabinet_type], cls._DoorHalfOpen_holds),
+            Predicate("InOrigin", [cls.gripper_type, cls.base_type], cls._InOrigin_holds),
         }
 
         return {p.name: p for p in preds}
@@ -648,6 +656,47 @@ class RoboKitchenEnv(BaseEnv):
         cls._current_state = state
         return state
 
+    @classmethod
+    def _InOrigin_holds(cls, state: State, objects: Sequence[Object]) -> bool:
+        """Check if object is at origin."""
+        gripper, base = objects
+
+        # Get the predefined initial relative pose (stored as class variables)
+        initial_pos_rel = cls.initial_eef_pos_quat[:3]  # Extract position part
+        initial_quat_rel = cls.initial_eef_pos_quat[3:]  # Extract quaternion part
+        initial_rot_rel = R.from_quat(initial_quat_rel)
+
+        gripper_pos_world = state.get(gripper, "translation")
+        gripper_quat_world = state.get(gripper, "quaternion")  # Assuming xyzw format
+        base_pos_world = state.get(base, "translation")
+        base_quat_world = state.get(base, "quaternion")  # Assuming xyzw format
+
+        # Convert current world quaternions (xyzw) to Scipy Rotations
+        gripper_rot_world = R.from_quat(gripper_quat_world)  # Scipy expects xyzw
+        base_rot_world = R.from_quat(base_quat_world)  # Scipy expects xyzw
+
+        # Calculate current gripper pose relative to the current base pose
+        # Position: rot_base_inv * (pos_gripper - pos_base)
+        current_pos_rel = base_rot_world.inv().apply(gripper_pos_world - base_pos_world)
+        # Orientation: rot_base_inv * rot_gripper
+        current_rot_rel = base_rot_world.inv() * gripper_rot_world
+
+        # Define tolerances
+        pos_tolerance = 0.03  # meters (e.g., 3 cm)
+        angle_tolerance = np.deg2rad(5)  # radians (e.g., 10 degrees)
+
+        # Check position distance
+        pos_diff = np.linalg.norm(current_pos_rel - initial_pos_rel)
+        pos_close = pos_diff < pos_tolerance
+
+        # Check orientation difference (angle of relative rotation between current and initial)
+        delta_rot = initial_rot_rel.inv() * current_rot_rel
+        # Use magnitude of rotation vector as the angle difference
+        angle_diff = np.linalg.norm(delta_rot.as_rotvec())
+        ori_close = angle_diff < angle_tolerance
+
+        return pos_close and ori_close
+    
     @classmethod
     def _ReadyGrabObj_holds(cls, state: State, objects: Sequence[Object]) -> bool:
         """Check if gripper is ready to grip handle."""
