@@ -1301,7 +1301,6 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         # Identify the InContact predicate and the gripper type
         in_contact_pred = next(p for p in env.predicates if "InContact" in p.name)
         gripper_type = next(t for t in self._types if "gripper" in t.name) # Assumes gripper type name contains "gripper"
-        surface_type = next(t for t in self._types if "surface" in t.name) # Assumes surface type name contains "surface"
         if not gripper_type:
             logging.warning("Gripper type not found. Cannot generate contact-based predicates.")
             return {}, {} # Return empty dicts if gripper type is not found
