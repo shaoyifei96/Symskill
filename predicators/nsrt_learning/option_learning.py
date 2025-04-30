@@ -6,6 +6,7 @@ import abc
 import copy
 import logging
 from collections import defaultdict
+import os
 from typing import ClassVar, Dict, List, Sequence, Set, Tuple, Any, Optional
 import warnings
 import matplotlib.pyplot as plt
@@ -25,7 +26,7 @@ from predicators.settings import CFG
 from predicators.structs import Action, Array, Datastore, Object, OptionSpec, ParameterizedOption, Segment, State, STRIPSOperator, Variable, VarToObjSub, DummyParameterizedOption, Type
 from predicators.utils import OptionExecutionFailure, calculate_relative_pose
 
-from ds_policy import DSPolicy, UnifiedModelConfig, transform_frame, compute_vel_traj
+from ds_policy import DSPolicy, UnifiedModelConfig, PositionModelConfig, QuaternionModelConfig, transform_frame, compute_vel_traj
 from scipy.spatial.transform import Rotation as R
 
 
@@ -713,6 +714,20 @@ class _DSOptionLearner(_OptionLearnerBase):
                 quat.append(gripper_or_obj_quat_traj_OOI_frame)
                 omega.append(gripper_or_obj_ang_vel_traj_OOI_frame)
 
+            # Save trajectory data to npy files for later use
+            if len(x) > 0:
+                # Create directory if it doesn't exist
+                save_dir = "./trajectory_data"
+                os.makedirs(save_dir, exist_ok=True)
+                
+                # Save each trajectory component
+                np.save(f"{save_dir}/x_{op.name}.npy", np.array(x, dtype=object), allow_pickle=True)
+                np.save(f"{save_dir}/x_dot_{op.name}.npy", np.array(x_dot, dtype=object), allow_pickle=True)
+                np.save(f"{save_dir}/quat_{op.name}.npy", np.array(quat, dtype=object), allow_pickle=True)
+                np.save(f"{save_dir}/omega_{op.name}.npy", np.array(omega, dtype=object), allow_pickle=True)
+                
+                logging.info(f"Saved trajectory data for NSRT {op.name} to {save_dir}")
+
             if len(x) == 0:
                 logging.warning(f"NSRT {op.name} has no valid segments, ignoring")
                 continue
@@ -742,15 +757,24 @@ class _DSOptionLearner(_OptionLearnerBase):
             )
 
             # Configure DS Policy
-            unified_config = UnifiedModelConfig(mode="se3_lpvds", K_candidates=[1, 3, 5])
+            unified_config = UnifiedModelConfig(mode="se3_lpvds", K_candidates=[3],
+                                                enable_simple_ds_near_target=True,
+                                                simple_ds_pos_threshold=0.1,
+                                                simple_ds_ori_threshold=0.1,
+                                                K_pos=10.0,
+                                                K_ori=10.0)
+            # pos_config = PositionModelConfig(mode="none")
+            # quat_config = QuaternionModelConfig(mode="simple")
 
             # Create DSPolicy
             ds_policy = DSPolicy(x=x, 
                                  x_dot=x_dot, 
                                  quat=quat, 
                                  omega=omega, 
-                                 gripper=gripper_or_obj, 
-                                 unified_config=unified_config, 
+                                 gripper=[], 
+                                 unified_config=unified_config,
+                                #  pos_config=pos_config,
+                                #  quat_config=quat_config,
                                  dt=dt, 
                                  switch=False,
                                  relative_cluster_attractor=relative_cluster_attractor)

@@ -371,8 +371,9 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             dataset._trajectories = [dataset._trajectories[i] for i in keep_indices if i < len(dataset._trajectories)]
         if CFG.robo_kitchen_task == "CloseSingleDoor":
             # keep_indices = [0, 1, 2, 3, 4, 6, 7, 8, 9]
-            # keep_indices = [0, 2, 4, 8, 9] all microwave
-            keep_indices = [1, 3, 6, 7] # all left door
+            keep_indices = [0, 2, 4, 8, 9] # all microwave
+            # keep_indices = [1, 3, 6, 7] # all left door
+            # keep_indices = [2]
             dataset._trajectories = [dataset._trajectories[i] for i in keep_indices if i < len(dataset._trajectories)]
 
         # logging.info(f"Filtered dataset to trajectories (indices: {keep_indices})")

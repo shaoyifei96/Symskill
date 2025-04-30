@@ -42,6 +42,7 @@ MAX_ROTATION_DISPLACEMENT = 1.0
 class RoboKitchenEnv(BaseEnv):
     """Kitchen environment using robosuite."""
 
+    # door_open_thresh = np.deg2rad(55)  # rad
     door_open_thresh = np.deg2rad(80)  # rad
     door_close_thresh = np.deg2rad(5)  # rad
     knob_on_thresh = 0.35  # rad
