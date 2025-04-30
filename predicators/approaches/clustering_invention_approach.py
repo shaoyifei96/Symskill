@@ -326,6 +326,9 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             with open(file, "rb") as f:
                 loaded_nsrts = pkl.load(f)
                 self._nsrts.update(loaded_nsrts)
+        from predicators.ground_truth_models import get_gt_nsrts
+        gt_nsrts = get_gt_nsrts(CFG.env, self._initial_predicates, self._initial_options)
+        self._nsrts = set(gt_nsrts).union(self._nsrts)
         for file in contact2rel_files:
             with open(file, "rb") as f:
                 contact2rel_preds = pkl.load(f)

@@ -375,6 +375,20 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
         """This is a global option to move the gripper to the initial pose"""
 
         def _move_to_init_pose_option_initiable(state: State, memory: Dict, objects: Sequence[Object], params: Array) -> bool:
+            waypoints = [
+                np.array([-0.4, 0.4, 0.7, 0.5, -0.3, 0.6, 0.4]),
+                np.array([0, 0.4, 0.4, 0.5, -0.3, 0.6, 0.4]),
+                # np.concatenate([np.array([-0.4, 0.4, 0.7]), R.from_euler("xyz", [0.0, np.pi/4, 0]).as_quat()]),
+                # np.concatenate([np.array([-0.4, 0.4, 0.5]), R.from_euler("xyz", [0.0, np.pi/4, -np.pi/2]).as_quat()]),
+                
+                # np.concatenate([np.array([-0.35, 0.35, 0.7]), R.from_euler("xyz", [0.0, 0, 0]).as_quat()]),
+                # np.concatenate([CFG.init_pose[:3], np.array([0.5, -0.3, 0.6, 0.4])]),
+                CFG.init_pose
+            ]
+            memory["num_waypoints"] = len(waypoints)
+            memory["waypoints"] = waypoints
+            memory["current_waypoint"] = 0
+
             return True
 
         def _move_to_init_pose_option_terminal(state: State, memory: Dict, objects: Sequence[Object], params: Array) -> bool:
@@ -390,6 +404,8 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
             """
             Note: objects contains gripper and base (in this order)
             """
+            if memory["current_waypoint"] == memory["num_waypoints"]:
+                return Action(np.zeros(7, dtype=np.float32))
             gripper, base = objects
             gripper_pos = state.get(gripper, "translation")
             gripper_quat = state.get(gripper, "quaternion")
@@ -398,29 +414,38 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
             gripper_pos_in_base, gripper_rot_in_base = frame_transform(gripper_pos, gripper_quat, base_pos, R.from_quat(base_quat).as_matrix())
             gripper_quat_in_base = R.from_matrix(gripper_rot_in_base).as_quat()
 
+            if np.linalg.norm(np.concatenate([gripper_pos_in_base, gripper_quat_in_base], axis=0) - memory["waypoints"][memory["current_waypoint"]]) < 0.1:
+                if memory["current_waypoint"] < memory["num_waypoints"] - 1:
+                    memory["current_waypoint"] += 1 
+
             K_pos = 2.0
             K_rot = 0.5
 
-            init_pos = CFG.init_pose[:3]
-            init_quat = CFG.init_pose[3:7]  # Assuming wxyz format
+            target_pos = memory["waypoints"][memory["current_waypoint"]][:3]
+            target_quat = memory["waypoints"][memory["current_waypoint"]][3:7]  # Assuming wxyz format
 
             # --- Calculate world frame velocities ---
 
             # Linear velocity
-            pos_error_world = init_pos - gripper_pos_in_base
+            pos_error_world = target_pos - gripper_pos_in_base
             linear_vel_base = K_pos * pos_error_world
 
             # Angular velocity
-            target_rot = R.from_quat(init_quat)
+            target_rot = R.from_quat(target_quat)
             current_rot = R.from_quat(gripper_quat_in_base)
             error_rot = target_rot * current_rot.inv()
             angular_vel_base = K_rot * error_rot.as_rotvec()
 
+            # --- Visualization ---
+            if CFG.visualizer:
+                CFG.visualizer.update_robot_position(gripper_pos_in_base, gripper_quat_in_base)
+                CFG.visualizer.update_robot_velocity(linear_vel_base)
             # --- Construct action ---
             action = np.zeros(7, dtype=np.float32)
             action[:3] = linear_vel_base
             action[3:6] = angular_vel_base
-            action[6] = 0.0  # Keep gripper state unchanged
+            # action[3:6] = 0.0
+            action[6] = -1.0  # Keep gripper open
 
             action_low = np.array([-1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0], dtype=np.float32)
             action_high = np.array([1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0], dtype=np.float32)
