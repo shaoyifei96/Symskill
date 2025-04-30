@@ -663,6 +663,8 @@ class _DSOptionLearner(_OptionLearnerBase):
 
         dt = 1 / 60
 
+        traj_idx_to_demo_idx = defaultdict(int)
+        
         for i in range(len(strips_ops)):
             op, datastore = strips_ops[i], datastores[i]
             logging.info(f"\nLearning option for NSRT {op.name}")
@@ -675,8 +677,8 @@ class _DSOptionLearner(_OptionLearnerBase):
             gripper_action = []  # gripper state trajectories if available
             set_OOI_type_name = set()
             set_gripper_or_obj_type_name = set()
-
-            for i, (segment, var_to_obj) in enumerate(datastore):
+            
+            for j, (segment, var_to_obj) in enumerate(datastore):
                 OOI_obj, gripper_or_obj = find_two_objects(op, segment, var_to_obj, CFG.learn_option_between_gripper_obj)
                 if OOI_obj is None or gripper_or_obj is None:
                     logging.warning(f"NSRT {op.name} cannot find OOI or gripper from var_to_obj, ignoring segment")
@@ -708,6 +710,8 @@ class _DSOptionLearner(_OptionLearnerBase):
                 gripper_or_obj_rot_traj_OOI_frame = np.array([R.from_quat(q).as_matrix() for q in gripper_or_obj_quat_traj_OOI_frame])
                 gripper_or_obj_vel_traj_OOI_frame, gripper_or_obj_ang_vel_traj_OOI_frame = compute_vel_traj(gripper_or_obj_pos_traj_OOI_frame, gripper_or_obj_rot_traj_OOI_frame, dt)
 
+                traj_idx_to_demo_idx[j] = segment.trajectory._train_task_idx
+                
                 # Add segment data to overall dataset
                 x.append(gripper_or_obj_pos_traj_OOI_frame)
                 x_dot.append(gripper_or_obj_vel_traj_OOI_frame)
@@ -750,6 +754,7 @@ class _DSOptionLearner(_OptionLearnerBase):
             plot_DSPolicy_input_data(
                 x, x_dot, quat, omega, 
                 gripper_action, 
+                traj_idx_to_demo_idx,
                 visualize=True, 
                 save_path=f"./feature_data/option_traj_{op.name}_gripper_in_{OOI_type_name}_frame.png", 
                 OOI_type=OOI_type_name,
@@ -961,6 +966,7 @@ def plot_DSPolicy_input_data(
     quat: List[np.ndarray], 
     omega: List[np.ndarray], 
     gripper: List[np.ndarray], 
+    traj_idx_to_demo_idx: Dict[int, int],
     visualize: bool = False, 
     save_path: str = None, 
     OOI_type: str = None,
@@ -980,7 +986,8 @@ def plot_DSPolicy_input_data(
 
         # Plot each trajectory with a different color
         for i, trajectory in enumerate(x):
-            ax.plot(trajectory[:, 0], trajectory[:, 1], trajectory[:, 2], label=f"Trajectory {i+1}", linewidth=2)
+            demo_idx = traj_idx_to_demo_idx[i]
+            ax.plot(trajectory[:, 0], trajectory[:, 1], trajectory[:, 2], label=f"Traj {i+1} (Demo {demo_idx})", linewidth=2)
 
             # Mark start and end points
             ax.scatter(trajectory[0, 0], trajectory[0, 1], trajectory[0, 2], color="green", s=100, marker="o")

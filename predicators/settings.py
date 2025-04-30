@@ -78,7 +78,7 @@ class GlobalSettings:
         visualizer = None
     option_to_init_pose: Dict[str, List[np.ndarray]] = {}
     option_to_policy = {}
-    use_teleop = True
+    use_teleop = False
 
     """Unchanging settings."""
     # global parameters
