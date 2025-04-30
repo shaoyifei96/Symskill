@@ -375,15 +375,18 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
         """This is a global option to move the gripper to the initial pose"""
 
         def _move_to_init_pose_option_initiable(state: State, memory: Dict, objects: Sequence[Object], params: Array) -> bool:
+            target_pos = CFG.init_pose[:3]
+            target_quat = CFG.init_pose[3:7]
             waypoints = [
-                np.array([-0.4, 0.4, 0.7, 0.5, -0.3, 0.6, 0.4]),
-                np.array([0, 0.4, 0.4, 0.5, -0.3, 0.6, 0.4]),
-                # np.concatenate([np.array([-0.4, 0.4, 0.7]), R.from_euler("xyz", [0.0, np.pi/4, 0]).as_quat()]),
+                np.array([-0.4, 0.4, 0.5, 0.5, -0.3, 0.6, 0.4]), # 0.21, -1.35, 1.78
+                np.concatenate([np.array([0.2, 0.4, 0.5]), R.from_euler("xyz", [0.2, -1.30, 2.2]).as_quat()]),
+                np.concatenate([np.array([0.2, -0.2, 0.5]), R.from_euler("xyz", [0.2, -1.30, 2.2]).as_quat()]),
+                CFG.init_pose
+                # np.concatenate([np.array([-0.6, 0, 0.5]), R.from_euler("xyz", [0.21, -1.35, 2.2]).as_quat()]),
                 # np.concatenate([np.array([-0.4, 0.4, 0.5]), R.from_euler("xyz", [0.0, np.pi/4, -np.pi/2]).as_quat()]),
                 
                 # np.concatenate([np.array([-0.35, 0.35, 0.7]), R.from_euler("xyz", [0.0, 0, 0]).as_quat()]),
                 # np.concatenate([CFG.init_pose[:3], np.array([0.5, -0.3, 0.6, 0.4])]),
-                CFG.init_pose
             ]
             memory["num_waypoints"] = len(waypoints)
             memory["waypoints"] = waypoints
@@ -414,7 +417,7 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
             gripper_pos_in_base, gripper_rot_in_base = frame_transform(gripper_pos, gripper_quat, base_pos, R.from_quat(base_quat).as_matrix())
             gripper_quat_in_base = R.from_matrix(gripper_rot_in_base).as_quat()
 
-            if np.linalg.norm(np.concatenate([gripper_pos_in_base, gripper_quat_in_base], axis=0) - memory["waypoints"][memory["current_waypoint"]]) < 0.1:
+            if np.linalg.norm(np.concatenate([gripper_pos_in_base, gripper_quat_in_base], axis=0) - memory["waypoints"][memory["current_waypoint"]]) < 0.2:
                 if memory["current_waypoint"] < memory["num_waypoints"] - 1:
                     memory["current_waypoint"] += 1 
 
