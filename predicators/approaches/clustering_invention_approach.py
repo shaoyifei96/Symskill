@@ -369,6 +369,11 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             #               1  2  3  4  5  6  7  8  
             # keep_indices = [3,4,8,9] # single cluster for handle & cabinet
             dataset._trajectories = [dataset._trajectories[i] for i in keep_indices if i < len(dataset._trajectories)]
+        if CFG.robo_kitchen_task == "CloseSingleDoor":
+            # keep_indices = [0, 1, 2, 3, 4, 6, 7, 8, 9]
+            # keep_indices = [0, 2, 4, 8, 9] all microwave
+            keep_indices = [1, 3, 6, 7] # all left door
+            dataset._trajectories = [dataset._trajectories[i] for i in keep_indices if i < len(dataset._trajectories)]
 
         # logging.info(f"Filtered dataset to trajectories (indices: {keep_indices})")
         # Clear caches before starting learning
@@ -1363,8 +1368,6 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                         )
                         key = (atom.predicate, obj1.type, obj3.type, "lost_contact_2in1")
                         relative_pose_dataset_dict[key].append(rel_pose_lost_contact_obj3_in_obj1_frame)
-
-
 
                 for atom in atoms_t:
                     if CFG.clustering_change_only and atom in atoms_tm1: continue

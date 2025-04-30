@@ -721,15 +721,15 @@ class _DSOptionLearner(_OptionLearnerBase):
             # if OOI type and gripper type are clear, use the relative cluster center as the attractor
             assert len(set_OOI_type_name) == 1 and len(set_gripper_or_obj_type_name) == 1
             relative_cluster_attractor = None
-            dict_key = ('InContact', set_OOI_type_name.pop(), set_gripper_or_obj_type_name.pop())
-            # TODO: Goal can be checked too
-            if dict_key in CFG.dict_contact_predicate_to_rel_pose_predicates:
-                relative_clusters = CFG.dict_contact_predicate_to_rel_pose_predicates[dict_key]
-                if len(relative_clusters) == 1:
-                    relative_cluster_attractor = list(relative_clusters)[0]._classifier.cluster_center
-                else:
-                    logging.warning(f"NSRT {op.name} has multiple relative cluster attractors for {dict_key}, using first one")
-                    relative_cluster_attractor = list(relative_clusters)[0]._classifier.cluster_center
+            # dict_key = ('InContact', set_OOI_type_name.pop(), set_gripper_or_obj_type_name.pop())
+            # # TODO: Goal can be checked too
+            # if dict_key in CFG.dict_contact_predicate_to_rel_pose_predicates:
+            #     relative_clusters = CFG.dict_contact_predicate_to_rel_pose_predicates[dict_key]
+            #     if len(relative_clusters) == 1:
+            #         relative_cluster_attractor = list(relative_clusters)[0]._classifier.cluster_center
+            #     else:
+            #         logging.warning(f"NSRT {op.name} has multiple relative cluster attractors for {dict_key}, using first one")
+            #         relative_cluster_attractor = list(relative_clusters)[0]._classifier.cluster_center
 
 
             plot_DSPolicy_input_data(
@@ -742,7 +742,7 @@ class _DSOptionLearner(_OptionLearnerBase):
             )
 
             # Configure DS Policy
-            unified_config = UnifiedModelConfig(mode="se3_lpvds", K_candidates=[1])
+            unified_config = UnifiedModelConfig(mode="se3_lpvds", K_candidates=[1, 3, 5])
 
             # Create DSPolicy
             ds_policy = DSPolicy(x=x, 
@@ -1085,7 +1085,7 @@ class _LearnedDSParameterizedOption(ParameterizedOption):
             action_low = np.array([0, 0, 0, 0, 0, 0, -1.0], dtype=np.float32)
             action_high = np.array([0, 0, 0, 0, 0, 0, 1.0], dtype=np.float32)
         action_arr = np.clip(action_arr, action_low, action_high)
-        print(f"action_arr: {action_arr}")
+        # print(f"action_arr: {action_arr}")
         self.prev_left_right_finger_dist = left_right_finger_dist
 
         if CFG.visualizer:

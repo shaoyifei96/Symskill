@@ -42,8 +42,8 @@ MAX_ROTATION_DISPLACEMENT = 1.0
 class RoboKitchenEnv(BaseEnv):
     """Kitchen environment using robosuite."""
 
-    door_open_thresh = 0.9 # rad
-    door_close_thresh = 0.05 # rad
+    door_open_thresh = np.deg2rad(80)  # rad
+    door_close_thresh = np.deg2rad(5)  # rad
     knob_on_thresh = 0.35  # rad
     door_half_open_thresh = 0.4  # rad
     grab_close_distance_thresh = 0.02  # m
@@ -252,13 +252,15 @@ class RoboKitchenEnv(BaseEnv):
         """Get the object of interest for the task."""
         # by default, there are robot and gripper objects
         if task_name == "OpenSingleDoor":
-            return [self.object_name_to_object("handle")]
+            # return [self.object_name_to_object("handle")]
+            return [self.object_name_to_object("door")]
         elif task_name == "OpenDoubleDoor":
-            return [self.object_name_to_object("left_door_handle"), self.object_name_to_object("right_door_handle")]
+            # return [self.object_name_to_object("left_door_handle"), self.object_name_to_object("right_door_handle")]
+            return [self.object_name_to_object("leftdoor"), self.object_name_to_object("rightdoor")]
         elif task_name == "CloseSingleDoor":
-            return [self.object_name_to_object("handle")]
+            return [self.object_name_to_object("door")]
         elif task_name == "CloseDoubleDoor":
-            return [self.object_name_to_object("left_door_handle"), self.object_name_to_object("right_door_handle")]
+            return [self.object_name_to_object("leftdoor"), self.object_name_to_object("rightdoor")]
         elif task_name == "PnPCounterToCab":
             return [self.object_name_to_object("obj")]
         elif task_name == "StoreFruit":
@@ -358,26 +360,35 @@ class RoboKitchenEnv(BaseEnv):
         goal_desc = self.task_selected
 
         if goal_desc == "OpenSingleDoor":
-            handle = self.object_name_to_object("handle")
+            # handle = self.object_name_to_object("handle")
+            # cabinet = self.object_name_to_object("cabinet")
+            # if self._DoorOpen_holds(state, [handle, cabinet]):
+            #     return True
+            door = self.object_name_to_object("door")
             cabinet = self.object_name_to_object("cabinet")
-            if self._DoorOpen_holds(state, [handle, cabinet]):
+            if self._DoorOpen_holds(state, [door, cabinet]):
                 return True
         elif goal_desc == "OpenDoubleDoor":
-            left_handle = self.object_name_to_object("left_door_handle")
-            right_handle = self.object_name_to_object("right_door_handle")
+            # left_handle = self.object_name_to_object("left_door_handle")
+            # right_handle = self.object_name_to_object("right_door_handle")
+            # cabinet = self.object_name_to_object("cabinet")
+            # if self._DoorOpen_holds(state, [left_handle, cabinet]) and self._DoorOpen_holds(state, [right_handle, cabinet]):
+            #     return True
+            left_door = self.object_name_to_object("leftdoor")
+            right_door = self.object_name_to_object("rightdoor")
             cabinet = self.object_name_to_object("cabinet")
-            if self._DoorOpen_holds(state, [left_handle, cabinet]) and self._DoorOpen_holds(state, [right_handle, cabinet]):
+            if self._DoorOpen_holds(state, [left_door, cabinet]) and self._DoorOpen_holds(state, [right_door, cabinet]):
                 return True
         elif goal_desc == "CloseSingleDoor":
-            handle = self.object_name_to_object("handle")
+            door = self.object_name_to_object("door")
             cabinet = self.object_name_to_object("cabinet")
-            if self._DoorClosed_holds(state, [handle, cabinet]):
+            if self._DoorClosed_holds(state, [door, cabinet]):
                 return True
         elif goal_desc == "CloseDoubleDoor":
-            left_handle = self.object_name_to_object("left_door_handle")
-            right_handle = self.object_name_to_object("right_door_handle")
+            left_door = self.object_name_to_object("leftdoor")
+            right_door = self.object_name_to_object("rightdoor")
             cabinet = self.object_name_to_object("cabinet")
-            if self._DoorClosed_holds(state, [left_handle, cabinet]) and self._DoorClosed_holds(state, [right_handle, cabinet]):
+            if self._DoorClosed_holds(state, [left_door, cabinet]) and self._DoorClosed_holds(state, [right_door, cabinet]):
                 return True
         elif goal_desc == "PnPCounterToCab" or goal_desc == "StoreFruit":
             obj = self.object_name_to_object("obj")
@@ -458,6 +469,10 @@ class RoboKitchenEnv(BaseEnv):
         # Get contact information
         contact_set = self.get_object_level_contacts()
 
+        self.num = 0
+        self.default_contact_num = len(self._env_raw.sim.data.contact)
+        self.default_contact_pairs = [(self._env_raw.sim.model.geom_id2name(contact.geom1), self._env_raw.sim.model.geom_id2name(contact.geom2)) for contact in self._env_raw.sim.data.contact]
+
         # Get initial gripper in base pose
         initial_eef_pos_in_base = self._env.robots[0]._hand_pos["right"]
         initial_eef_orn_mat_in_base = self._env.robots[0]._hand_orn["right"]
@@ -471,26 +486,68 @@ class RoboKitchenEnv(BaseEnv):
         """Get all contacts between objects in the environment, default to have robot and gripper, in addition to the objects of interest
         this has to be a method not a class method since we need env access"""
 
+        # try:
+        #     if self.num > 5:
+        #         self.num += 1
+        #         if len(self._env_raw.sim.data.contact) > self.default_contact_num:
+        #             print(self.num, len(self._env_raw.sim.data.contact), end=": ")
+        #             for contact in self._env_raw.sim.data.contact:
+        #                 pair = (self._env_raw.sim.model.geom_id2name(contact.geom1), self._env_raw.sim.model.geom_id2name(contact.geom2))
+        #                 if pair not in self.default_contact_pairs:
+        #                     print(pair[0], pair[1], contact.dist)
+        #     else:
+        #         self.num += 1
+        #         self.default_contact_num = len(self._env_raw.sim.data.contact)
+        #         self.default_contact_pairs = [(self._env_raw.sim.model.geom_id2name(contact.geom1), self._env_raw.sim.model.geom_id2name(contact.geom2)) for contact in self._env_raw.sim.data.contact]
+        # except AttributeError:
+        #     self.num = 0
+        #     self.default_contact_num = len(self._env_raw.sim.data.contact)
+        #     self.default_contact_pairs = [(self._env_raw.sim.model.geom_id2name(contact.geom1), self._env_raw.sim.model.geom_id2name(contact.geom2)) for contact in self._env_raw.sim.data.contact]
+
+        contact_name_to_object = {"g18": "door", "g16": "door", "g27": "door"}
+        object_names = [obj.name for obj in self.objects_of_interest]
+
         # only support panda robot for now
         contacts = set()
-        # robot_contacts = self._env.get_contacts(self._env.robots[0].robot_model.models[0]) # robot
-        gripper_contact = self._env.get_contacts(self._env.robots[0].robot_model.models[1])  # gripper
-        # filter down to only include objects of interest
 
-        object_names = [obj.name for obj in self.objects_of_interest]
-        # robot_obj = self.object_name_to_object("robot")
-        gripper_obj = self.object_name_to_object("gripper")
+        robot_body_contact = self._env.get_contacts(self._env.robots[0].robot_model)  # robot
+        robot_body_obj = self.object_name_to_object("gripper") # use gripper as the robot object
+        for contact in robot_body_contact:
+            for obj_name in object_names:
+                for contact_name in contact_name_to_object:
+                    if contact_name in contact:
+                        contact = contact_name_to_object[contact_name]
+                if obj_name in contact:
+                    obj = self.object_name_to_object(obj_name)
+                    contacts.add((robot_body_obj, obj))
+                # else:
+                #     new_obj = Object(contact, self.object_type)
+                #     contacts.add((gripper_obj, new_obj))
 
-        # for contact in robot_contacts: # each contact is a string
+        # robot_base_contact = self._env.get_contacts(self._env.robots[0].robot_model.models[0])  # robot base
+        # robot_base_obj = Object("robot_base", self.object_type)
+        # for contact in robot_base_contact: # each contact is a string
         #     for obj_name in object_names:
         #         if obj_name in contact:
         #             obj = self.object_name_to_object(obj_name)
-        #             contacts.add((obj, robot_obj))
+        #             contacts.add((robot_base_obj, obj))
+        #         else:
+        #             new_obj = Object(contact, self.object_type)
+        #             contacts.add((robot_base_obj, new_obj))
+
+        gripper_contact = self._env.get_contacts(self._env.robots[0].robot_model.models[1])  # gripper
+        gripper_obj = self.object_name_to_object("gripper")
         for contact in gripper_contact:
             for obj_name in object_names:
+                for contact_name in contact_name_to_object:
+                    if contact_name in contact:
+                        contact = contact_name_to_object[contact_name]
                 if obj_name in contact:
                     obj = self.object_name_to_object(obj_name)
                     contacts.add((gripper_obj, obj))
+                # else:
+                #     new_obj = Object(contact, self.object_type)
+                #     contacts.add((gripper_obj, new_obj))
 
         return contacts
 
@@ -506,8 +563,9 @@ class RoboKitchenEnv(BaseEnv):
             Predicate("ReadyGrabObj", [cls.gripper_type, cls.object_type], cls._ReadyGrabObj_holds),
             Predicate("GripperOpen", [cls.left_finger_type, cls.right_finger_type], cls._GripperOpen_holds),
             Predicate("GripperClosed", [cls.left_finger_type, cls.right_finger_type], cls._GripperClosed_holds),
-            Predicate("DoorOpen", [cls.handle_type, cls.cabinet_type], cls._DoorOpen_holds),
-            Predicate("DoorClosed", [cls.handle_type, cls.cabinet_type], cls._DoorClosed_holds),
+            # Predicate("DoorOpen", [cls.handle_type, cls.cabinet_type], cls._DoorOpen_holds),
+            Predicate("DoorOpen", [cls.door_type, cls.cabinet_type], cls._DoorOpen_holds),
+            Predicate("DoorClosed", [cls.door_type, cls.cabinet_type], cls._DoorClosed_holds),
             Predicate("InContact", [cls.object_type, cls.object_type], cls._InContact_holds),
             Predicate("OnSurface", [cls.thing_type, cls.surface_type], cls._OnSurface_holds),
             Predicate("DoorHalfOpen", [cls.handle_type, cls.cabinet_type], cls._DoorHalfOpen_holds),
@@ -613,8 +671,9 @@ class RoboKitchenEnv(BaseEnv):
     def goal_predicates(self) -> Set[Predicate]:
         """Get the subset of self.predicates that are used in goals."""
         return {
-            self._pred_name_to_pred["DoorOpen"], 
+            self._pred_name_to_pred["DoorOpen"],
             self._pred_name_to_pred["OnSurface"],
+            self._pred_name_to_pred["DoorClosed"],
             self._pred_name_to_pred["KnobTurnedOn"],
         }
         goal_desc = self.task_selected
@@ -745,7 +804,7 @@ class RoboKitchenEnv(BaseEnv):
         ori_close = angle_diff < angle_tolerance
 
         return pos_close and ori_close
-    
+
     @classmethod
     def _Dummy_holds(cls, state: State, objects: Sequence[Object]) -> bool:
         """Dummy predicate for testing."""
