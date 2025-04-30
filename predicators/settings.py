@@ -14,7 +14,7 @@ from predicators.meshcat_visualizer import MeshcatVisualizer
 
 class GlobalSettings:
 
-    min_data_for_nsrt = 5
+    min_data_for_nsrt = 3
 
     init_pose = np.array([0.24844874, 0.00726439, 0.59251043, 0.98900046, 0.05834797, 0.13247817, -0.0303833])
     # init_pose = np.array([0.21157339360837069, -0.004757503173138833, 1.3895575386300745, -0.9884290099143982, -0.051291853189468384, -0.14036346971988678, 0.025989433750510216])
@@ -81,7 +81,7 @@ class GlobalSettings:
         visualizer = None
     option_to_init_pose: Dict[str, List[np.ndarray]] = {}
     option_to_policy = {}
-    use_teleop = False
+    use_teleop = True
 
     """Unchanging settings."""
     # global parameters

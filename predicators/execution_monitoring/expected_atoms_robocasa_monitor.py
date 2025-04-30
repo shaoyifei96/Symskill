@@ -24,7 +24,7 @@ class ExpectedAtomsRobocasaExecutionMonitor(BaseExecutionMonitor):
         self._running_option_name: str = None
         self._last_option_name: str = None
         self._option_start_timestep: int = 0
-        self._max_option_exe_timesteps: int = 400  # Maximum timesteps before considering option failed
+        self._max_option_exe_timesteps: int = 500  # Maximum timesteps before considering option failed
         self._current_nsrt_step = 0
         self._NSRT_plan_executed = False
 

@@ -66,7 +66,7 @@ class RoboKitchenEnv(BaseEnv):
     obj_name_to_type = {
         "handle": handle_type,
         "left_door_handle": handle_type,
-        "right_door_handle": handle_type,
+        # "right_door_handle": handle_type,
         "gripper": gripper_type,
         "left_finger": left_finger_type,
         "right_finger": right_finger_type,
@@ -376,7 +376,7 @@ class RoboKitchenEnv(BaseEnv):
                     "env_name": task_name,
                     "robots": robot_type,
                     "controller_configs": controller_config,
-                    "layout_ids": 1,
+                    "layout_ids": 2,
                     "style_ids": 0,
                     "translucent_robot": True,
                 }

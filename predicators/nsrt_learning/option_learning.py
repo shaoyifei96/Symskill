@@ -1110,6 +1110,8 @@ class _LearnedDSParameterizedOption(ParameterizedOption):
         # Optimization: remember the most recent state and terminate early if
         # the state is repeated, since this option will never get unstuck.
         # Keep track of states in memory
+        mem_count = 20
+
         if "state_history" not in memory:
             memory["state_history"] = []
 
@@ -1117,11 +1119,11 @@ class _LearnedDSParameterizedOption(ParameterizedOption):
         memory["state_history"].append(state)
 
         # Keep only the last 10 states
-        if len(memory["state_history"]) > 10:
+        if len(memory["state_history"]) > mem_count:
             memory["state_history"].pop(0)
 
-        # Check if state has not changed for 10 steps
-        if len(memory["state_history"]) == 10:
+        # Check if state has not changed for e.g. 10 steps
+        if len(memory["state_history"]) == mem_count:
             if all(memory["state_history"][0].allclose(s) for s in memory["state_history"][1:]):
                 warnings.warn("Disabled effect-based terminal check, this is due to velocity-based ")
                 return True
