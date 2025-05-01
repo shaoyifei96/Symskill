@@ -66,7 +66,9 @@ class GlobalSettings:
     robo_kitchen_randomize_init_state = True  # not used
     # robo_kitchen_task = "PnPCounterToCab"
     # robo_kitchen_task = "OpenSingleDoor"
-    robo_kitchen_task = "StoreFruit" 
+    robo_kitchen_task = "CloseSingleDoor"
+    # robo_kitchen_task = "TurnOnStove"
+    # robo_kitchen_task = "StoreFruit"
     # robo_kitchen_viz_debug = False # i think the use_gui flag covers this
     robo_kitchen_contact_smoothing_window = 21
     robo_kitchen_load_dataset = True  # this has priority, if False, then save flag is considered
@@ -76,7 +78,7 @@ class GlobalSettings:
     make_test_videos = False
     loglevel = 10
     if enable_meshcat:
-        visualizer = MeshcatVisualizer(mode="se3_lpvds")
+        visualizer = MeshcatVisualizer(mode="traj_follower")
     else:
         visualizer = None
     option_to_init_pose: Dict[str, List[np.ndarray]] = {}

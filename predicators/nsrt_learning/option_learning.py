@@ -6,6 +6,7 @@ import abc
 import copy
 import logging
 from collections import defaultdict
+import os
 from typing import ClassVar, Dict, List, Sequence, Set, Tuple, Any, Optional
 import warnings
 import matplotlib.pyplot as plt
@@ -25,7 +26,7 @@ from predicators.settings import CFG
 from predicators.structs import Action, Array, Datastore, Object, OptionSpec, ParameterizedOption, Segment, State, STRIPSOperator, Variable, VarToObjSub, DummyParameterizedOption, Type
 from predicators.utils import OptionExecutionFailure, calculate_relative_pose
 
-from ds_policy import DSPolicy, UnifiedModelConfig, transform_frame, compute_vel_traj
+from ds_policy import DSPolicy, UnifiedModelConfig, PositionModelConfig, QuaternionModelConfig, transform_frame, compute_vel_traj
 from scipy.spatial.transform import Rotation as R
 
 
@@ -662,6 +663,8 @@ class _DSOptionLearner(_OptionLearnerBase):
 
         dt = 1 / 60
 
+        traj_idx_to_demo_idx = defaultdict(int)
+        
         for i in range(len(strips_ops)):
             op, datastore = strips_ops[i], datastores[i]
             logging.info(f"\nLearning option for NSRT {op.name}")
@@ -674,8 +677,8 @@ class _DSOptionLearner(_OptionLearnerBase):
             gripper_action = []  # gripper state trajectories if available
             set_OOI_type_name = set()
             set_gripper_or_obj_type_name = set()
-
-            for i, (segment, var_to_obj) in enumerate(datastore):
+            
+            for j, (segment, var_to_obj) in enumerate(datastore):
                 OOI_obj, gripper_or_obj = find_two_objects(op, segment, var_to_obj, CFG.learn_option_between_gripper_obj)
                 if OOI_obj is None or gripper_or_obj is None:
                     logging.warning(f"NSRT {op.name} cannot find OOI or gripper from var_to_obj, ignoring segment")
@@ -706,11 +709,27 @@ class _DSOptionLearner(_OptionLearnerBase):
                 gripper_or_obj_rot_traj_OOI_frame = np.array([R.from_quat(q).as_matrix() for q in gripper_or_obj_quat_traj_OOI_frame])
                 gripper_or_obj_vel_traj_OOI_frame, gripper_or_obj_ang_vel_traj_OOI_frame = compute_vel_traj(gripper_or_obj_pos_traj_OOI_frame, gripper_or_obj_rot_traj_OOI_frame, dt)
 
+                traj_idx_to_demo_idx[j] = segment.trajectory._train_task_idx
+                
                 # Add segment data to overall dataset
                 x.append(gripper_or_obj_pos_traj_OOI_frame)
                 x_dot.append(gripper_or_obj_vel_traj_OOI_frame)
                 quat.append(gripper_or_obj_quat_traj_OOI_frame)
                 omega.append(gripper_or_obj_ang_vel_traj_OOI_frame)
+
+            # Save trajectory data to npy files for later use
+            if len(x) > 0:
+                # Create directory if it doesn't exist
+                save_dir = "./trajectory_data"
+                os.makedirs(save_dir, exist_ok=True)
+                
+                # Save each trajectory component
+                np.save(f"{save_dir}/x_{op.name}.npy", np.array(x, dtype=object), allow_pickle=True)
+                np.save(f"{save_dir}/x_dot_{op.name}.npy", np.array(x_dot, dtype=object), allow_pickle=True)
+                np.save(f"{save_dir}/quat_{op.name}.npy", np.array(quat, dtype=object), allow_pickle=True)
+                np.save(f"{save_dir}/omega_{op.name}.npy", np.array(omega, dtype=object), allow_pickle=True)
+                
+                logging.info(f"Saved trajectory data for NSRT {op.name} to {save_dir}")
 
             if len(x) == 0:
                 logging.warning(f"NSRT {op.name} has no valid segments, ignoring")
@@ -730,19 +749,24 @@ class _DSOptionLearner(_OptionLearnerBase):
                     relative_cluster_attractor = list(relative_clusters)[0]._classifier.cluster_center
 
             plot_DSPolicy_input_data(
-                x,
-                x_dot,
-                quat,
-                omega,
-                gripper_action,
-                visualize=True,
-                save_path=f"./feature_data/option_traj_{op.name}_gripper_in_{OOI_type_name}_frame.png",
+                x, x_dot, quat, omega, 
+                gripper_action, 
+                traj_idx_to_demo_idx,
+                visualize=True, 
+                save_path=f"./feature_data/option_traj_{op.name}_gripper_in_{OOI_type_name}_frame.png", 
                 OOI_type=OOI_type_name,
                 relative_cluster_attractor=relative_cluster_attractor,
             )
 
             # Configure DS Policy
-            unified_config = UnifiedModelConfig(mode="se3_lpvds", K_candidates=[1])
+            unified_config = UnifiedModelConfig(mode="se3_lpvds", K_candidates=[3],
+                                                enable_simple_ds_near_target=True,
+                                                simple_ds_pos_threshold=0.1,
+                                                simple_ds_ori_threshold=0.1,
+                                                K_pos=10.0,
+                                                K_ori=10.0)
+            # pos_config = PositionModelConfig(mode="none")
+            # quat_config = QuaternionModelConfig(mode="simple")
 
             # Create DSPolicy
             ds_policy = DSPolicy(
@@ -930,13 +954,14 @@ def find_OOI_name(op: STRIPSOperator) -> Tuple[str, bool]:
 
 
 def plot_DSPolicy_input_data(
-    x: List[np.ndarray],
-    x_dot: List[np.ndarray],
-    quat: List[np.ndarray],
-    omega: List[np.ndarray],
-    gripper: List[np.ndarray],
-    visualize: bool = False,
-    save_path: str = None,
+    x: List[np.ndarray], 
+    x_dot: List[np.ndarray], 
+    quat: List[np.ndarray], 
+    omega: List[np.ndarray], 
+    gripper: List[np.ndarray], 
+    traj_idx_to_demo_idx: Dict[int, int],
+    visualize: bool = False, 
+    save_path: str = None, 
     OOI_type: str = None,
     relative_cluster_attractor: np.ndarray = None,
 ) -> bool:
@@ -954,7 +979,8 @@ def plot_DSPolicy_input_data(
 
         # Plot each trajectory with a different color
         for i, trajectory in enumerate(x):
-            ax.plot(trajectory[:, 0], trajectory[:, 1], trajectory[:, 2], label=f"Trajectory {i+1}", linewidth=2)
+            demo_idx = traj_idx_to_demo_idx[i]
+            ax.plot(trajectory[:, 0], trajectory[:, 1], trajectory[:, 2], label=f"Traj {i+1} (Demo {demo_idx})", linewidth=2)
 
             # Mark start and end points
             ax.scatter(trajectory[0, 0], trajectory[0, 1], trajectory[0, 2], color="green", s=100, marker="o")

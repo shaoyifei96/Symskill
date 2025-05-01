@@ -68,8 +68,7 @@ class MeshcatVisualizer:
 
         self.robot_transform = tf.identity_matrix() # Store robot transform
         self.demo_trajs = demo_trajs
-        if self.traj_follower:
-            self.demo_traj_scores = demo_traj_scores if demo_traj_scores is not None else np.ones(len(demo_trajs))
+        self.demo_traj_scores = demo_traj_scores
 
         self.generated_traj = []
 
