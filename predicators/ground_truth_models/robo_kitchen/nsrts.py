@@ -30,6 +30,7 @@ class RoboKitchenGroundTruthNSRTFactory(GroundTruthNSRTFactory):
         thing_type = types["thing_type"]
         surface_type = types["surface_type"]
         object_type = types["object_type"]
+        door_type = types["door_type"]
 
         # Objects
         gripper = Variable("?gripper", gripper_type)
@@ -41,6 +42,7 @@ class RoboKitchenGroundTruthNSRTFactory(GroundTruthNSRTFactory):
         thing = Variable("?thing", thing_type)
         surface = Variable("?surface", surface_type)
         obj = Variable("?object", object_type)
+        door = Variable("?door", door_type)
 
         # Options
         DS_OpenSingleDoor_MoveTowards_option = options["DS_OpenSingleDoor_MoveTowards_option"]
@@ -74,7 +76,7 @@ class RoboKitchenGroundTruthNSRTFactory(GroundTruthNSRTFactory):
         ignore_effects = set()
         option = MoveToInitPoseOption
         option_vars = [gripper, base]
-        
+
         def to_initial_state_sampler(state: State, memory: dict, objects: Sequence[Object], params: Array) -> Array:
             return np.array([0], dtype=np.float32)
         to_initial_state_nsrt = NSRT(
@@ -91,10 +93,10 @@ class RoboKitchenGroundTruthNSRTFactory(GroundTruthNSRTFactory):
         )
 
         # ReachBehindandPull
-        parameters = [gripper, handle, base, cabinet, left_finger, right_finger]
+        parameters = [gripper, door, handle, base, cabinet, left_finger, right_finger]
         preconditions = {LiftedAtom(DoorHalfOpen, [handle, cabinet]), LiftedAtom(GripperOpen, [left_finger, right_finger])}
         maintain_effects = set()
-        add_effects = {LiftedAtom(DoorOpen, [handle, cabinet])}
+        add_effects = {LiftedAtom(DoorOpen, [door, cabinet])}
         # add_effects = set() # NOTE: this avoids using reach_behind_and_pull_option
         delete_effects = {LiftedAtom(DoorHalfOpen, [handle, cabinet])}
         ignore_effects = set()
@@ -258,9 +260,9 @@ class RoboKitchenGroundTruthNSRTFactory(GroundTruthNSRTFactory):
         )
 
         # PullOpenDoor
-        parameters = [gripper, handle, cabinet, base, left_finger, right_finger]
+        parameters = [gripper, door, handle, cabinet, base, left_finger, right_finger]
         preconditions = {
-            LiftedAtom(DoorClosed, [handle, cabinet]),
+            LiftedAtom(DoorClosed, [door, cabinet]),
             LiftedAtom(GripperClosed, [left_finger, right_finger]),
             # LiftedAtom(InContact, [gripper, handle]),
             LiftedAtom(ReadyGrabObj, [gripper, handle]),
@@ -270,8 +272,8 @@ class RoboKitchenGroundTruthNSRTFactory(GroundTruthNSRTFactory):
             LiftedAtom(ReadyGrabObj, [gripper, handle]),
             LiftedAtom(GripperClosed, [left_finger, right_finger]),
         }
-        add_effects = {LiftedAtom(DoorOpen, [handle, cabinet])}
-        delete_effects = {LiftedAtom(DoorClosed, [handle, cabinet])}
+        add_effects = {LiftedAtom(DoorOpen, [door, cabinet])}
+        delete_effects = {LiftedAtom(DoorClosed, [door, cabinet])}
         ignore_effects = set()
         option = DS_OpenSingleDoor_MoveAway_option
         option_vars = [gripper, handle, base]
@@ -324,14 +326,14 @@ class RoboKitchenGroundTruthNSRTFactory(GroundTruthNSRTFactory):
             maintain_effects,   
         )
 
-        nsrts.add(open_gripper_nsrt)
-        # nsrts.add(move_to_and_grab_handle_nsrt)  # open_gripper + move_to_handle + grab_handle
-        nsrts.add(grab_obj_nsrt)
-        nsrts.add(move_to_handle_nsrt)
-        nsrts.add(move_to_thing_nsrt)
-        nsrts.add(pull_open_door_nsrt)
-        # nsrts.add(reach_behind_and_pull_nsrt)
-        nsrts.add(place_thing_on_surface)
+        # nsrts.add(open_gripper_nsrt)
+        # # nsrts.add(move_to_and_grab_handle_nsrt)  # open_gripper + move_to_handle + grab_handle
+        # nsrts.add(grab_obj_nsrt)
+        # nsrts.add(move_to_handle_nsrt)
+        # nsrts.add(move_to_thing_nsrt)
+        # nsrts.add(pull_open_door_nsrt)
+        # # nsrts.add(reach_behind_and_pull_nsrt)
+        # nsrts.add(place_thing_on_surface)
         nsrts.add(to_initial_state_nsrt)
 
         return nsrts

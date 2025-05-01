@@ -1165,10 +1165,10 @@ class _LearnedDSParameterizedOption(ParameterizedOption):
         grounded_op = self.operator.ground(tuple(objects))
 
         for e in grounded_op.add_effects:
-            if (e.predicate.name, e.entities[0].type.name, e.entities[1].type.name) in CFG.dict_contact_predicate_to_rel_pose_predicates:
-                if not check_dict_contact_predicate_to_rel_pose_predicates(e, state):
-                    return False
-            elif not e.holds(state):
+            # if (e.predicate.name, e.entities[0].type.name, e.entities[1].type.name) in CFG.dict_contact_predicate_to_rel_pose_predicates:
+            #     if not check_dict_contact_predicate_to_rel_pose_predicates(e, state):
+            #         return False
+            if not e.holds(state):
                 return False
         for e in grounded_op.delete_effects:
             if e.holds(state):

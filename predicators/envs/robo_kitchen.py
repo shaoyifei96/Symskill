@@ -427,7 +427,7 @@ class RoboKitchenEnv(BaseEnv):
                     "env_name": task_name,
                     "robots": robot_type,
                     "controller_configs": controller_config,
-                    "layout_ids": 2,
+                    "layout_ids": 3,
                     "style_ids": 0,
                     "translucent_robot": True,
                 }
@@ -443,7 +443,9 @@ class RoboKitchenEnv(BaseEnv):
                     use_camera_obs=False,
                     control_freq=20,
                     renderer="mjviewer",
-                    seed=4,
+                    # seed=4, # for StoreFruit in layout 2
+                    # seed=2,  # for CloseSingleDoor in layout 2
+                    seed=1,  # for CloseSingleDoor in layout 3
                 )
 
                 self._env = VisualizationWrapper(self._env_raw)
@@ -517,12 +519,14 @@ class RoboKitchenEnv(BaseEnv):
 
         robot_body_contact = self._env.get_contacts(self._env.robots[0].robot_model)  # robot
         robot_body_obj = self.object_name_to_object("gripper") # use gripper as the robot object
+        global_contact_pairs = [(self._env_raw.sim.model.geom_id2name(contact.geom1), self._env_raw.sim.model.geom_id2name(contact.geom2)) for contact in self._env_raw.sim.data.contact]
+        link7_contact_pairs = [pair for pair in global_contact_pairs if "link7" in pair[0] or "link7" in pair[1]]
         for contact in robot_body_contact:
             for obj_name in object_names:
                 for contact_name in contact_name_to_object:
                     if contact_name in contact:
                         contact = contact_name_to_object[contact_name]
-                if obj_name in contact:
+                if obj_name in contact and link7_contact_pairs:
                     obj = self.object_name_to_object(obj_name)
                     contacts.add((robot_body_obj, obj))
                 # else:
