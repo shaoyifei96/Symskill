@@ -1110,7 +1110,7 @@ class _LearnedDSParameterizedOption(ParameterizedOption):
         # Optimization: remember the most recent state and terminate early if
         # the state is repeated, since this option will never get unstuck.
         # Keep track of states in memory
-        mem_count = 20
+        mem_count = 10
 
         if "state_history" not in memory:
             memory["state_history"] = []

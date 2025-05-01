@@ -1245,7 +1245,7 @@ def run_task_plan_once(
             #     atoms_seqs.append(plan_tuple[1])
             #     metrics_list.append(plan_tuple[2])
 
-            for plan_tuple in islice(plan_generator, CFG.sesame_max_skeletons_optimized):
+            for plan_tuple in plan_generator:
                 logging.debug(f"Plan [{', '.join(nsrt.name for nsrt in plan_tuple[0])}]")
                 if redundancy_check(plan_tuple[0]):
                     continue
@@ -1291,6 +1291,9 @@ def run_task_plan_once(
                 # Choose random index since stay_close_to_previous_plan is False
                 best_idx = np.random.choice(range(len(similarities)))
             logging.debug(f"Best Re-Plan [{', '.join(nsrt.name for nsrt in plans[best_idx])}] has {similarities[best_idx]} score, {steps[best_idx]} steps")
+            logging.debug(f"Best Re-Plan Atoms Seq: ")
+            for i, atoms in enumerate(atoms_seqs[best_idx]):
+                logging.debug(f"Step {i+1}: {', '.join(atom._str for atom in atoms)}")
             plan = plans[best_idx]
             atoms_seq = atoms_seqs[best_idx]
             metrics = metrics_list[best_idx]
@@ -1301,9 +1304,21 @@ def run_task_plan_once(
             min_plan_length = min(len(plan) for plan in plans)
             best_idx = [len(plan) for plan in plans].index(min_plan_length)         
             logging.debug(f"Best Init-Plan [{', '.join(nsrt.name for nsrt in plans[best_idx])}] has {len(plans[best_idx])} steps")
+            logging.debug(f"Best Init-Plan Atoms Seq: ")
+            for i, atoms in enumerate(atoms_seqs[best_idx]):
+                logging.debug(f"Step {i+1}: {', '.join(atom._str for atom in atoms)}")
             plan = plans[best_idx]
             atoms_seq = atoms_seqs[best_idx]
             metrics = metrics_list[best_idx]
+
+        # fix wrong move to init
+        if len(plan) > 2:
+            atoms_seq = fix_wrong_move_to_init(plan, atoms_seq) 
+            logging.debug(f"Best Plan After Fix [{', '.join(nsrt.name for nsrt in plan)}]")
+            logging.debug(f"Best Plan Atoms Seq After Fix: ")
+            for i, atoms in enumerate(atoms_seq):
+                logging.debug(f"Step {i+1}: {', '.join(atom._str for atom in atoms)}")
+
         if len(plan) > max_horizon:
             raise PlanningFailure(
                 "Skeleton produced by A-star exceeds horizon!")
@@ -1408,6 +1423,28 @@ def redundancy_check(plan: List[_GroundNSRT]) -> bool:
 
     # If all checks passed
     return False
+
+
+def fix_wrong_move_to_init(plan: List[_GroundNSRT], atoms_seq: List[Set[GroundAtom]]) -> None:
+    num_ops = len(plan)
+
+    new_atoms_seq = [atoms_seq[0], atoms_seq[1]]
+
+    for i in range(1, num_ops - 1):
+
+        curr_op = plan[i]
+        next_op = plan[i + 1]
+        existing_atoms = new_atoms_seq[i]
+
+        if curr_op.name == "ToInitialState" and all(atom not in next_op.preconditions for atom in curr_op.add_effects):
+            plan[i] = next_op
+            plan[i + 1] = curr_op
+
+        new_atoms_seq.append(utils.apply_operator(plan[i], existing_atoms))
+    
+    new_atoms_seq.append(utils.apply_operator(plan[-1] , new_atoms_seq[-1]))
+
+    return new_atoms_seq
 
 
 class PlanningFailure(utils.ExceptionWithInfo):

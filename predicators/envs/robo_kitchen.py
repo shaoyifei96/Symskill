@@ -42,14 +42,14 @@ MAX_ROTATION_DISPLACEMENT = 1.0
 class RoboKitchenEnv(BaseEnv):
     """Kitchen environment using robosuite."""
 
-    door_open_thresh = np.deg2rad(80) # rad
+    door_open_thresh = np.deg2rad(80)  # rad
     door_half_open_thresh = 0.4  # rad
     grab_close_distance_thresh = 0.02  # m
     gripper_fingers_distance_thresh = 0.08  # m
     place_close_distance_thresh = 0.1  # m
 
     online_door_open_thresh = np.deg2rad(60)  # rad
-    online_place_close_distance_thresh = 0.2  # m
+    online_place_close_distance_thresh = 0.1  # m
 
     # Types
     object_type = Type("object_type", ["translation", "quaternion"])
@@ -66,7 +66,7 @@ class RoboKitchenEnv(BaseEnv):
     obj_name_to_type = {
         "handle": handle_type,
         "left_door_handle": handle_type,
-        # "right_door_handle": handle_type,
+        "right_door_handle": handle_type,
         "gripper": gripper_type,
         "left_finger": left_finger_type,
         "right_finger": right_finger_type,
@@ -392,6 +392,7 @@ class RoboKitchenEnv(BaseEnv):
                     use_camera_obs=False,
                     control_freq=20,
                     renderer="mjviewer",
+                    seed=4,
                 )
 
                 self._env = VisualizationWrapper(self._env_raw)
@@ -574,7 +575,7 @@ class RoboKitchenEnv(BaseEnv):
     def goal_predicates(self) -> Set[Predicate]:
         """Get the subset of self.predicates that are used in goals."""
         return {
-            self._pred_name_to_pred["DoorOpen"], 
+            self._pred_name_to_pred["DoorOpen"],
             self._pred_name_to_pred["OnSurface"],
         }
         goal_desc = self.task_selected
@@ -692,8 +693,8 @@ class RoboKitchenEnv(BaseEnv):
         current_rot_rel = base_rot_world.inv() * gripper_rot_world
 
         # Define tolerances
-        pos_tolerance = 0.1  # meters
-        angle_tolerance = np.deg2rad(20)  # radians
+        pos_tolerance = 0.2  # meters
+        angle_tolerance = np.deg2rad(90)  # radians
 
         # Check position distance
         pos_diff = np.linalg.norm(current_pos_rel - initial_pos_rel)

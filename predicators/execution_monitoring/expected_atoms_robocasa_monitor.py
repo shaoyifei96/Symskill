@@ -31,7 +31,7 @@ class ExpectedAtomsRobocasaExecutionMonitor(BaseExecutionMonitor):
     @classmethod
     def get_name(cls) -> str:
         return "expected_atoms_robocasa"
-    
+
     def _record_failure(self, option_name: str, state: State, reason_of_failure: str) -> None:
         """Record failure."""
         # gripper = RoboKitchenEnv.object_name_to_object("gripper")
@@ -41,7 +41,7 @@ class ExpectedAtomsRobocasaExecutionMonitor(BaseExecutionMonitor):
 
     def step(self, state: State) -> bool:
         """Returns True if the agent should replan."""
-        
+
         # Basic validation checks
         if not self._validate_approach():
             return False
@@ -88,7 +88,7 @@ class ExpectedAtomsRobocasaExecutionMonitor(BaseExecutionMonitor):
             # if no unsat atoms, increment nsrt step, means we're moving to next NSRT
             self._current_nsrt_step += 1
         return False
-    
+
     def _format_failure_reason(self, prefix: str, atoms: Set[GroundAtom]) -> str:
         """Format a failure reason string with a prefix and a set of atoms."""
         failure_reason = f"<{prefix}>:"
@@ -107,19 +107,24 @@ class ExpectedAtomsRobocasaExecutionMonitor(BaseExecutionMonitor):
         # if unsat_maintain_effects:
         #     return unsat_maintain_effects
         # return set()
+        # try:
+        #     if self.check_delay < 10:
+        #         self.check_delay += 1
+        #         return set()
+        # except AttributeError:
+        #     self.check_delay = 0
         return self._check_predicates(state, maintain_effects)
 
     def _validate_approach(self) -> bool:
         """Validate that we're using a supported planning approach."""
         if self._action is not None and self._action.has_option():
             self._running_option_name = self._action.get_option().name
-            
+
         assert "oracle" in CFG.approach or "active_sampler" in CFG.approach \
             or "maple_q" in CFG.approach or \
             "grammar_search_invention" in CFG.approach\
             or "clustering_invention" in CFG.approach
-            
-            
+
         if not self._approach_info:  # pragma: no cover
             return False
         return True
@@ -153,32 +158,43 @@ class ExpectedAtomsRobocasaExecutionMonitor(BaseExecutionMonitor):
         next_expected_vlm_atoms = set(
             atom for atom in next_expected_atoms
             if isinstance(atom.predicate, VLMPredicate))
-            
+
         non_vlm_unsat_atoms = set()
-        
-        
+
+        sat_atoms = set()
         # converting contact predicates to rel_pose predicates
         for atom in next_expected_atoms - next_expected_vlm_atoms:
             if (atom.predicate.name, atom.entities[0].type.name, atom.entities[1].type.name) in CFG.dict_contact_predicate_to_rel_pose_predicates:
-                if not utils.check_dict_contact_predicate_to_rel_pose_predicates(atom, state):
-                    non_vlm_unsat_atoms.add(atom)
-        
-        # {
+                # if not utils.check_dict_contact_predicate_to_rel_pose_predicates(atom, state):
+                #     non_vlm_unsat_atoms.add(atom)
+                if utils.check_dict_contact_predicate_to_rel_pose_predicates(atom, state):
+                    sat_atoms.add(atom)
+
+        # non_vlm_unsat_atoms = {
         #     atom
         #     for atom in (next_expected_atoms - next_expected_vlm_atoms)
-        #     if not atom.holds(state)
+        #     if not atom.holds(state)non_vlm_unsat_atoms
         # }
         
+        for atom in (next_expected_atoms - next_expected_vlm_atoms):
+            if atom.holds(state):
+                sat_atoms.add(atom)
+        non_vlm_unsat_atoms = next_expected_atoms - sat_atoms
+
         vlm_unsat_atoms = set()
         if len(next_expected_vlm_atoms) > 0:
             vlm_unsat_atoms = utils.query_vlm_for_atom_vals(
                 next_expected_vlm_atoms, state)  # pragma: no cover
-                
-        return non_vlm_unsat_atoms | vlm_unsat_atoms
 
+        return non_vlm_unsat_atoms | vlm_unsat_atoms
 
     def reset(self, task, reset_failure_memory: bool = True) -> None:
         """Reset the monitor for a new task."""
+        # try:
+        #     self.check_delay= 0
+        # except AttributeError:
+        #     self.check_delay = 0
+
         super().reset(task)
         self._running_option_name = None
         self._last_option_name = None
@@ -187,4 +203,3 @@ class ExpectedAtomsRobocasaExecutionMonitor(BaseExecutionMonitor):
         if reset_failure_memory:
             self._failure_memory = []
         # Note: we don't reset failure memory as we want to keep track across episodes
-

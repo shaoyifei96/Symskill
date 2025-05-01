@@ -81,7 +81,7 @@ class GlobalSettings:
         visualizer = None
     option_to_init_pose: Dict[str, List[np.ndarray]] = {}
     option_to_policy = {}
-    use_teleop = True
+    use_teleop = False
 
     """Unchanging settings."""
     # global parameters
@@ -877,7 +877,7 @@ class GlobalSettings:
                     "tools": 1000,
                     "stick_button": 1000,
                     "stick_button_move": 1000,
-                    "robo_kitchen": 5,
+                    "robo_kitchen": 100,
                 },
             )[args.get("env", "")],
             # In SeSamE, the maximum effort put into refining a single skeleton.
