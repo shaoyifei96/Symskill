@@ -23,7 +23,7 @@ class GlobalSettings:
 
     dict_contact_predicate_to_rel_pose_predicates = {}  # key: contact predicate, value: set of rel_pose predicates
     # clustering_invention approach parameters
-    predicate_candidates_method = "contact_clustering" # "low_speed" or "contact_clustering"
+    predicate_candidates_method = "contact_clustering"  # "low_speed" or "contact_clustering"
     clustering_inv_cov_reg = 1e-3
     clustering_change_only = False
 
@@ -66,7 +66,7 @@ class GlobalSettings:
     robo_kitchen_randomize_init_state = True  # not used
     # robo_kitchen_task = "PnPCounterToCab"
     # robo_kitchen_task = "OpenSingleDoor"
-    robo_kitchen_task = "StoreFruit" 
+    robo_kitchen_task = "StoreFruit"
     # robo_kitchen_viz_debug = False # i think the use_gui flag covers this
     robo_kitchen_contact_smoothing_window = 21
     robo_kitchen_load_dataset = True  # this has priority, if False, then save flag is considered
@@ -86,7 +86,7 @@ class GlobalSettings:
     """Unchanging settings."""
     # global parameters
     num_train_tasks = 10  # in robocasa, either the max demo number or num_train_tasks will be used
-    num_test_tasks = 1
+    num_test_tasks = 2
     # Perform online learning for this many cycles or until this many
     # transitions have been collected, whichever happens first.
     num_online_learning_cycles = 10
