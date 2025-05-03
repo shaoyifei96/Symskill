@@ -611,6 +611,7 @@ class RoboKitchenEnv(BaseEnv):
         self.viz_type_frames(self.cabinet_type)
         self.viz_type_frames(self.stove_type)
         self.viz_type_frames(self.knob_type)
+        self.viz_type_frames(self.door_type)
         self.viz_type_frames(self.base_type)
 
         if CFG.use_teleop:
@@ -671,6 +672,28 @@ class RoboKitchenEnv(BaseEnv):
         """Show frame in the viewer."""
         if self._env_raw is not None:
             self._env_raw.viewer.mjshowframe(xyz, quat=quat, size=size, name=name, keep=keep)
+
+    def mjshowellipse(self, xyz, quat=(1,0,0,0), size=(0.1, 0.1, 0.1), color=(1, 0, 0), alpha=0.5, name=None, base_pos=None, base_quat=None):
+        """Show ellipse in the viewer."""
+        if self._env_raw is not None:
+            if base_pos is not None and base_quat is not None:
+                # base_quat and quat are xyzw
+
+                # Convert base and relative quaternions to Rotation objects
+                base_rot = R.from_quat(base_quat)
+                rel_rot = R.from_quat(quat)
+
+                # Transform position: world_pos = base_pos + base_rot * rel_pos
+                xyz_world = base_pos + base_rot.apply(xyz)
+
+                # Transform orientation: world_rot = base_rot * rel_rot
+                world_rot = base_rot * rel_rot
+                quat_world = world_rot.as_quat() # Convert back to xyzw
+
+                # Update xyz and quat to be in world frame
+                xyz = xyz_world
+                quat = quat_world
+            self._env_raw.viewer.mjshowellipse(xyz, quat=quat, size=size, color=color, alpha=alpha, name=name)
 
     @property
     def action_space(self) -> Box:
@@ -973,6 +996,7 @@ class RoboKitchenEnv(BaseEnv):
 
         # Convert quaternions to rotation matrices
         from scipy.spatial.transform import Rotation
+        from scipy.spatial.transform import Rotation as R
 
         knob_rot = Rotation.from_quat(knob_quat)
         stove_rot = Rotation.from_quat(stove_quat)
