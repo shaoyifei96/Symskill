@@ -405,7 +405,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 logging.info(f"Selected {len(self._learned_predicates)} predicates.")
         elif CFG.predicate_candidates_method == "contact_clustering":
             logging.info("Generating candidate predicates via contact clustering method...")
-            ground_atom_dataset, candidates, initial_monitor_preds = self._generate_candidate_predicates_contact_goal_clustering(dataset)
+            og_pred_atom_dataset, cluster_pred_atom_dataset, different_seg_count_trajs, candidates, initial_monitor_preds = self._generate_candidate_predicates_contact_goal_clustering(dataset)
             self._learned_predicates = set(candidates.keys()) | initial_monitor_preds
         else:
             raise ValueError(f"Invalid predicate candidates method: {CFG.predicate_candidates_method}")
@@ -433,12 +433,16 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         # segmented_trajs_final = [
         #     segment_trajectory(ll_traj, final_predicates, atom_seq=atom_seq)
         #     for ll_traj, atom_seq in atom_dataset_final
-        # ]
+        trajs = dataset.trajectories
+        # Remove trajectories with different segment counts in reverse order
+        # to avoid index shifting problems
+        for i in sorted(different_seg_count_trajs, reverse=True):
+            trajs.pop(i)
 
         # Call learn_nsrts with segmented trajectories
         self._learn_nsrts(
-            dataset.trajectories,
-            ground_atom_dataset,
+            trajs,
+            og_pred_atom_dataset,
             annotations=annotations,
             online_learning_cycle=None,
             passed_in_predicates= self._learned_predicates
@@ -1310,7 +1314,10 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             return {}, {} # Return empty dicts if gripper type is not found
 
         # Combine InContact and goal predicates for atom dataset creation
-        predicates_to_monitor = {in_contact_pred, in_origin_pred} | env.goal_predicates
+        if CFG.remove_inOrigin_pred:
+            predicates_to_monitor = {in_contact_pred} | env.goal_predicates
+        else:
+            predicates_to_monitor = {in_contact_pred, in_origin_pred} | env.goal_predicates
         ground_atom_dataset = utils.create_ground_atom_dataset(dataset.trajectories, predicates_to_monitor)
 
         relative_pose_dataset_dict = defaultdict(list) # Maps (atom_pred, type1, type2) -> List[rel_pose]
@@ -1334,14 +1341,16 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             # We want to eventually treat lost contact as a phase, and use clustering to group the lost contact phases
             init_atoms = None
             init_atoms_pred = []
-            finish_adding_init_atoms = CFG.remove_inOrigin_pred
+            finish_adding_init_atoms = False
             for t in range(1, len(atom_seq)):
                 atoms_t = atom_seq[t]
                 atoms_tm1 = atom_seq[t - 1]
                 if t == 1 and len(atoms_tm1) > 0 and any(atom.predicate == in_origin_pred for atom in atoms_tm1):
                     init_atoms = atoms_tm1
                     init_atoms_pred = [atom.predicate for atom in atoms_tm1]
-                assert init_atoms is not None, "No InOrigin predicate found in the first state of the trajectory."
+                if init_atoms is None:
+                    logging.warning("No InOrigin predicate found in the first state of the trajectory, not expanding InOrigin predicate")
+                    finish_adding_init_atoms = True #
                 if len(atoms_t) > 0 and any(atom.predicate not in init_atoms_pred for atom in atoms_t):
                     finish_adding_init_atoms = True
                 if not finish_adding_init_atoms:
@@ -1408,7 +1417,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                             relative_pose_dataset_dict[key].append(rel_pose_at_contact_obj1_in_obj2_frame)
 
         logging.info("Clustering collected relative contact poses...")
-        candidates: Dict[Predicate, float] = {}
+        candidate_cluster_preds: Dict[Predicate, float] = {}
         # predicate_counter = 0 # To ensure unique cluster IDs
 
         # Initialize cluster visualization storage attributes (copied from _generate_candidate_predicates)
@@ -1554,56 +1563,76 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                     mahalanobis_threshold=cluster_info['mahalanobis_threshold'] # Pass threshold
                 )
                 # Add predicate to candidates with cost (e.g., based on arity)
-                candidates[pred_generated] = float(pred_generated.arity) # Example cost
+                candidate_cluster_preds[pred_generated] = float(pred_generated.arity) # Example cost
                 if (pred.name, type1.name, type2.name) in CFG.dict_contact_predicate_to_rel_pose_predicates:
                     CFG.dict_contact_predicate_to_rel_pose_predicates[(pred.name, type1.name, type2.name)].add(pred_generated)
                 else:
                     CFG.dict_contact_predicate_to_rel_pose_predicates[(pred.name, type1.name, type2.name)] = set([pred_generated])
 
         # Rename predicates for PDDL compatibility
-        renamed_candidates = self._rename_predicates_to_remove_incompatible_chars(candidates)
+        renamed_cluster_candidates = self._rename_predicates_to_remove_incompatible_chars(candidate_cluster_preds)
 
         # Optionally Reconsider the atom seq
         # --- Debugging: Show segmentation with ONLY the new cluster predicates ---
         # kept_preds = set(renamed_candidates.keys())
         kept_preds = set(predicates_to_monitor)
-        if kept_preds:
-            logging.info("--- Segmentation using ONLY newly generated cluster predicates ---")
-            cluster_pred_atom_dataset = self._create_atom_dataset(dataset, kept_preds)
-            for i, (ll_traj, atom_seq) in enumerate(cluster_pred_atom_dataset):
-                logging.info(f"Trajectory {i} segmentation with new preds ({len(atom_seq)} states):")
-                if not atom_seq:
-                    logging.info("  (No states or no atoms true in this trajectory)")
-                    continue
+        kept_preds2 = set(renamed_cluster_candidates.keys())
+        different_seg_count_trajs = []
+        num_seg_1 = []
+        num_seg_2 = []
+        logging.info("--- Segmentation using ONLY newly generated cluster predicates ---")
+        og_pred_atom_dataset = self._create_atom_dataset(dataset, kept_preds)
+        cluster_pred_atom_dataset = self._create_atom_dataset(dataset, kept_preds2)
+        for i, (traj1_ele, traj2_ele) in enumerate(zip(og_pred_atom_dataset, cluster_pred_atom_dataset)):
+            _, atom_seq1 = traj1_ele
+            _, atom_seq2 = traj2_ele
 
-                # Print changes in atom sets
-                last_atoms = None
-                for t, atoms in enumerate(atom_seq):
-                    current_atoms = frozenset(atoms)
-                    if current_atoms != last_atoms:
-                        logging.info(f"  Time {t}: {current_atoms if current_atoms else '{}'}")
-                        last_atoms = current_atoms
-            logging.info("--- End segmentation with new predicates ---")
-        else:
-            logging.info("No new cluster predicates were generated to create atom dataset.")
+            # Print changes in atom sets
+            last_atoms1 = None
+            seg_count1 = 0
+            for t, atoms in enumerate(atom_seq1):
+                current_atoms = frozenset(atoms)
+                if current_atoms != last_atoms1:
+                    logging.info(f"Old  Time {t}: {current_atoms if current_atoms else '{}'}")
+                    last_atoms1 = current_atoms
+                    seg_count1 += 1
+            
+            last_atoms2 = None
+            seg_count2 = 0
+            for t, atoms in enumerate(atom_seq2):
+                current_atoms = frozenset(atoms)
+                if current_atoms != last_atoms2:
+                    logging.info(f"New  Time {t}: {current_atoms if current_atoms else '{}'}")
+                    last_atoms2 = current_atoms
+                    seg_count2 += 1
+            
+            if seg_count1 != seg_count2:
+                different_seg_count_trajs.append(i)
+                num_seg_1.append(seg_count1)
+                num_seg_2.append(seg_count2)
+
+        
+        logging.info(f"Trajectories with different segment counts: {different_seg_count_trajs}, num_seg_1: {num_seg_1}, num_seg_2: {num_seg_2}, totoal_num_traj = {len(og_pred_atom_dataset)}")
+
+        # Filter out trajectories with different segment counts from both datasets
+        if different_seg_count_trajs:            
+            # Reverse sort the indices to safely remove items without affecting other indices
+            for idx in sorted(different_seg_count_trajs, reverse=True):
+                if 0 <= idx < len(og_pred_atom_dataset):
+                    og_pred_atom_dataset.pop(idx)
+                if 0 <= idx < len(cluster_pred_atom_dataset):
+                    cluster_pred_atom_dataset.pop(idx)
+            
+            logging.info(f"After filtering: {len(og_pred_atom_dataset)} trajectories remain")
+
+
+
+        # logging.info("--- End segmentation with new predicates ---")
         # --- End Debugging ---
         if CFG.reprocess_dataset_after_clustering:
-            ground_atom_dataset_after_clustering = self._create_atom_dataset(dataset, renamed_candidates)
-            for ele1, ele2 in zip(ground_atom_dataset_after_clustering, ground_atom_dataset):
-                print(ele1[0], ele2[0])
-                print(ele1[1], ele2[1])
-                if ele1 != ele2:
-                    logging.info("Ground atom dataset after clustering is different from the original dataset.")
-                    break
-            return ground_atom_dataset_after_clustering, renamed_candidates, predicates_to_monitor
+            return og_pred_atom_dataset, cluster_pred_atom_dataset, different_seg_count_trajs, renamed_cluster_candidates, predicates_to_monitor
         else:
-            return ground_atom_dataset, renamed_candidates, predicates_to_monitor
-        # If traj_dataset_dict needs to be used later, it should be stored or returned differently.
-        # Returning candidates to fit the existing beam search input type.
-
-        ### Returning Contact Segmented Ground Atom Dataset, learned predicates, and inital predicates
-        ### Returning learned predicate segmented Ground Atom Dataset, learned predicates, and learned predicates again
-        return cluster_pred_atom_dataset, renamed_candidates, env.goal_predicates
+            return og_pred_atom_dataset, og_pred_atom_dataset, different_seg_count_trajs, renamed_cluster_candidates, predicates_to_monitor
 
     # --- Predicate Selection Functions (Beam Search) ---
     def _select_predicates_by_beam_search(self,
