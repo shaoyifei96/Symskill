@@ -1334,7 +1334,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             # We want to eventually treat lost contact as a phase, and use clustering to group the lost contact phases
             init_atoms = None
             init_atoms_pred = []
-            finish_adding_init_atoms = False
+            finish_adding_init_atoms = CFG.remove_inOrigin_pred
             for t in range(1, len(atom_seq)):
                 atoms_t = atom_seq[t]
                 atoms_tm1 = atom_seq[t - 1]
@@ -1587,12 +1587,21 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         else:
             logging.info("No new cluster predicates were generated to create atom dataset.")
         # --- End Debugging ---
-
+        if CFG.reprocess_dataset_after_clustering:
+            ground_atom_dataset_after_clustering = self._create_atom_dataset(dataset, renamed_candidates)
+            for ele1, ele2 in zip(ground_atom_dataset_after_clustering, ground_atom_dataset):
+                print(ele1[0], ele2[0])
+                print(ele1[1], ele2[1])
+                if ele1 != ele2:
+                    logging.info("Ground atom dataset after clustering is different from the original dataset.")
+                    break
+            return ground_atom_dataset_after_clustering, renamed_candidates, predicates_to_monitor
+        else:
+            return ground_atom_dataset, renamed_candidates, predicates_to_monitor
         # If traj_dataset_dict needs to be used later, it should be stored or returned differently.
         # Returning candidates to fit the existing beam search input type.
 
         ### Returning Contact Segmented Ground Atom Dataset, learned predicates, and inital predicates
-        return ground_atom_dataset, renamed_candidates, predicates_to_monitor
         ### Returning learned predicate segmented Ground Atom Dataset, learned predicates, and learned predicates again
         return cluster_pred_atom_dataset, renamed_candidates, env.goal_predicates
 

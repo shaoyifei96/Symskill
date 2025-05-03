@@ -74,9 +74,9 @@ class BilevelPlanningApproach(BaseApproach):
             policy = utils.nsrt_plan_to_greedy_policy(nsrt_plan, task.goal,
                                                       self._last_fail_info,
                                                       self._rng)
-            logging.debug("Current Task Plan:")
-            for act in nsrt_plan:
-                logging.debug(act)
+            # logging.debug("Current Task Plan:")
+            # for act in nsrt_plan:
+            #     logging.debug(act)
 
         # Run full bilevel planning.
         else:
