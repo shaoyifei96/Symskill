@@ -23,6 +23,7 @@ from hdbscan import HDBSCAN
 from scipy.spatial.distance import cdist
 from scipy.spatial.transform import Rotation
 from scipy.spatial.distance import pdist, squareform
+from scipy.spatial.transform import Rotation as R
 # Need linalg for inverse and norm
 from numpy.linalg import inv, norm, det, LinAlgError
 
@@ -46,6 +47,8 @@ from matplotlib.patches import Ellipse # For 2D ellipses
 import numpy.linalg # For eigh
 import matplotlib.cm as cm # Import cm for colormaps
 import matplotlib.colors as mcolors # Import colors for normalization
+
+from ds_policy import DSPolicy, compute_vel_traj, UnifiedModelConfig
 ################################################################################
 #                          Programmatic classifiers                            #
 ################################################################################
@@ -1322,6 +1325,18 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
 
         relative_pose_dataset_dict = defaultdict(list) # Maps (atom_pred, type1, type2) -> List[rel_pose]
 
+        # other obj -> obj_contact_with_gripper's relative pose trajectory in obj's frame
+        # {other_obj: list[list]}, each sub-list is a trajectory
+        contact_period_rel_trajs = {}
+        all_objs = list(ground_atom_dataset[0][0].states[0].data.keys())
+        for obj in all_objs:
+            if obj.type == gripper_type:
+                continue
+            contact_period_rel_trajs[obj] = []
+
+        obj_contact_with_gripper = None
+        all_obj_types = None
+
         quat_feat_name = "quaternion"
         trans_feat_name = "translation"
         pose_feat_name = "pose"
@@ -1336,6 +1351,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         logging.info("Extracting relative poses ...")
 
         for i, (ll_traj, atom_seq) in enumerate(ground_atom_dataset):
+            during_contact = False
             if not ll_traj.states: continue # Skip empty trajectories
             # logging.info(f"Processing trajectory {i} of {len(ground_atom_dataset)}")
             # We want to eventually treat lost contact as a phase, and use clustering to group the lost contact phases
@@ -1370,32 +1386,33 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
 
                 for atom in lost_atoms:
                     if atom.predicate == in_contact_pred: # this is lost gripper with obj
-                        # meaning obj is achieving its goal wrt to another object
-                        # Cheating here: using goal predicate to find the other object
-                        obj1, obj2 = atom.objects
-                        assert obj2.type == gripper_type
-                        found_goal_obj = False
-                        for goal in env.goal_predicates:
-                            if obj1.type in goal.types:
-                                type_to_achieve_goal = next(t for t in goal.types if t != obj1.type)
-                                found_goal_obj = True
-                                break
-                        if not found_goal_obj:
-                            logging.warning(f"No goal object found for {obj1.type} in {env.goal_predicates}")
-                            continue
-                        obj3 = state_t.get_objects(type_to_achieve_goal)[0]
-                        rel_pose_lost_contact_obj3_in_obj1_frame = utils.calculate_relative_pose(
-                            state_t, obj1, obj3,
-                            trans_feat_name, quat_feat_name
-                        )
-                        key = (atom.predicate, obj1.type, obj3.type, "lost_contact_2in1")
-                        relative_pose_dataset_dict[key].append(rel_pose_lost_contact_obj3_in_obj1_frame)
+                        during_contact = False
 
                 for atom in atoms_t:
                     if CFG.clustering_change_only and atom in atoms_tm1: continue
-                    if atom.predicate == in_contact_pred or atom.predicate in env.goal_predicates:
+                    if atom.predicate == in_contact_pred:
                         # Ensure the atom involves the gripper type or handle goals correctly
                         obj1, obj2 = atom.objects
+                        assert obj2.type == gripper_type
+
+                        # ------ get relative pose trajs of obj_contact_with_gripper in all other obj's frame ------ #
+                        if obj_contact_with_gripper is None:
+                            obj_contact_with_gripper = obj1
+                            contact_period_rel_trajs.pop(obj_contact_with_gripper, None)
+                        else:
+                            assert obj_contact_with_gripper == obj1
+
+                        for obj in all_objs:
+                            if obj.type == gripper_type or obj == obj_contact_with_gripper:
+                                continue
+                            relative_pose =utils.calculate_relative_pose(state_t, obj, obj_contact_with_gripper, trans_feat_name, quat_feat_name)
+                            if not during_contact: # start of contact
+                                contact_period_rel_trajs[obj].append([relative_pose])
+                            else:
+                                contact_period_rel_trajs[obj][-1].append(relative_pose)
+                        if not during_contact:
+                            during_contact = True
+                        # -------------------------------------------------------------------------------------------- #
 
                         # Calculate relative pose at the moment of contact (state t)
                         rel_pose_at_contact_obj2_in_obj1_frame = utils.calculate_relative_pose(
@@ -1415,6 +1432,85 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                         if rel_pose_at_contact_obj1_in_obj2_frame is not None:
                             key = (atom.predicate, obj1.type, obj2.type, "1in2")
                             relative_pose_dataset_dict[key].append(rel_pose_at_contact_obj1_in_obj2_frame)
+
+        # ------ train ds on each relative pose traj and determine obj of reference ------ #
+        obj_of_reference = None
+        min_reconstruction_error = float('inf')
+        for obj, rel_pose_trajs in contact_period_rel_trajs.items():
+            x = []
+            quat = []
+            x_dot = []
+            omega = []
+            for rel_pose_traj in rel_pose_trajs:
+                x_traj = np.array(rel_pose_traj)[:, :3]
+                quat_traj = np.array(rel_pose_traj)[:, 3:]
+                x_dot_traj, omega_traj = compute_vel_traj(x_traj, np.array([R.from_quat(q).as_matrix() for q in quat_traj]), 1/60)
+                x.append(x_traj)
+                quat.append(quat_traj)
+                x_dot.append(x_dot_traj)
+                omega.append(omega_traj)
+            unified_config = UnifiedModelConfig(
+                mode="se3_lpvds",
+                K_candidates=[1]
+            )
+            ds_policy = DSPolicy(
+                x=x,
+                x_dot=x_dot,
+                quat=quat,
+                omega=omega,
+                gripper=[],
+                unified_config=unified_config,
+                dt=1/60
+            )
+            _, reconstruction_error = ds_policy.compute_reconstruction_error()
+            if reconstruction_error < min_reconstruction_error:
+                min_reconstruction_error = reconstruction_error
+                obj_of_reference = obj
+
+        # Visualize the x data for the object of reference
+        if obj_of_reference is not None and contact_period_rel_trajs[obj_of_reference]:
+            import matplotlib.pyplot as plt
+            from mpl_toolkits.mplot3d import Axes3D
+            
+            fig = plt.figure(figsize=(15, 10))
+            ax = fig.add_subplot(111, projection='3d')
+            
+            # Plot each trajectory in a different color
+            colors = plt.cm.rainbow(np.linspace(0, 1, len(contact_period_rel_trajs[obj_of_reference])))
+            
+            for i, rel_pose_traj in enumerate(contact_period_rel_trajs[obj_of_reference]):
+                x_traj = np.array(rel_pose_traj)[:, :3]  # Get translation part
+                
+                # Plot trajectory
+                ax.plot(x_traj[:, 0], x_traj[:, 1], x_traj[:, 2], 
+                       color=colors[i], linewidth=2, alpha=0.7,
+                       label=f'Trajectory {i+1}')
+                
+                # Mark start and end points
+                ax.scatter(x_traj[0, 0], x_traj[0, 1], x_traj[0, 2], 
+                          color=colors[i], marker='o', s=100, label=f'Start {i+1}' if i == 0 else None)
+                ax.scatter(x_traj[-1, 0], x_traj[-1, 1], x_traj[-1, 2], 
+                          color=colors[i], marker='s', s=100, label=f'End {i+1}' if i == 0 else None)
+            
+            ax.set_title(f'Contact Period Relative Trajectories for {obj_of_reference.name}')
+            ax.set_xlabel('X')
+            ax.set_ylabel('Y')
+            ax.set_zlabel('Z')
+            
+            # Add legend
+            ax.legend()
+            
+            # Set equal aspect ratio
+            ax.set_box_aspect([1, 1, 1])
+            
+            # Save the visualization
+            os.makedirs("feature_data", exist_ok=True)
+            plt.savefig(f"feature_data/contact_period_trajectories_{obj_of_reference.name}.png")
+            logging.info(f"Saved contact period trajectories visualization to feature_data/contact_period_trajectories_{obj_of_reference.name}.png")
+            plt.close(fig)
+        else:
+            logging.warning("No object of reference found or no trajectories available for visualization.")  
+        # ---------------------------------------------------------------------------------- #
 
         logging.info("Clustering collected relative contact poses...")
         candidate_cluster_preds: Dict[Predicate, float] = {}
