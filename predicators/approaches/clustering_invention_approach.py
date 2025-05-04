@@ -37,7 +37,7 @@ from predicators.nsrt_learning.segmentation import segment_trajectory
 from predicators.nsrt_learning.strips_learning import learn_strips_operators
 from predicators.planning import PlanningFailure, PlanningTimeout, run_task_plan_once
 from predicators.settings import CFG
-from predicators.structs import Dataset, GroundAtomTrajectory, NSRT, Object, ParameterizedOption, Predicate, Segment, State, Task, Type, STRIPSOperator
+from predicators.structs import Dataset, GroundAtomTrajectory, NSRT, Object, ParameterizedOption, Predicate, Segment, State, Task, Type, STRIPSOperator, GroundAtom
 import warnings
 from scipy.stats import chi2
 import matplotlib.pyplot as plt
@@ -1575,64 +1575,80 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         # Optionally Reconsider the atom seq
         # --- Debugging: Show segmentation with ONLY the new cluster predicates ---
         # kept_preds = set(renamed_candidates.keys())
-        kept_preds = set(predicates_to_monitor)
-        kept_preds2 = set(renamed_cluster_candidates.keys())
-        different_seg_count_trajs = []
-        num_seg_1 = []
-        num_seg_2 = []
-        logging.info("--- Segmentation using ONLY newly generated cluster predicates ---")
-        og_pred_atom_dataset = self._create_atom_dataset(dataset, kept_preds)
-        cluster_pred_atom_dataset = self._create_atom_dataset(dataset, kept_preds2)
-        for i, (traj1_ele, traj2_ele) in enumerate(zip(og_pred_atom_dataset, cluster_pred_atom_dataset)):
-            _, atom_seq1 = traj1_ele
-            _, atom_seq2 = traj2_ele
+        if CFG.reprocess_ground_atom_dataset_using_cluster_predicates:
+            kept_preds = set(predicates_to_monitor)
+            kept_preds2 = set(renamed_cluster_candidates.keys())
+            different_seg_count_trajs = []
+            num_seg_1 = []
+            num_seg_2 = []
+            logging.info("--- Segmentation using ONLY newly generated cluster predicates ---")
+            og_pred_atom_dataset = self._create_atom_dataset(dataset, kept_preds)
+            cluster_pred_atom_dataset = self._create_atom_dataset(dataset, kept_preds2)
+            for i, (traj1_ele, traj2_ele) in enumerate(zip(og_pred_atom_dataset, cluster_pred_atom_dataset)):
+                _, atom_seq1 = traj1_ele
+                _, atom_seq2 = traj2_ele
 
-            # Print changes in atom sets
-            last_atoms1 = None
-            seg_count1 = 0
-            for t, atoms in enumerate(atom_seq1):
-                current_atoms = frozenset(atoms)
-                if current_atoms != last_atoms1:
-                    logging.info(f"Old  Time {t}: {current_atoms if current_atoms else '{}'}")
-                    last_atoms1 = current_atoms
-                    seg_count1 += 1
+                # Print changes in atom sets
+                last_atoms1 = None
+                seg_count1 = 0
+                for t, atoms in enumerate(atom_seq1):
+                    current_atoms = frozenset(atoms)
+                    if current_atoms != last_atoms1:
+                        logging.info(f"Old  Time {t}: {current_atoms if current_atoms else '{}'}")
+                        last_atoms1 = current_atoms
+                        seg_count1 += 1
+                
+                last_atoms2 = None
+                seg_count2 = 0
+                for t, atoms in enumerate(atom_seq2):
+                    current_atoms = frozenset(atoms)
+                    if current_atoms != last_atoms2:
+                        logging.info(f"New  Time {t}: {current_atoms if current_atoms else '{}'}")
+                        last_atoms2 = current_atoms
+                        seg_count2 += 1
+                
+                if seg_count1 != seg_count2:
+                    different_seg_count_trajs.append(i)
+                    num_seg_1.append(seg_count1)
+                    num_seg_2.append(seg_count2)
+
             
-            last_atoms2 = None
-            seg_count2 = 0
-            for t, atoms in enumerate(atom_seq2):
-                current_atoms = frozenset(atoms)
-                if current_atoms != last_atoms2:
-                    logging.info(f"New  Time {t}: {current_atoms if current_atoms else '{}'}")
-                    last_atoms2 = current_atoms
-                    seg_count2 += 1
-            
-            if seg_count1 != seg_count2:
-                different_seg_count_trajs.append(i)
-                num_seg_1.append(seg_count1)
-                num_seg_2.append(seg_count2)
+            logging.info(f"Trajectories with different segment counts: {different_seg_count_trajs}, num_seg_1: {num_seg_1}, num_seg_2: {num_seg_2}, totoal_num_traj = {len(og_pred_atom_dataset)}")
 
-        
-        logging.info(f"Trajectories with different segment counts: {different_seg_count_trajs}, num_seg_1: {num_seg_1}, num_seg_2: {num_seg_2}, totoal_num_traj = {len(og_pred_atom_dataset)}")
-
-        # Filter out trajectories with different segment counts from both datasets
-        if different_seg_count_trajs:            
-            # Reverse sort the indices to safely remove items without affecting other indices
-            for idx in sorted(different_seg_count_trajs, reverse=True):
-                if 0 <= idx < len(og_pred_atom_dataset):
-                    og_pred_atom_dataset.pop(idx)
-                if 0 <= idx < len(cluster_pred_atom_dataset):
-                    cluster_pred_atom_dataset.pop(idx)
-            
-            logging.info(f"After filtering: {len(og_pred_atom_dataset)} trajectories remain")
+            # Filter out trajectories with different segment counts from both datasets
+            if different_seg_count_trajs:            
+                # Reverse sort the indices to safely remove items without affecting other indices
+                for idx in sorted(different_seg_count_trajs, reverse=True):
+                    if 0 <= idx < len(og_pred_atom_dataset):
+                        og_pred_atom_dataset.pop(idx)
+                    if 0 <= idx < len(cluster_pred_atom_dataset):
+                        cluster_pred_atom_dataset.pop(idx)
+                
+                logging.info(f"After filtering: {len(og_pred_atom_dataset)} trajectories remain")
 
 
+        if CFG.reprocess_ground_atom_dataset_using_cluster_replacement:
+            different_seg_count_trajs = [] # go through and replace the InContact Atoms with rel pose atoms
+            for i, (ll_traj, atom_seq) in enumerate(ground_atom_dataset):
+                for j, atoms in enumerate(atom_seq):
+                    atoms_new = []
+                    for atom in atoms:
+                        # key = ()
+                        pred = list(CFG.dict_contact_predicate_to_rel_pose_predicates[atom.predicate.name, atom.objects[0].type.name, atom.objects[1].type.name])[0]
+                        grounded_pred = GroundAtom(pred, atom.entities)
+                        atoms_new.append(grounded_pred)
+                    ground_atom_dataset[i][1][j] = set(atoms_new)
+                        
 
         # logging.info("--- End segmentation with new predicates ---")
         # --- End Debugging ---
-        if CFG.reprocess_dataset_after_clustering:
+        if CFG.reprocess_ground_atom_dataset_using_cluster_replacement:
+            # if replacing, then goal predicates are gone, need some way to say how to successfully complete the task
+            return ground_atom_dataset, ground_atom_dataset, different_seg_count_trajs, renamed_cluster_candidates, predicates_to_monitor
+        elif CFG.reprocess_ground_atom_dataset_using_cluster_predicates:
             return og_pred_atom_dataset, cluster_pred_atom_dataset, different_seg_count_trajs, renamed_cluster_candidates, predicates_to_monitor
         else:
-            return og_pred_atom_dataset, og_pred_atom_dataset, different_seg_count_trajs, renamed_cluster_candidates, predicates_to_monitor
+            return ground_atom_dataset, ground_atom_dataset, different_seg_count_trajs, renamed_cluster_candidates, predicates_to_monitor
 
     # --- Predicate Selection Functions (Beam Search) ---
     def _select_predicates_by_beam_search(self,

@@ -15,7 +15,8 @@ from predicators.meshcat_visualizer import MeshcatVisualizer
 class GlobalSettings:
 
     min_data_for_nsrt = 3
-    reprocess_dataset_after_clustering = True
+    reprocess_ground_atom_dataset_using_cluster_replacement = True
+    reprocess_ground_atom_dataset_using_cluster_predicates = False
     remove_inOrigin_pred = True
 
     init_pose = np.array([0.24844874, 0.00726439, 0.59251043, 0.98900046, 0.05834797, 0.13247817, -0.0303833])
