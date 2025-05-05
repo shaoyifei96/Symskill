@@ -70,8 +70,8 @@ class GlobalSettings:
 
     # robo_kitchen env parameters
     robo_kitchen_randomize_init_state = True  # not used
-    # robo_kitchen_task = "PnPCounterToCab"
-    robo_kitchen_task = "OpenSingleDoor"
+    robo_kitchen_task = "PnPCounterToCab"
+    # robo_kitchen_task = "OpenSingleDoor"
     # robo_kitchen_task = "StoreFruit"
     # robo_kitchen_viz_debug = False # i think the use_gui flag covers this
     robo_kitchen_contact_smoothing_window = 21

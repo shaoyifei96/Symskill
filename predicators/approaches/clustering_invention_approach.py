@@ -1409,7 +1409,13 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                         achieved_goal = True
                     else:
                         if lost_atoms:
-                            t_start = t
+                            t_start = None
+                            for t_test in range(t-skip_var, t):
+                                if len(atom_seq[t_test]) > len(atoms_t):
+                                    t_start = t_test+1
+                                    break
+                            logging.debug(f"Contact lost at t={t_start}")
+                            assert t_start is not None
                             # if atom.predicate == in_contact_pred: # this is lost gripper with obj
                             #     consistent_contact = False
                             while t_start < len(atom_seq):

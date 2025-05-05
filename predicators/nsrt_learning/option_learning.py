@@ -682,7 +682,7 @@ class _DSOptionLearner(_OptionLearnerBase):
                 len_segs.append(len(segment.trajectory.states))
             print(len_segs)
             # Calculate the 50% of the maximum length as the minimum length threshold
-            min_length_threshold =  int(np.max(len_segs) * 0.3)
+            min_length_threshold =  max(int(np.max(len_segs) * 0.3), 10)
 
 
             for i, (segment, var_to_obj) in enumerate(datastore):
