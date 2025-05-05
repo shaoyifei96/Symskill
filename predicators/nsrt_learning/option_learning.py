@@ -675,7 +675,18 @@ class _DSOptionLearner(_OptionLearnerBase):
             set_OOI_type_name = set()
             set_gripper_or_obj_type_name = set()
 
+
+            # Collect segment lengths to determine minimum threshold
+            len_segs = []
+            for segment, _ in datastore:
+                len_segs.append(len(segment.trajectory.states))
+            
+            # Calculate the 50% of the maximum length as the minimum length threshold
+            min_length_threshold =  int(np.max(len_segs) * 0.3)
+
+
             for i, (segment, var_to_obj) in enumerate(datastore):
+                if len(segment.trajectory.states) < min_length_threshold: continue
                 OOI_obj, gripper_or_obj = find_two_objects(op, segment, var_to_obj, CFG.learn_option_between_gripper_obj)
                 if OOI_obj is None or gripper_or_obj is None:
                     logging.warning(f"NSRT {op.name} cannot find OOI or gripper from var_to_obj, ignoring segment")
@@ -865,17 +876,17 @@ def find_two_objects(op: STRIPSOperator, segment: Segment, var_to_obj: VarToObjS
 
     manipulated_obj, gripper_obj = most_common_pair
     if obj1 == manipulated_obj:
-        ooi_obj = obj1
-        ref_obj = obj2
+        ooi_obj = obj2 # ooi object is the o_ref in paper
+        handled_obj = obj1
     else:
-        ooi_obj = obj2
-        ref_obj = obj1
+        ooi_obj = obj1
+        handled_obj = obj2
 
     # logging.debug(f"NSRT {op.name}: Found gripper ({gripper_obj}) and OOI ({ooi_obj}) from contact analysis.")
     if learn_option_between_gripper_obj:
         return ooi_obj, gripper_obj
     else:
-        return ooi_obj, ref_obj
+        return ooi_obj, handled_obj
 
 
 def find_OOI_name(op: STRIPSOperator) -> Tuple[str, bool]:
