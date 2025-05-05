@@ -1333,7 +1333,14 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         # {other_obj: list[list]}, each sub-list is a trajectory
         contact_period_rel_trajs = {}
         goal_reached_states = []
-        all_objs = list(ground_atom_dataset[0][0].states[0].data.keys())
+        # Find objects that are common across all trajectories in the dataset
+        all_objs = set(ground_atom_dataset[0][0].states[0].data.keys())
+        for traj, _ in ground_atom_dataset[1:]:  # Skip the first one we already processed
+            if not traj.states:
+                continue  # Skip empty trajectories
+            traj_objs = set(traj.states[0].data.keys())
+            all_objs = all_objs.intersection(traj_objs)  # Keep only objects present in all trajectories
+        all_objs = list(all_objs)  # Convert back to list for further processing
         all_objs = [o for o in all_objs if "finger" not in o.name.lower()]
         logging.info(f"After filtering, {len(all_objs)} objects remain")
         for obj in all_objs:
@@ -1353,7 +1360,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         # 3. instant of removed contact: achieving relative pose between two object (obj obj frame cluster goal )
         # done
         logging.info("Extracting relative poses ...")
-
+        InOrigin_warning = False
         for i, (ll_traj, atom_seq) in enumerate(ground_atom_dataset):
             if not ll_traj.states: continue # Skip empty trajectories
             # logging.info(f"Processing trajectory {i} of {len(ground_atom_dataset)}")
@@ -1368,7 +1375,9 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                     init_atoms = atoms_tm1
                     init_atoms_pred = [atom.predicate for atom in atoms_tm1]
                 if init_atoms is None:
-                    logging.warning("No InOrigin predicate found in the first state of the trajectory, not expanding InOrigin predicate")
+                    if not InOrigin_warning:
+                        logging.warning("No InOrigin predicate found in the first state of the trajectory, not expanding InOrigin predicate")
+                        InOrigin_warning = True
                     finish_adding_init_atoms = True #
                 if len(atoms_t) > 0 and any(atom.predicate not in init_atoms_pred for atom in atoms_t):
                     finish_adding_init_atoms = True
@@ -1379,38 +1388,39 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                     
 
             skip_var =max(int(len(atom_seq) / 50),1)
-            skip_var = 2
             logging.debug(f"Processing trajectory {i+1}/{len(ground_atom_dataset)} with {len(atom_seq)} atoms, skipping every {skip_var} atoms.")
-            for t in range(1, len(atom_seq), skip_var): # Start from 1 to compare with t-1, skip every 4
+            achieved_goal = False 
+            for t in range(skip_var, len(atom_seq), skip_var): # Start from 1 to compare with t-1, skip every 4
                 state_t = ll_traj.states[t]
-                # state_tm1 = ll_traj.states[t-1] # Not needed for just looking at added atoms
                 atoms_t = atom_seq[t]
-                atoms_tm1 = atom_seq[t-1]
+                atoms_tm1 = atom_seq[t-skip_var]
                 lost_atoms = atoms_tm1 - atoms_t
 
                 # ------ before contact lost, or for last timestep in current traj ------- #
                 # ------ add goal predicate for them ------------------------------------- #
                 # ------ store states so that we can cluster them later as goal predicate- #
-                if t >= len(atom_seq) - skip_var:
-                    j = 1
-                    while t-j > 0 \
-                          and in_contact_pred in [atom.predicate for atom in atom_seq[t-j]] \
-                          and j < 5:
-                        ground_atom_dataset[i][1][t-j].add(DummyPredicate("goal"))
-                        goal_reached_states.append(ll_traj.states[t-j])
-                        j += 1
-                else:
-                    warnings.warn(f"UNTESTED!!!!!!")
-                    for atom in lost_atoms:
-                        if atom.predicate == in_contact_pred: # this is lost gripper with obj
-                            consistent_contact = False
+                if not achieved_goal:
+                    if t >= len(atom_seq) - skip_var:
                         j = 1
                         while t-j > 0 \
-                              and in_contact_pred in [atom.predicate for atom in atom_seq[t-j]] \
-                              and j < 5:
+                            and in_contact_pred in [atom.predicate for atom in atom_seq[t-j]] \
+                            and j < 5:
                             ground_atom_dataset[i][1][t-j].add(DummyPredicate("goal"))
                             goal_reached_states.append(ll_traj.states[t-j])
                             j += 1
+                        achieved_goal = True
+                    else:
+                        for atom in lost_atoms:
+                            # if atom.predicate == in_contact_pred: # this is lost gripper with obj
+                            #     consistent_contact = False
+                            j = 1
+                            while t-j > 0 \
+                                and in_contact_pred in [atom.predicate for atom in atom_seq[t-j]] \
+                                and j < 5:
+                                ground_atom_dataset[i][1][t-j].add(DummyPredicate("goal"))
+                                goal_reached_states.append(ll_traj.states[t-j])
+                                j += 1
+                            achieved_goal = True
 
                 # ------------------------------------------------------------------------ #
 

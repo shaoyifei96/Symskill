@@ -680,7 +680,7 @@ class _DSOptionLearner(_OptionLearnerBase):
             len_segs = []
             for segment, _ in datastore:
                 len_segs.append(len(segment.trajectory.states))
-            
+            print(len_segs)
             # Calculate the 50% of the maximum length as the minimum length threshold
             min_length_threshold =  int(np.max(len_segs) * 0.3)
 
@@ -724,7 +724,8 @@ class _DSOptionLearner(_OptionLearnerBase):
                 omega.append(gripper_or_obj_ang_vel_traj_OOI_frame)
 
             if len(x) == 0:
-                logging.warning(f"NSRT {op.name} has no valid segments, ignoring")
+                logging.warning(f"NSRT {op.name} has no valid segments, Not learning option")
+                option_specs.append((None, list(op.parameters)))
                 continue
 
             # if OOI type and gripper type are clear, use the relative cluster center as the attractor
