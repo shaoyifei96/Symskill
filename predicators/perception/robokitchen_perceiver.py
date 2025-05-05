@@ -65,6 +65,7 @@ class RoboKitchenPerceiver(BasePerceiver):
         elif goal_desc == 'StoreFruit':
             goal = {
                 GroundAtom(OnSurface, [obj, bottom]),
+                GroundAtom(DoorClosed, [door, cabinet]),
             }
         elif goal_desc == 'TurnOnMicrowave':
             goal = {

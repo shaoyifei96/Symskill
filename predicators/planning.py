@@ -1247,7 +1247,7 @@ def run_task_plan_once(
 
             for plan_tuple in plan_generator:
                 logging.debug(f"Plan [{', '.join(nsrt.name for nsrt in plan_tuple[0])}]")
-                if redundancy_check(plan_tuple[0]):
+                if redundancy_check(plan_tuple[0], goal):
                     continue
                 plans.append(plan_tuple[0])
                 atoms_seqs.append(plan_tuple[1])
@@ -1301,7 +1301,8 @@ def run_task_plan_once(
             # Otherwise choose the shortest plan
             # for i in range(len(plans)):
             #     logging.debug(f"Init-Plan {i} [{', '.join(nsrt.name for nsrt in plans[i])}] has {len(plans[i])} steps")
-            min_plan_length = min(len(plan) for plan in plans)
+            # min_plan_length = min(len(plan) for plan in plans)
+            min_plan_length = max(len(plan) for plan in plans)
             best_idx = [len(plan) for plan in plans].index(min_plan_length)         
             logging.debug(f"Best Init-Plan [{', '.join(nsrt.name for nsrt in plans[best_idx])}] has {len(plans[best_idx])} steps")
             logging.debug(f"Best Init-Plan Atoms Seq: ")
@@ -1311,9 +1312,17 @@ def run_task_plan_once(
             atoms_seq = atoms_seqs[best_idx]
             metrics = metrics_list[best_idx]
 
-        # fix wrong move to init
+        # fix wrong move to init OR insert move to init
         if len(plan) > 2:
-            atoms_seq = fix_wrong_move_to_init(plan, atoms_seq) 
+            if CFG.use_in_origin_pred:
+                atoms_seq = fix_wrong_move_to_init(plan, atoms_seq)
+            else:
+                move_to_init_nsrt = next((nsrt for nsrt in nsrts if nsrt.name == "ToInitialState"), None)
+                gripper_obj = next((obj for obj in objects if obj.type.name == "gripper_type"), None)
+                base_obj = next((obj for obj in objects if obj.type.name == "base_type"), None)
+                if move_to_init_nsrt is not None and gripper_obj is not None and base_obj is not None:
+                    ground_move_to_init = move_to_init_nsrt.ground([gripper_obj, base_obj])
+                    plan, atoms_seq = insert_between_tasks(plan, atoms_seq, ground_move_to_init)
             logging.debug(f"Best Plan After Fix [{', '.join(nsrt.name for nsrt in plan)}]")
             logging.debug(f"Best Plan Atoms Seq After Fix: ")
             for i, atoms in enumerate(atoms_seq):
@@ -1372,7 +1381,7 @@ def run_task_plan_once(
     return plan, necessary_atoms_seq, metrics
 
 
-def redundancy_check(plan: List[_GroundNSRT]) -> bool:
+def redundancy_check(plan: List[_GroundNSRT], goal: Set[GroundAtom]) -> bool:
     """Checks for simple redundancies in a plan.
 
     1. Checks if any add effect of an operator is never used as a
@@ -1393,6 +1402,9 @@ def redundancy_check(plan: List[_GroundNSRT]) -> bool:
         if not op.add_effects or i == num_ops - 1:
             continue
         for add_atom in op.add_effects:
+            if add_atom in goal:
+                # If the add effect is part of the goal, we don't consider it redundant
+                continue
             is_add_used = False
             # Check subsequent operators' preconditions
             for subsequent_op in plan[i + 1 :]:
@@ -1405,27 +1417,27 @@ def redundancy_check(plan: List[_GroundNSRT]) -> bool:
                 return True
 
     # Check for useless delete effects (based on prompt's definition)
-    for i, op in enumerate(plan):
-        if not op.delete_effects or i == 0:
-            continue
-        for del_atom in op.delete_effects:
-            was_del_added_before = False
-            # Check previous operators' add effects
-            for prev_op in plan[:i]:
-                if del_atom in prev_op.add_effects:
-                    was_del_added_before = True
-                    break
-            if not was_del_added_before:
-                # If the delete effect was never added by a previous operator in the plan
-                # Note: This doesn't check if the atom was true in the initial state.
-                logging.debug(f"Redundancy found: Delete effect {del_atom} of operator {op.name}{op.objects} at step {i} was never added by a previous step in the plan.")
-                return True
+    # for i, op in enumerate(plan):
+    #     if not op.delete_effects or i == 0:
+    #         continue
+    #     for del_atom in op.delete_effects:
+    #         was_del_added_before = False
+    #         # Check previous operators' add effects
+    #         for prev_op in plan[:i]:
+    #             if del_atom in prev_op.add_effects:
+    #                 was_del_added_before = True
+    #                 break
+    #         if not was_del_added_before:
+    #             # If the delete effect was never added by a previous operator in the plan
+    #             # Note: This doesn't check if the atom was true in the initial state.
+    #             logging.debug(f"Redundancy found: Delete effect {del_atom} of operator {op.name}{op.objects} at step {i} was never added by a previous step in the plan.")
+    #             return True
 
     # If all checks passed
     return False
 
 
-def fix_wrong_move_to_init(plan: List[_GroundNSRT], atoms_seq: List[Set[GroundAtom]]) -> None:
+def fix_wrong_move_to_init(plan: List[_GroundNSRT], atoms_seq: List[Set[GroundAtom]]) -> List[Set[GroundAtom]]:
     num_ops = len(plan)
 
     new_atoms_seq = [atoms_seq[0], atoms_seq[1]]
@@ -1441,10 +1453,81 @@ def fix_wrong_move_to_init(plan: List[_GroundNSRT], atoms_seq: List[Set[GroundAt
             plan[i + 1] = curr_op
 
         new_atoms_seq.append(utils.apply_operator(plan[i], existing_atoms))
-    
+
     new_atoms_seq.append(utils.apply_operator(plan[-1] , new_atoms_seq[-1]))
 
     return new_atoms_seq
+
+
+def insert_between_tasks(plan: List[_GroundNSRT], atoms_seq: List[Set[GroundAtom]], g_nsrt: _GroundNSRT) -> Tuple[List[_GroundNSRT], List[Set[GroundAtom]]]:
+    """Inserts a given ground NSRT (g_nsrt) into a plan whenever the task prefix
+    of the operator name changes.
+
+    Assumes operator names follow the convention "TaskName-OperatorDetail".
+    The g_nsrt is inserted only if it is applicable in the state before the
+    task change. The atoms sequence is updated accordingly.
+
+    Args:
+        plan: The original sequence of ground NSRTs.
+        atoms_seq: The sequence of ground atom sets corresponding to the plan.
+                   atoms_seq[0] is the initial state. atoms_seq[i+1] is the
+                   state after plan[i] executes.
+        g_nsrt: The ground NSRT to insert between tasks.
+
+    Returns:
+        A tuple containing the new plan and the new atoms sequence.
+    """
+    if not plan:
+        return [], []
+
+    new_plan: List[_GroundNSRT] = []
+    # Start with the initial state.
+    new_atoms_seq: List[Set[GroundAtom]] = [atoms_seq[0]]
+    last_added_task_name: Optional[str] = None
+
+    for op_idx, curr_op in enumerate(plan):
+        # Extract task name prefix from the current operator.
+        try:
+            # Use short_str which might be more reliable if available, else name
+            op_identifier = curr_op.short_str if hasattr(curr_op, "short_str") else curr_op.name
+            current_op_task_name = op_identifier.split("-")[0]
+        except (AttributeError, IndexError):
+            logging.warning(f"Could not parse task name from operator: {curr_op}. Skipping task change check.")
+            current_op_task_name = None  # Treat as unknown task
+
+        # Check if the task name has changed compared to the last added operator.
+        if last_added_task_name is not None and current_op_task_name is not None and current_op_task_name != last_added_task_name:
+
+            # State before inserting g_nsrt (and before curr_op).
+            prev_atoms = new_atoms_seq[-1]
+
+            # Check if g_nsrt is applicable.
+            if g_nsrt.preconditions.issubset(prev_atoms):
+                logging.debug(f"Inserting {g_nsrt.short_str} between {last_added_task_name} and {current_op_task_name}")
+                # Add g_nsrt to the new plan.
+                new_plan.append(g_nsrt)
+                # Calculate the state after g_nsrt.
+                atoms_after_g_nsrt = utils.apply_operator(g_nsrt, set(prev_atoms))
+                # Add the new state to the atoms sequence.
+                new_atoms_seq.append(atoms_after_g_nsrt)
+                # This new state becomes the precondition state for curr_op.
+                prev_atoms = atoms_after_g_nsrt
+            else:
+                logging.warning(f"Cannot insert {g_nsrt.short_str} between tasks " f"as it is not applicable in state: {prev_atoms}")
+
+        # Now, add the current operator from the original plan.
+        # State before applying curr_op (potentially updated by g_nsrt).
+        prev_atoms = new_atoms_seq[-1]
+        new_plan.append(curr_op)
+        # Calculate the state after curr_op.
+        atoms_after_curr_op = utils.apply_operator(curr_op, set(prev_atoms))
+        # Add the new state to the atoms sequence.
+        new_atoms_seq.append(atoms_after_curr_op)
+
+        # Update the task name for the next iteration.
+        last_added_task_name = current_op_task_name
+
+    return new_plan, new_atoms_seq
 
 
 class PlanningFailure(utils.ExceptionWithInfo):

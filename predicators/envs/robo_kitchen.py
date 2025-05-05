@@ -395,7 +395,7 @@ class RoboKitchenEnv(BaseEnv):
             cabinet = self.object_name_to_object("cabinet")
             if self._DoorClosed_holds(state, [left_door, cabinet]) and self._DoorClosed_holds(state, [right_door, cabinet]):
                 return True
-        elif goal_desc == "PnPCounterToCab" or goal_desc == "StoreFruit":
+        elif goal_desc == "PnPCounterToCab":
             obj = self.object_name_to_object("obj")
             bottom = self.object_name_to_object("bottom")
             if self._OnSurface_holds(state, [obj, bottom]):
@@ -405,13 +405,13 @@ class RoboKitchenEnv(BaseEnv):
             stove = self.object_name_to_object("stovetop")
             if self._KnobTurnedOn_holds(state, [knob, stove]):
                 return True
-        # elif goal_desc == "StoreFruit":
-        #     handle = self.object_name_to_object("handle")
-        #     bottom = self.object_name_to_object("bottom")
-        #     cabinet = self.object_name_to_object("cabinet")
-        #     obj = self.object_name_to_object("obj")
-        #     if self._DoorOpen_holds(state, [handle, cabinet]) and self._OnSurface_holds(state, [obj, bottom]):
-        #         return True
+        elif goal_desc == "StoreFruit":
+            door = self.object_name_to_object("door")
+            bottom = self.object_name_to_object("bottom")
+            cabinet = self.object_name_to_object("cabinet")
+            obj = self.object_name_to_object("obj")
+            if self._DoorClosed_holds(state, [door, cabinet]) and self._OnSurface_holds(state, [obj, bottom]):
+                return True
         else:
             return False
 
@@ -439,7 +439,7 @@ class RoboKitchenEnv(BaseEnv):
                 self._env_raw = robosuite.make(
                     **config,
                     has_renderer=self._using_gui,
-                    has_offscreen_renderer=True,
+                    has_offscreen_renderer=not self._using_gui,
                     render_camera="robot0_frontview",
                     ignore_done=True,
                     use_camera_obs=False,
@@ -736,15 +736,16 @@ class RoboKitchenEnv(BaseEnv):
                         else:
                             self.mjshowellipse(pos, quat, size=(a, b, c), base_pos=ref_frame[:3], base_quat=ref_frame[3:], alpha=alpha, color=color)
 
-        preconditions = curr_option.parent.operator.preconditions
-        add_effects = curr_option.parent.operator.add_effects
-        delete_effects = curr_option.parent.operator.delete_effects
-        ignore_effects = curr_option.parent.operator.ignore_effects
+        if hasattr(curr_option, "parent") and hasattr(curr_option.parent, "operator"):
+            preconditions = curr_option.parent.operator.preconditions
+            add_effects = curr_option.parent.operator.add_effects
+            delete_effects = curr_option.parent.operator.delete_effects
+            ignore_effects = curr_option.parent.operator.ignore_effects
 
-        show_cluster_predicates(preconditions, color=(0, 1, 0), prefix="pre")
-        show_cluster_predicates(add_effects, color=(0, 0, 1), prefix="add")
-        show_cluster_predicates(delete_effects, color=(1, 0, 0), prefix="del")
-        show_cluster_predicates(ignore_effects, color=(1, 0.5, 0), prefix="ignore")
+            show_cluster_predicates(preconditions, color=(0, 1, 0), prefix="pre")
+            show_cluster_predicates(add_effects, color=(0, 0, 1), prefix="add")
+            show_cluster_predicates(delete_effects, color=(1, 0, 0), prefix="del")
+            show_cluster_predicates(ignore_effects, color=(1, 0.5, 0), prefix="ignore")
 
     @property
     def action_space(self) -> Box:
