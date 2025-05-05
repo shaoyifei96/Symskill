@@ -1401,32 +1401,28 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 # ------ store states so that we can cluster them later as goal predicate- #
                 if not achieved_goal:
                     if t >= len(atom_seq) - skip_var:
-                        j = 1
-                        while t-j > 0 \
-                            and in_contact_pred in [atom.predicate for atom in atom_seq[t-j]] \
-                            and j < 5:
-                            ground_atom_dataset[i][1][t-j].add(DummyPredicate("goal"))
-                            goal_reached_states.append(ll_traj.states[t-j])
-                            j += 1
+                        t_start = t
+                        while t_start < len(atom_seq):
+                            ground_atom_dataset[i][1][t_start].add(DummyPredicate("goal"))
+                            goal_reached_states.append(ll_traj.states[t_start])
+                            t_start += 1
                         achieved_goal = True
                     else:
-                        for atom in lost_atoms:
+                        if lost_atoms:
+                            t_start = t
                             # if atom.predicate == in_contact_pred: # this is lost gripper with obj
                             #     consistent_contact = False
-                            j = 1
-                            while t-j > 0 \
-                                and in_contact_pred in [atom.predicate for atom in atom_seq[t-j]] \
-                                and j < 5:
-                                ground_atom_dataset[i][1][t-j].add(DummyPredicate("goal"))
-                                goal_reached_states.append(ll_traj.states[t-j])
-                                j += 1
+                            while t_start < len(atom_seq):
+                                ground_atom_dataset[i][1][t_start].add(DummyPredicate("goal"))
+                                goal_reached_states.append(ll_traj.states[t_start])
+                                t_start += 1
                             achieved_goal = True
 
                 # ------------------------------------------------------------------------ #
 
                 for atom in atoms_t:
                     if CFG.clustering_change_only and atom in atoms_tm1: continue
-                    if atom.predicate == in_contact_pred:
+                    if hasattr(atom, "predicate") and atom.predicate == in_contact_pred:
                         if atom in atoms_tm1:
                             consistent_contact = True
                         else:
