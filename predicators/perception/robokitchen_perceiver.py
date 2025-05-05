@@ -24,9 +24,9 @@ class RoboKitchenPerceiver(BasePerceiver):
         OnSurface = pred_name_to_pred["OnSurface"]
         KnobTurnedOn = pred_name_to_pred["KnobTurnedOn"]
 
-        handle = RoboKitchenEnv.object_name_to_object("handle")
-        left_handle = RoboKitchenEnv.object_name_to_object("left_door_handle")
-        right_handle = RoboKitchenEnv.object_name_to_object("right_door_handle")
+        # handle = RoboKitchenEnv.object_name_to_object("handle")
+        # left_handle = RoboKitchenEnv.object_name_to_object("left_door_handle")
+        # right_handle = RoboKitchenEnv.object_name_to_object("right_door_handle")
         door = RoboKitchenEnv.object_name_to_object("door")
         left_door = RoboKitchenEnv.object_name_to_object("leftdoor")
         right_door = RoboKitchenEnv.object_name_to_object("rightdoor")

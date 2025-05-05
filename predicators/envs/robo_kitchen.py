@@ -48,10 +48,11 @@ class RoboKitchenEnv(BaseEnv):
     door_half_open_thresh = 0.4  # rad
     grab_close_distance_thresh = 0.02  # m
     gripper_fingers_distance_thresh = 0.08  # m
-    place_close_distance_thresh = 0.1  # m
+    place_close_y_thresh = 0.1  # m
+    place_close_xy_thresh = 0.15  # m
 
-    online_door_open_thresh = np.deg2rad(60)  # rad
-    online_place_close_distance_thresh = 0.1  # m
+    online_door_open_thresh = np.deg2rad(70)  # rad
+    online_door_close_thresh = np.deg2rad(10)  # rad
 
     # Types
     object_type = Type("object_type", ["translation", "quaternion"])
@@ -69,9 +70,9 @@ class RoboKitchenEnv(BaseEnv):
     stove_type = Type("stove_type", ["translation", "quaternion"], parent=object_type)
 
     obj_name_to_type = {
-        "handle": handle_type,
-        "left_door_handle": handle_type,
-        "right_door_handle": handle_type,
+        # "handle": handle_type,
+        # "left_door_handle": handle_type,
+        # "right_door_handle": handle_type,
         "door": door_type,
         "leftdoor": door_type,
         "rightdoor": door_type,
@@ -267,7 +268,8 @@ class RoboKitchenEnv(BaseEnv):
         elif task_name == "PnPCounterToCab":
             return [self.object_name_to_object("obj")]
         elif task_name == "StoreFruit":
-            return [self.object_name_to_object("handle"), self.object_name_to_object("obj")]
+            # return [self.object_name_to_object("handle"), self.object_name_to_object("obj")]
+            return [self.object_name_to_object("door"), self.object_name_to_object("obj")]
         elif task_name == "TurnOnStove":
             return [self.object_name_to_object("knob")]
         else:
@@ -695,6 +697,55 @@ class RoboKitchenEnv(BaseEnv):
                 quat = quat_world
             self._env_raw.viewer.mjshowellipse(xyz, quat=quat, size=size, color=color, alpha=alpha, name=name)
 
+    def show_option_cluster_predicates(self, curr_option):
+        """Show predicates in the viewer."""
+
+        def show_cluster_predicates(predicates, color=(1, 0, 0), alpha=0.1, prefix=""):
+            for pred in predicates:
+                predicate = pred.predicate
+                pred_key = (predicate.name, pred.entities[0].type.name, pred.entities[1].type.name)
+                if pred_key in CFG.dict_contact_predicate_to_rel_pose_predicates:
+                    cluster_predicates = CFG.dict_contact_predicate_to_rel_pose_predicates[pred_key]
+                    for i, cluster_predicate in enumerate(cluster_predicates):
+                        ref_type = cluster_predicate.types[0]
+                        ref_obj = None
+                        ref_frame = None
+                        for obj in curr_option.objects:
+                            if obj.type == ref_type:
+                                ref_obj = obj
+                                break
+                        if ref_obj is None:
+                            continue
+                        for s in self._current_state:
+                            if s.name == ref_obj.name:
+                                ref_frame = np.concatenate(self._current_state[s])
+                                break
+                        if ref_frame is None:
+                            continue
+                        cluster_cov = cluster_predicate._classifier.cluster_cov
+                        mahalanobis_threshold = cluster_predicate._classifier.mahalanobis_threshold
+                        pos, quat = cluster_predicate._classifier.cluster_center[:3], cluster_predicate._classifier.cluster_center[3:]
+                        trans_cov = cluster_cov[:3, :3]
+                        eigvals, eigvecs = np.linalg.eigh(trans_cov)
+                        eigvals = np.abs(eigvals)
+                        a, b, c = np.sqrt(mahalanobis_threshold * eigvals)
+
+                        if i == 0:
+                            name = f"{prefix}_{pred._str}"
+                            self.mjshowellipse(pos, quat, size=(a, b, c), name=name, base_pos=ref_frame[:3], base_quat=ref_frame[3:], alpha=alpha, color=color)
+                        else:
+                            self.mjshowellipse(pos, quat, size=(a, b, c), base_pos=ref_frame[:3], base_quat=ref_frame[3:], alpha=alpha, color=color)
+
+        preconditions = curr_option.parent.operator.preconditions
+        add_effects = curr_option.parent.operator.add_effects
+        delete_effects = curr_option.parent.operator.delete_effects
+        ignore_effects = curr_option.parent.operator.ignore_effects
+
+        show_cluster_predicates(preconditions, color=(0, 1, 0), prefix="pre")
+        show_cluster_predicates(add_effects, color=(0, 0, 1), prefix="add")
+        show_cluster_predicates(delete_effects, color=(1, 0, 0), prefix="del")
+        show_cluster_predicates(ignore_effects, color=(1, 0.5, 0), prefix="ignore")
+
     @property
     def action_space(self) -> Box:
         """7D action space: [dx, dy, dz, droll, dpitch, dyaw, gripper]"""
@@ -774,7 +825,7 @@ class RoboKitchenEnv(BaseEnv):
 
         if hasattr(CFG, "load_approach") and CFG.load_approach:
             cls.door_open_thresh = cls.online_door_open_thresh  # rad
-            cls.place_close_distance_thresh = cls.online_place_close_distance_thresh  # m
+            cls.door_close_thresh = cls.online_door_close_thresh  # rad
 
         state_dict = {}
 
@@ -979,11 +1030,11 @@ class RoboKitchenEnv(BaseEnv):
         surface_pos = state.get(surface, "translation")
         surface_quat = state.get(surface, "quaternion")
         obj_pos_in_surface, _ = frame_transform(obj_pos, obj_quat, surface_pos, R.from_quat(surface_quat).as_matrix())
-        near_surface = obj_pos_in_surface[2] <= cls.place_close_distance_thresh
-        in_surface = abs(obj_pos_in_surface[0]) <= 0.13 and abs(obj_pos_in_surface[1]) <= 0.13
+        on_surface_top = 0.0 <= obj_pos_in_surface[2] <= cls.place_close_y_thresh
+        in_surface_region = abs(obj_pos_in_surface[0]) <= 0.13 and abs(obj_pos_in_surface[1]) <= 0.13
         # print(obj_pos_in_surface[0], obj_pos_in_surface[1])
         # print(near_surface, in_surface)
-        return near_surface and in_surface
+        return on_surface_top and in_surface_region
 
     @classmethod
     def _KnobTurnedOn_holds(cls, state: State, objects: Sequence[Object]) -> bool:

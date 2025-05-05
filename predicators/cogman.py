@@ -259,37 +259,7 @@ def run_episode_and_get_observations(
                     ", auto_clean=True
                     )
 
-                for pred in CFG.dict_contact_predicate_to_rel_pose_predicates:
-                    # if "InContact" in pred:
-                    for cluster_predicate in CFG.dict_contact_predicate_to_rel_pose_predicates[pred]:
-                        ref_type = cluster_predicate.types[0]
-                        ref_obj = None
-                        ref_frame = None
-                        for obj in curr_option.objects:
-                            if obj.type == ref_type:
-                                ref_obj = obj
-                                break
-                        if ref_obj is None:
-                            continue
-                        for s in env._current_state:
-                            if s.name == ref_obj.name:
-                                ref_frame = np.concatenate(env._current_state[s])
-                                break
-                        if ref_frame is None:
-                            continue
-
-                        cluster_pos_quat = cluster_predicate._classifier.cluster_center
-                        cluster_cov = cluster_predicate._classifier.cluster_cov
-                        mahalanobis_threshold = cluster_predicate._classifier.mahalanobis_threshold
-
-                        pos, quat = cluster_pos_quat[:3], cluster_pos_quat[3:]
-
-                        trans_cov = cluster_cov[:3, :3]
-                        eigvals, eigvecs = np.linalg.eigh(trans_cov)
-                        eigvals = np.abs(eigvals)
-                        a, b, c = np.sqrt(mahalanobis_threshold * eigvals)
-
-                        env.mjshowellipse(pos, quat, size=(a, b, c), name=cluster_predicate.name, base_pos=ref_frame[:3], base_quat=ref_frame[3:], alpha=0.1)
+                env.show_option_cluster_predicates(curr_option)
 
                 obs = env.step(act)
                 actions.append(act)

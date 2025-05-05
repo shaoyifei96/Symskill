@@ -368,14 +368,14 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         logging.info("Generating candidate predicates via clustering...")
         # Filter dataset to only keep specific trajectory indices
         if CFG.robo_kitchen_task == "OpenSingleDoor":
-            keep_indices = [0, 2, 3, 4, 6, 7, 8, 9, 10, 12, 14, 15, 16, 17, 19, 21, 25, 32, 33, 35, 36, 38, 39, 40, 42, 44, 45, 47, 48, 49]
-            # keep_indices = [0, 2, 6, 7]
+            # keep_indices = [0, 2, 3, 4, 6, 7, 8, 9, 10, 12, 14, 15, 16, 17, 19, 21, 25, 32, 33, 35, 36, 38, 39, 40, 42, 44, 45, 47, 48, 49]
+            keep_indices = [0, 2, 6, 7]
             dataset._trajectories = [dataset._trajectories[i] for i in keep_indices if i < len(dataset._trajectories)]
         if CFG.robo_kitchen_task == "CloseSingleDoor":
             # keep_indices = [0, 1, 2, 3, 4, 6, 7, 8, 9] # all left close
             # keep_indices = [0, 2, 4, 8, 9] # all microwave
-            # keep_indices = [1, 3, 6, 7] # all left cab
-            keep_indices = [0, 2, 8, 9] # better microwaves
+            keep_indices = [1, 3, 6, 7] # all left cab
+            # keep_indices = [0, 2, 8, 9] # better microwaves
             dataset._trajectories = [dataset._trajectories[i] for i in keep_indices if i < len(dataset._trajectories)]
 
         # logging.info(f"Filtered dataset to trajectories (indices: {keep_indices})")
@@ -1308,7 +1308,8 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
 
         # Identify the InContact predicate and the gripper type
         in_contact_pred = next(p for p in env.predicates if "InContact" in p.name)
-        in_origin_pred = next(p for p in env.predicates if "InOrigin" in p.name)
+        if CFG.use_in_origin_pred:
+            in_origin_pred = next(p for p in env.predicates if "InOrigin" in p.name)
         gripper_type = next(t for t in self._types if "gripper" in t.name) # Assumes gripper type name contains "gripper"
 
         if not gripper_type:
@@ -1316,7 +1317,10 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             return {}, {} # Return empty dicts if gripper type is not found
 
         # Combine InContact and goal predicates for atom dataset creation
-        predicates_to_monitor = {in_contact_pred, in_origin_pred} | env.goal_predicates
+        if CFG.use_in_origin_pred:
+            predicates_to_monitor = {in_contact_pred, in_origin_pred} | env.goal_predicates
+        else:
+            predicates_to_monitor = {in_contact_pred} | env.goal_predicates
         ground_atom_dataset = utils.create_ground_atom_dataset(dataset.trajectories, predicates_to_monitor)
 
         relative_pose_dataset_dict = defaultdict(list) # Maps (atom_pred, type1, type2) -> List[rel_pose]
@@ -1338,22 +1342,24 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             if not ll_traj.states: continue # Skip empty trajectories
             # logging.info(f"Processing trajectory {i} of {len(ground_atom_dataset)}")
             # We want to eventually treat lost contact as a phase, and use clustering to group the lost contact phases
-            init_atoms = None
-            init_atoms_pred = []
-            finish_adding_init_atoms = False
-            for t in range(1, len(atom_seq)):
-                atoms_t = atom_seq[t]
-                atoms_tm1 = atom_seq[t - 1]
-                if t == 1 and len(atoms_tm1) > 0 and any(atom.predicate == in_origin_pred for atom in atoms_tm1):
-                    init_atoms = atoms_tm1
-                    init_atoms_pred = [atom.predicate for atom in atoms_tm1]
-                assert init_atoms is not None, "No InOrigin predicate found in the first state of the trajectory."
-                if len(atoms_t) > 0 and any(atom.predicate not in init_atoms_pred for atom in atoms_t):
-                    finish_adding_init_atoms = True
-                if not finish_adding_init_atoms:
-                    ground_atom_dataset[i][1][t] = init_atoms
-                elif any(atom.predicate == in_origin_pred for atom in atoms_t):
-                    ground_atom_dataset[i][1][t] = set([atom for atom in atoms_t if atom.predicate != in_origin_pred])
+            
+            if CFG.use_in_origin_pred:
+                init_atoms = None
+                init_atoms_pred = []
+                finish_adding_init_atoms = False
+                for t in range(1, len(atom_seq)):
+                    atoms_t = atom_seq[t]
+                    atoms_tm1 = atom_seq[t - 1]
+                    if t == 1 and len(atoms_tm1) > 0 and any(atom.predicate == in_origin_pred for atom in atoms_tm1):
+                        init_atoms = atoms_tm1
+                        init_atoms_pred = [atom.predicate for atom in atoms_tm1]
+                    assert init_atoms is not None, "No InOrigin predicate found in the first state of the trajectory."
+                    if len(atoms_t) > 0 and any(atom.predicate not in init_atoms_pred for atom in atoms_t):
+                        finish_adding_init_atoms = True
+                    if not finish_adding_init_atoms:
+                        ground_atom_dataset[i][1][t] = init_atoms
+                    elif any(atom.predicate == in_origin_pred for atom in atoms_t):
+                        ground_atom_dataset[i][1][t] = set([atom for atom in atoms_t if atom.predicate != in_origin_pred])
                     
 
             skip_var =max(int(len(atom_seq) / 50),1)
