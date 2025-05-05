@@ -376,7 +376,7 @@ class RoboKitchenEnv(BaseEnv):
                     "env_name": task_name,
                     "robots": robot_type,
                     "controller_configs": controller_config,
-                    "layout_ids": [2, 3],
+                    "layout_ids": [0],
                     "style_ids": None,
                     "translucent_robot": True,
                 }

@@ -57,6 +57,8 @@ class BilevelPlanningApproach(BaseApproach):
     def _convert_task_goal_to_cluster_goal(self, goal: List[GroundAtom]) -> List[GroundAtom]:
         """Convert task goal to predicate goal if using clustering reprocess."""
         goal_atoms = set()
+        if not CFG.predefined_goal_predicates:
+            goal = CFG.learnt_goal
         for atom in goal:
             rel_pose_preds = CFG.dict_contact_predicate_to_rel_pose_predicates[(atom.predicate.name, atom.entities[0].type.name, atom.entities[1].type.name)]
             rel_pose_pred = list(rel_pose_preds)[0]

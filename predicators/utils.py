@@ -56,7 +56,8 @@ from predicators.structs import NSRT, Action, Array, DummyOption, \
     NSRTOrSTRIPSOperator, Object, ObjectOrVariable, Observation, OptionSpec, \
     ParameterizedOption, Predicate, Segment, State, STRIPSOperator, Task, \
     Type, Variable, VarToObjSub, Video, VLMPredicate, _GroundLDLRule, \
-    _GroundNSRT, _GroundSTRIPSOperator, _Option, _TypedEntity, OptionFailureInfo
+    _GroundNSRT, _GroundSTRIPSOperator, _Option, _TypedEntity, OptionFailureInfo, \
+    DummyPredicate
 from predicators.third_party.fast_downward_translator.translate import \
     main as downward_translate
 from itertools import combinations_with_replacement
@@ -2631,6 +2632,8 @@ def abstract(state: State,
     # Next, classify all non-VLM predicates.
     atoms = set()
     for pred in preds:
+        if isinstance(pred, DummyPredicate):
+            continue
         if pred not in vlm_preds:
             for choice in get_object_combinations(list(state), pred.types):
                 # print(choice)

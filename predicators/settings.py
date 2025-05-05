@@ -18,6 +18,9 @@ class GlobalSettings:
     reprocess_ground_atom_dataset_using_cluster_replacement = True
     reprocess_ground_atom_dataset_using_cluster_predicates = False
     remove_inOrigin_pred = True
+    predefined_goal_predicates = False
+    if not predefined_goal_predicates:
+        learnt_goal = None
 
     init_pose = np.array([0.24844874, 0.00726439, 0.59251043, 0.98900046, 0.05834797, 0.13247817, -0.0303833])
     # init_pose = np.array([0.21157339360837069, -0.004757503173138833, 1.3895575386300745, -0.9884290099143982, -0.051291853189468384, -0.14036346971988678, 0.025989433750510216])
@@ -89,7 +92,7 @@ class GlobalSettings:
     """Unchanging settings."""
     # global parameters
     num_train_tasks = 10  # in robocasa, either the max demo number or num_train_tasks will be used
-    num_test_tasks = 10
+    num_test_tasks = 1
     # Perform online learning for this many cycles or until this many
     # transitions have been collected, whichever happens first.
     num_online_learning_cycles = 10
@@ -816,7 +819,7 @@ class GlobalSettings:
                 {
                     # For certain environments, actions are lower level, so
                     # tasks take more actions to complete.
-                    "robo_kitchen": 5000,
+                    "robo_kitchen": 1000,
                     "pybullet_cover": 1000,
                     "pybullet_blocks": 1000,
                     "doors": 1000,

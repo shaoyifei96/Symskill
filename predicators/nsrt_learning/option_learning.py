@@ -865,11 +865,11 @@ def find_two_objects(op: STRIPSOperator, segment: Segment, var_to_obj: VarToObjS
 
     manipulated_obj, gripper_obj = most_common_pair
     if obj1 == manipulated_obj:
-        ooi_obj = obj2
-        ref_obj = obj1
-    else:
         ooi_obj = obj1
         ref_obj = obj2
+    else:
+        ooi_obj = obj2
+        ref_obj = obj1
 
     # logging.debug(f"NSRT {op.name}: Found gripper ({gripper_obj}) and OOI ({ooi_obj}) from contact analysis.")
     if learn_option_between_gripper_obj:
