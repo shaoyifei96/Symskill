@@ -249,8 +249,7 @@ class RoboKitchenEnv(BaseEnv):
 
                 self._env_raw = robosuite.make(
                     **config,
-                    # has_renderer=self._using_gui,
-                    has_renderer=False,
+                    has_renderer=self._using_gui,
                     has_offscreen_renderer=True,
                     render_camera="robot0_frontview",
                     ignore_done=True,
@@ -471,7 +470,8 @@ class RoboKitchenEnv(BaseEnv):
                 obj = cls.object_name_to_object(obj_name)
                 translation = np.array([val[0], val[1], val[2]])
                 quaternion = np.array([val[3], val[4], val[5], val[6]])
-                state_dict[obj] = {"translation": translation, "quaternion": quaternion}
+                if obj is not None:
+                    state_dict[obj] = {"translation": translation, "quaternion": quaternion}
             elif key.endswith("_quat"):
                 obj_name = key[:-5]  # Remove _pos
                 translation = np.array(state_info[key[:-5] + "_pos"])
