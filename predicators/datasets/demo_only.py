@@ -29,6 +29,7 @@ from predicators.settings import CFG
 from predicators.structs import Action, Dataset, LowLevelTrajectory, \
     ParameterizedOption, State, Task
 from robocasa.utils.dataset_registry import get_ds_path
+from PIL import Image
 
 
 def create_demo_data(env: BaseEnv, train_tasks: List[Task],
@@ -350,6 +351,9 @@ def create_demo_data_from_robocasa(env: RoboKitchenEnv, train_tasks: List[Task],
             # Get states and actions
             # Create list of State objects from state info at each timestep
             states = []
+            frames_center = []
+            frames_left = []
+            frames_right = []
             first_key = next(iter(demo["datagen_info"]))
             actions = demo["actions"][()]  # Get actions array
             raw_robosuite_states = demo["states"][()]
@@ -402,6 +406,14 @@ def create_demo_data_from_robocasa(env: RoboKitchenEnv, train_tasks: List[Task],
                 # Create state object
                 state = RoboKitchenEnv.state_info_to_state(obs, contact_set) # state here is the predicator state
                 states.append(state)
+                
+                if not CFG.use_gui:
+                    center_frame = env._env.sim.render(camera_name="robot0_agentview_center", height=512, width=768)
+                    left_frame = env._env.sim.render(camera_name="robot0_agentview_left", height=512, width=768)
+                    right_frame = env._env.sim.render(camera_name="robot0_agentview_right", height=512, width=768)
+                    frames_center.append(Image.fromarray(center_frame[::-1]))
+                    frames_left.append(Image.fromarray(left_frame[::-1]))
+                    frames_right.append(Image.fromarray(right_frame[::-1]))
 
                 # Optional: Check if execution matches recorded trajectory
                 state_playback = np.array(env._env.sim.get_state().flatten())
@@ -468,5 +480,13 @@ def create_demo_data_from_robocasa(env: RoboKitchenEnv, train_tasks: List[Task],
                 _ep_meta=demo.attrs.get("ep_meta", None)
             )
             trajectories.append(traj)
+
+            if not CFG.use_gui:
+                center_video_save_name = f"robokitchen__{task_name}__{demo_idx}__center.mp4"
+                left_video_save_name = f"robokitchen__{task_name}__{demo_idx}__left.mp4"
+                right_video_save_name = f"robokitchen__{task_name}__{demo_idx}__right.mp4"
+                utils.save_video(center_video_save_name, frames_center)
+                utils.save_video(left_video_save_name, frames_left)
+                utils.save_video(right_video_save_name, frames_right)
 
     return Dataset(trajectories)

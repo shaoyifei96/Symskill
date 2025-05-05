@@ -1217,6 +1217,7 @@ class _PrunedGrammar(_DataBasedPredicateGrammar):
             object_obj = RoboKitchenEnv.object_name_to_object("obj")  # TODO: hardcoded no good
             bottom_surf = RoboKitchenEnv.object_name_to_object("bottom")  # TODO: hardcoded no good
             for i, traj in enumerate(self.dataset.trajectories):
+                # The init_atoms and final_atoms are not used.
                 seg_traj = segment_trajectory(traj, predicates=set())
                 if CFG.robo_kitchen_save_traj_by_segment:
                     for seg_idx, seg in enumerate(seg_traj):

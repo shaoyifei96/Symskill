@@ -546,7 +546,7 @@ class GlobalSettings:
     data_dir = "saved_datasets"
     video_dir = "videos"
     image_dir = "images"
-    video_fps = 2
+    video_fps = 30
     failure_video_mode = "longest_only"
 
     # dataset parameters

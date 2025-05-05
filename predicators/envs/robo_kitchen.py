@@ -439,7 +439,7 @@ class RoboKitchenEnv(BaseEnv):
                 self._env_raw = robosuite.make(
                     **config,
                     has_renderer=self._using_gui,
-                    has_offscreen_renderer=False,
+                    has_offscreen_renderer=True,
                     render_camera="robot0_frontview",
                     ignore_done=True,
                     use_camera_obs=False,
