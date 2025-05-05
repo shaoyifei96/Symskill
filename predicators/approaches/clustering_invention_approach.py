@@ -1379,7 +1379,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                     
 
             skip_var =max(int(len(atom_seq) / 50),1)
-            skip_var = 1
+            skip_var = 2
             logging.debug(f"Processing trajectory {i+1}/{len(ground_atom_dataset)} with {len(atom_seq)} atoms, skipping every {skip_var} atoms.")
             for t in range(1, len(atom_seq), skip_var): # Start from 1 to compare with t-1, skip every 4
                 state_t = ll_traj.states[t]
@@ -1459,7 +1459,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                             relative_pose_dataset_dict[key].append(rel_pose_at_contact_obj1_in_obj2_frame)
 
         # ------ train ds on each relative pose traj and determine obj of reference ------ #
-        obj_of_reference = None
+        obj_of_reference_best = None
         min_reconstruction_error = float('inf')
         list_of_reconstruction_errors = []
         for obj, rel_pose_trajs in contact_period_rel_trajs.items():
@@ -1493,10 +1493,10 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             list_of_reconstruction_errors.append(reconstruction_error)
             if reconstruction_error < min_reconstruction_error:
                 min_reconstruction_error = reconstruction_error
-                obj_of_reference = obj
+                obj_of_reference_best = obj
 
         # Visualize the x data for the object of reference
-        for j, (obj_of_reference, rel_pose_trajs) in enumerate(contact_period_rel_trajs.items()):
+        for j, (o_ref, rel_pose_trajs) in enumerate(contact_period_rel_trajs.items()):
             if len(rel_pose_trajs) == 0: continue
             import matplotlib.pyplot as plt
             from mpl_toolkits.mplot3d import Axes3D
@@ -1505,7 +1505,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             ax = fig.add_subplot(111, projection='3d')
             
             # Plot each trajectory in a different color
-            colors = plt.cm.rainbow(np.linspace(0, 1, len(contact_period_rel_trajs[obj_of_reference])))
+            colors = plt.cm.rainbow(np.linspace(0, 1, len(contact_period_rel_trajs[o_ref])))
             
             for i, rel_pose_traj in enumerate(rel_pose_trajs):
                 x_traj = np.array(rel_pose_traj)[:, :3]  # Get translation part
@@ -1521,7 +1521,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 ax.scatter(x_traj[-1, 0], x_traj[-1, 1], x_traj[-1, 2], 
                           color=colors[i], marker='s', s=100, label=f'End {i+1}' if i == 0 else None)
             
-            ax.set_title(f'Contact Period Relative Trajectories for {obj_of_reference.name}, Reconstruction Error: {list_of_reconstruction_errors[j]:.1f}')
+            ax.set_title(f'Contact Period Relative Trajectories for {o_ref.name}, Reconstruction Error: {list_of_reconstruction_errors[j]:.1f}')
             ax.set_xlabel('X')
             ax.set_ylabel('Y')
             ax.set_zlabel('Z')
@@ -1534,8 +1534,8 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             
             # Save the visualization
             os.makedirs("feature_data", exist_ok=True)
-            plt.savefig(f"feature_data/contact_period_trajectories_{obj_of_reference.name}.png")
-            logging.info(f"Saved contact period trajectories visualization to feature_data/contact_period_trajectories_{obj_of_reference.name}.png")
+            plt.savefig(f"feature_data/contact_period_trajectories_{o_ref.name}.png")
+            logging.info(f"Saved contact period trajectories visualization to feature_data/contact_period_trajectories_{o_ref.name}.png")
             plt.close(fig)
 
         for i, (ll_traj, atom_seq) in enumerate(ground_atom_dataset):
@@ -1543,12 +1543,12 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 for k, atom in enumerate(atoms):
                     if isinstance(atom, DummyPredicate):
                         ground_atom_dataset[i][1][j].remove(atom)
-                        ground_atom_dataset[i][1][j].add(GroundAtom(DummyPredicate("goal", [obj_of_reference.type, obj_contact_with_gripper.type]), [obj_of_reference, obj_contact_with_gripper]))
+                        ground_atom_dataset[i][1][j].add(GroundAtom(DummyPredicate("goal", [obj_of_reference_best.type, obj_contact_with_gripper.type]), [obj_of_reference_best, obj_contact_with_gripper]))
                         
         # add stored states before contact lost to relative_pose_dataset_dict
         for state in goal_reached_states:
-            rel_pose = utils.calculate_relative_pose(state, obj_of_reference, obj_contact_with_gripper, trans_feat_name, quat_feat_name)
-            key = (DummyPredicate("goal"), obj_of_reference.type, obj_contact_with_gripper.type, "2in1")
+            rel_pose = utils.calculate_relative_pose(state, obj_of_reference_best, obj_contact_with_gripper, trans_feat_name, quat_feat_name)
+            key = (DummyPredicate("goal"), obj_of_reference_best.type, obj_contact_with_gripper.type, "2in1")
             relative_pose_dataset_dict[key].append(rel_pose)
             
         # ---------------------------------------------------------------------------------- #
@@ -1776,11 +1776,11 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                     ground_atom_dataset[i][1][j] = set(atoms_new)
         
         if not CFG.predefined_goal_predicates:
-            CFG.learnt_goal = [GroundAtom(DummyPredicate("goal", [obj_of_reference.type, obj_contact_with_gripper.type]), [obj_of_reference, obj_contact_with_gripper])]
+            CFG.learnt_goal = [GroundAtom(DummyPredicate("goal", [obj_of_reference_best.type, obj_contact_with_gripper.type]), [obj_of_reference_best, obj_contact_with_gripper])]
 
             for pred in predicates_to_monitor:
                 if isinstance(pred, DummyPredicate): # goal predicate
-                    pred = DummyPredicate("goal", [obj_of_reference.type, obj_contact_with_gripper.type])
+                    pred = DummyPredicate("goal", [obj_of_reference_best.type, obj_contact_with_gripper.type])
         
 
         # logging.info("--- End segmentation with new predicates ---")
