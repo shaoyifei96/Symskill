@@ -326,7 +326,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         approach_files = [main_folder + f for f in all_files if f.startswith(f"{CFG.env}__{CFG.approach}") and f.endswith(".NSRTs")]
         contact2rel_files = [main_folder + f for f in all_files if f.startswith(f"{CFG.env}__{CFG.approach}") and f.endswith("_contact2rel_preds.pkl")]
         goal_files = [main_folder + f for f in all_files if f.startswith(f"{CFG.env}__{CFG.approach}") and f.endswith("_goal_preds.pkl")]
-        
+
         for file in approach_files:
             with open(file, "rb") as f:
                 loaded_nsrts = pkl.load(f)
@@ -334,7 +334,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         from predicators.ground_truth_models import get_gt_nsrts
         gt_nsrts = get_gt_nsrts(CFG.env, self._initial_predicates, self._initial_options)
         self._nsrts = set(gt_nsrts).union(self._nsrts)
-        
+
         for file in contact2rel_files:
             with open(file, "rb") as f:
                 contact2rel_preds = pkl.load(f)
@@ -343,10 +343,11 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                         CFG.dict_contact_predicate_to_rel_pose_predicates[key] = value
                     else:
                         CFG.dict_contact_predicate_to_rel_pose_predicates[key].update(value)
-        
+
         for file in goal_files:
             with open(file, "rb") as f:
-                CFG.learnt_goal  = pkl.load(f)
+                goal_preds = pkl.load(f)
+                CFG.learnt_goal.extend(goal_preds)
 
         if CFG.pretty_print_when_loading:  # pragma: no cover
             preds, _ = utils.extract_preds_and_types(self._nsrts)
@@ -438,11 +439,10 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         learned_preds_path = f"{save_path}_contact2rel_preds.pkl"
         with open(learned_preds_path, "wb") as f:
             pkl.dump(CFG.dict_contact_predicate_to_rel_pose_predicates, f)
-        
+
         learned_goal_path = f"{save_path}_goal_preds.pkl"
         with open(learned_goal_path, "wb") as f:
             pkl.dump(CFG.learnt_goal, f)
-
 
         # Learn NSRTs with the final set of predicates
         # final_predicates = self._get_current_predicates()
@@ -1327,7 +1327,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
 
         # Identify the InContact predicate and the gripper type
         in_contact_pred = next(p for p in env.predicates if "InContact" in p.name)
-        if CFG.use_in_origin_pred:
+        if not CFG.remove_inOrigin_pred:
             in_origin_pred = next(p for p in env.predicates if "InOrigin" in p.name)
         gripper_type = next(t for t in self._types if "gripper" in t.name) # Assumes gripper type name contains "gripper"
 
@@ -1362,10 +1362,6 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         all_objs = list(all_objs)  # Convert back to list for further processing
         all_objs = [o for o in all_objs if "finger" not in o.name.lower()]
         logging.info(f"After filtering, {len(all_objs)} objects remain")
-        for obj in all_objs:
-            if obj.type == gripper_type:
-                continue
-            contact_period_rel_trajs[obj] = []
 
         quat_feat_name = "quaternion"
         trans_feat_name = "translation"
@@ -1383,8 +1379,8 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             if not ll_traj.states: continue # Skip empty trajectories
             # logging.info(f"Processing trajectory {i} of {len(ground_atom_dataset)}")
             # We want to eventually treat lost contact as a phase, and use clustering to group the lost contact phases
-            
-            if CFG.use_in_origin_pred:
+
+            if not CFG.remove_inOrigin_pred:
                 init_atoms = None
                 init_atoms_pred = []
                 finish_adding_init_atoms = False
@@ -1401,7 +1397,6 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                         ground_atom_dataset[i][1][t] = init_atoms
                     elif any(atom.predicate == in_origin_pred for atom in atoms_t):
                         ground_atom_dataset[i][1][t] = set([atom for atom in atoms_t if atom.predicate != in_origin_pred])
-                    
 
             skip_var =max(int(len(atom_seq) / 50),1)
             logging.debug(f"Processing trajectory {i+1}/{len(ground_atom_dataset)} with {len(atom_seq)} atoms, skipping every {skip_var} atoms.")
@@ -1456,15 +1451,17 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                         # ------ get relative pose trajs of obj_contact_with_gripper in all other obj's frame ------ #
                         obj_contact_with_gripper = obj1
 
-
                         for obj in all_objs: # go through all object to get relative pose see which one is best ref
                             if obj.type == gripper_type or obj == obj_contact_with_gripper:
                                 continue
                             relative_pose =utils.calculate_relative_pose(state_t, obj, obj_contact_with_gripper, trans_feat_name, quat_feat_name)
+                            if obj not in contact_period_rel_trajs:
+                                contact_period_rel_trajs[obj] = []
                             if not consistent_contact: # start of contact
                                 contact_period_rel_trajs[obj].append([relative_pose])
                             else:
                                 contact_period_rel_trajs[obj][-1].append(relative_pose)
+                        
                         # -------------------------------------------------------------------------------------------- #
                         # these are original ones used to compute rel pose during contact for finding end points of DS
                         # Calculate relative pose at the moment of contact (state t)
@@ -1528,38 +1525,38 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             if len(rel_pose_trajs) == 0: continue
             import matplotlib.pyplot as plt
             from mpl_toolkits.mplot3d import Axes3D
-            
+
             fig = plt.figure(figsize=(15, 10))
             ax = fig.add_subplot(111, projection='3d')
-            
+
             # Plot each trajectory in a different color
             colors = plt.cm.rainbow(np.linspace(0, 1, len(contact_period_rel_trajs[o_ref])))
-            
+
             for i, rel_pose_traj in enumerate(rel_pose_trajs):
                 x_traj = np.array(rel_pose_traj)[:, :3]  # Get translation part
-                
+
                 # Plot trajectory
                 ax.plot(x_traj[:, 0], x_traj[:, 1], x_traj[:, 2], 
                        color=colors[i], linewidth=2, alpha=0.7,
                        label=f'Trajectory {i+1}')
-                
+
                 # Mark start and end points
                 ax.scatter(x_traj[0, 0], x_traj[0, 1], x_traj[0, 2], 
                           color=colors[i], marker='o', s=100, label=f'Start {i+1}' if i == 0 else None)
                 ax.scatter(x_traj[-1, 0], x_traj[-1, 1], x_traj[-1, 2], 
                           color=colors[i], marker='s', s=100, label=f'End {i+1}' if i == 0 else None)
-            
+
             ax.set_title(f'Contact Period Relative Trajectories for {o_ref.name}, Reconstruction Error: {list_of_reconstruction_errors[j]:.1f}')
             ax.set_xlabel('X')
             ax.set_ylabel('Y')
             ax.set_zlabel('Z')
-            
+
             # Add legend
             ax.legend()
-            
+
             # Set equal aspect ratio
             ax.set_box_aspect([1, 1, 1])
-            
+
             # Save the visualization
             os.makedirs("feature_data", exist_ok=True)
             plt.savefig(f"feature_data/contact_period_trajectories_{o_ref.name}.png")
@@ -1572,13 +1569,13 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                     if isinstance(atom, DummyPredicate):
                         ground_atom_dataset[i][1][j].remove(atom)
                         ground_atom_dataset[i][1][j].add(GroundAtom(DummyPredicate("goal", [obj_of_reference_best.type, obj_contact_with_gripper.type]), [obj_of_reference_best, obj_contact_with_gripper]))
-                        
+
         # add stored states before contact lost to relative_pose_dataset_dict
         for state in goal_reached_states:
             rel_pose = utils.calculate_relative_pose(state, obj_of_reference_best, obj_contact_with_gripper, trans_feat_name, quat_feat_name)
             key = (DummyPredicate("goal"), obj_of_reference_best.type, obj_contact_with_gripper.type, "2in1")
             relative_pose_dataset_dict[key].append(rel_pose)
-            
+
         # ---------------------------------------------------------------------------------- #
 
         logging.info("Clustering collected relative contact poses...")
@@ -1762,7 +1759,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                         logging.info(f"Old  Time {t}: {current_atoms if current_atoms else '{}'}")
                         last_atoms1 = current_atoms
                         seg_count1 += 1
-                
+
                 last_atoms2 = None
                 seg_count2 = 0
                 for t, atoms in enumerate(atom_seq2):
@@ -1771,13 +1768,12 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                         logging.info(f"New  Time {t}: {current_atoms if current_atoms else '{}'}")
                         last_atoms2 = current_atoms
                         seg_count2 += 1
-                
+
                 if seg_count1 != seg_count2:
                     different_seg_count_trajs.append(i)
                     num_seg_1.append(seg_count1)
                     num_seg_2.append(seg_count2)
 
-            
             logging.info(f"Trajectories with different segment counts: {different_seg_count_trajs}, num_seg_1: {num_seg_1}, num_seg_2: {num_seg_2}, totoal_num_traj = {len(og_pred_atom_dataset)}")
 
             # Filter out trajectories with different segment counts from both datasets
@@ -1788,9 +1784,8 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                         og_pred_atom_dataset.pop(idx)
                     if 0 <= idx < len(cluster_pred_atom_dataset):
                         cluster_pred_atom_dataset.pop(idx)
-                
-                logging.info(f"After filtering: {len(og_pred_atom_dataset)} trajectories remain")
 
+                logging.info(f"After filtering: {len(og_pred_atom_dataset)} trajectories remain")
 
         if CFG.reprocess_ground_atom_dataset_using_cluster_replacement:
             different_seg_count_trajs = [] # go through and replace the InContact Atoms with rel pose atoms
@@ -1802,14 +1797,13 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                         grounded_pred = GroundAtom(pred, atom.entities)
                         atoms_new.append(grounded_pred)
                     ground_atom_dataset[i][1][j] = set(atoms_new)
-        
+
         if not CFG.predefined_goal_predicates:
             CFG.learnt_goal = [GroundAtom(DummyPredicate("goal", [obj_of_reference_best.type, obj_contact_with_gripper.type]), [obj_of_reference_best, obj_contact_with_gripper])]
 
             for pred in predicates_to_monitor:
                 if isinstance(pred, DummyPredicate): # goal predicate
                     pred = DummyPredicate("goal", [obj_of_reference_best.type, obj_contact_with_gripper.type])
-        
 
         # logging.info("--- End segmentation with new predicates ---")
         # --- End Debugging ---

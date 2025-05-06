@@ -431,7 +431,7 @@ class RoboKitchenEnv(BaseEnv):
                     "controller_configs": controller_config,
                     "layout_ids": 3,
                     "style_ids": 0,
-                    "layout_ids": [0],
+                    "layout_ids": [3],
                     "style_ids": None,
                     "translucent_robot": True,
                 }
@@ -702,39 +702,51 @@ class RoboKitchenEnv(BaseEnv):
 
         def show_cluster_predicates(predicates, color=(1, 0, 0), alpha=0.1, prefix=""):
             for pred in predicates:
+                cluster_predicates = []
                 predicate = pred.predicate
-                pred_key = (predicate.name, pred.entities[0].type.name, pred.entities[1].type.name)
-                if pred_key in CFG.dict_contact_predicate_to_rel_pose_predicates:
-                    cluster_predicates = CFG.dict_contact_predicate_to_rel_pose_predicates[pred_key]
-                    for i, cluster_predicate in enumerate(cluster_predicates):
-                        ref_type = cluster_predicate.types[0]
-                        ref_obj = None
-                        ref_frame = None
-                        for obj in curr_option.objects:
-                            if obj.type == ref_type:
-                                ref_obj = obj
-                                break
-                        if ref_obj is None:
-                            continue
-                        for s in self._current_state:
-                            if s.name == ref_obj.name:
-                                ref_frame = np.concatenate(self._current_state[s])
-                                break
-                        if ref_frame is None:
-                            continue
-                        cluster_cov = cluster_predicate._classifier.cluster_cov
-                        mahalanobis_threshold = cluster_predicate._classifier.mahalanobis_threshold
-                        pos, quat = cluster_predicate._classifier.cluster_center[:3], cluster_predicate._classifier.cluster_center[3:]
-                        trans_cov = cluster_cov[:3, :3]
-                        eigvals, eigvecs = np.linalg.eigh(trans_cov)
-                        eigvals = np.abs(eigvals)
-                        a, b, c = np.sqrt(mahalanobis_threshold * eigvals)
+                if "RelCovCluster" in predicate.name:
+                    cluster_predicates = [predicate]
+                    import re
+                    pattern = r'\w+-in-\w+-frame'
+                    match = re.search(pattern, pred._str)
+                    if match:
+                        name = f"{prefix}_{match.group(0)}"
+                    else:
+                        name = f"{prefix}_{pred._str.split('-')[0]}"
+                else:
+                    pred_key = (predicate.name, pred.entities[0].type.name, pred.entities[1].type.name)
+                    name = f"{prefix}_{pred._str}"
+                    if pred_key in CFG.dict_contact_predicate_to_rel_pose_predicates:
+                        cluster_predicates = CFG.dict_contact_predicate_to_rel_pose_predicates[pred_key]
 
-                        if i == 0:
-                            name = f"{prefix}_{pred._str}"
-                            self.mjshowellipse(pos, quat, size=(a, b, c), name=name, base_pos=ref_frame[:3], base_quat=ref_frame[3:], alpha=alpha, color=color)
-                        else:
-                            self.mjshowellipse(pos, quat, size=(a, b, c), base_pos=ref_frame[:3], base_quat=ref_frame[3:], alpha=alpha, color=color)
+                for i, cluster_predicate in enumerate(cluster_predicates):
+                    ref_type = cluster_predicate.types[0]
+                    ref_obj = None
+                    ref_frame = None
+                    for obj in curr_option.objects:
+                        if obj.type == ref_type:
+                            ref_obj = obj
+                            break
+                    if ref_obj is None:
+                        continue
+                    for s in self._current_state:
+                        if s.name == ref_obj.name:
+                            ref_frame = np.concatenate(self._current_state[s])
+                            break
+                    if ref_frame is None:
+                        continue
+                    cluster_cov = cluster_predicate._classifier.cluster_cov
+                    mahalanobis_threshold = cluster_predicate._classifier.mahalanobis_threshold
+                    pos, quat = cluster_predicate._classifier.cluster_center[:3], cluster_predicate._classifier.cluster_center[3:]
+                    trans_cov = cluster_cov[:3, :3]
+                    eigvals, eigvecs = np.linalg.eigh(trans_cov)
+                    eigvals = np.abs(eigvals)
+                    a, b, c = np.sqrt(mahalanobis_threshold * eigvals)
+
+                    if i == 0:
+                        self.mjshowellipse(pos, quat, size=(a, b, c), name=name, base_pos=ref_frame[:3], base_quat=ref_frame[3:], alpha=alpha, color=color)
+                    else:
+                        self.mjshowellipse(pos, quat, size=(a, b, c), base_pos=ref_frame[:3], base_quat=ref_frame[3:], alpha=alpha, color=color)
 
         if hasattr(curr_option, "parent") and hasattr(curr_option.parent, "operator"):
             preconditions = curr_option.parent.operator.preconditions
