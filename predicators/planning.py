@@ -1301,7 +1301,7 @@ def run_task_plan_once(
             plan = plans[best_idx]
             atoms_seq = atoms_seqs[best_idx]
             metrics = metrics_list[best_idx]
-            
+
             if last_option_name is not None and len(last_option_name.split("-")) >= 2 and len(plan) > 0 and len(plan[0].op.name.split("-")) >= 2:
                 if last_option_name.split("-")[0] != plan[0].op.name.split("-")[0]:
                     # If the first operator of the plan is not the same as the last option name, then we need to add a move to init
@@ -1319,7 +1319,7 @@ def run_task_plan_once(
             min_plan_length = min(len(plan) for plan in plans)
             best_idx = [len(plan) for plan in plans].index(min_plan_length)
             # max_plan_length = max(len(plan) for plan in plans)
-            # best_idx = [len(plan) for plan in plans].index(max_plan_length)         
+            # best_idx = [len(plan) for plan in plans].index(max_plan_length)
             logging.debug(f"Best Init-Plan [{', '.join(nsrt.name for nsrt in plans[best_idx])}] has {len(plans[best_idx])} steps")
             logging.debug(f"Best Init-Plan Atoms Seq: ")
             for i, atoms in enumerate(atoms_seqs[best_idx]):
@@ -1330,7 +1330,7 @@ def run_task_plan_once(
 
         # fix wrong move to init OR insert move to init
         if len(plan) > 2:
-            if CFG.use_in_origin_pred:
+            if not CFG.remove_inOrigin_pred:
                 atoms_seq = fix_wrong_move_to_init(plan, atoms_seq)
             else:
                 move_to_init_nsrt = next((nsrt for nsrt in nsrts if nsrt.name == "ToInitialState"), None)
