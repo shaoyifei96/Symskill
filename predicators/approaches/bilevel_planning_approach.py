@@ -54,7 +54,7 @@ class BilevelPlanningApproach(BaseApproach):
         self._last_maintain_effects: List[Set[GroundAtom]] = []  # plan WITHOUT sim
         self._last_fail_info: List[OptionFailureInfo] = []  # plan WITHOUT sim
 
-    def _solve(self, task: Task, timeout: int, stay_close_to_previous_plan: bool = False) -> Callable[[State], Action]:
+    def _solve(self, task: Task, timeout: int, stay_close_to_previous_plan: bool = False, last_option_name: str = None) -> Callable[[State], Action]:
         self._num_calls += 1
         # ensure random over successive calls
         seed = self._seed + self._num_calls
@@ -65,7 +65,7 @@ class BilevelPlanningApproach(BaseApproach):
         # policy.
         if self._plan_without_sim:
             nsrt_plan, atoms_seq, metrics = self._run_task_plan(
-                task, nsrts, preds, timeout, seed, stay_close_to_previous_plan)
+                task, nsrts, preds, timeout, seed, stay_close_to_previous_plan, last_option_name)
             self._last_nsrt_plan = nsrt_plan
             self._last_atoms_seq = atoms_seq
             # Create list of maintain effects for each step in the plan
@@ -130,6 +130,7 @@ class BilevelPlanningApproach(BaseApproach):
         self, task: Task, nsrts: Set[NSRT], preds: Set[Predicate],
         timeout: float, seed: int, 
         stay_close_to_previous_plan: bool = False, 
+        last_option_name: str = None,
         **kwargs: Any
     ) -> Tuple[List[_GroundNSRT], List[Set[GroundAtom]], Metrics]:
 
@@ -145,6 +146,7 @@ class BilevelPlanningApproach(BaseApproach):
                 max_horizon=float(CFG.horizon),
                 previous_plan = self._last_nsrt_plan,
                 stay_close_to_previous_plan = stay_close_to_previous_plan,
+                last_option_name = last_option_name,
                 **kwargs)
         except PlanningFailure as e:
             raise ApproachFailure(e.args[0], e.info)

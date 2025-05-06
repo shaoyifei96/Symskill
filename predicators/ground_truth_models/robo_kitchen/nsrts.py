@@ -71,7 +71,8 @@ class RoboKitchenGroundTruthNSRTFactory(GroundTruthNSRTFactory):
         parameters = [gripper, base]
         preconditions = set()
         maintain_effects = set()
-        add_effects = {LiftedAtom(InOrigin, [gripper, base])}
+        # add_effects = {LiftedAtom(InOrigin, [gripper, base])}
+        add_effects = set()
         delete_effects = set()
         ignore_effects = set()
         option = MoveToInitPoseOption

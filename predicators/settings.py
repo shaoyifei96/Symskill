@@ -31,7 +31,7 @@ class GlobalSettings:
 
     clustering_moving_average_window = 5
     clustering_debug = True
-    enable_meshcat = True
+    enable_meshcat = False
     clustering_se3_trans_weight = 10  # 0.05 m # 10 times differnece
     clustering_se3_rot_weight = 0.0  # 30 deg = 0.5236 rad
     clustering_feature_constancy_percentile = 10  # of total number of data points = 13782
@@ -48,7 +48,7 @@ class GlobalSettings:
     test_noise_level = 0.05  # Noise standard deviation for clusters
     test_cluster_separation = 0.1  # Distance between cluster centers
 
-    clustering_mahalanobis_confidence = 0.80
+    clustering_mahalanobis_confidence = 0.9
     clustering_translation_epsilon = 0.3  # set dbscane to be different
     clustering_quaternion_epsilon = 0.7
     clustering_dbscan_ratio = 0.1  # dbscan is 10 times smaller than this

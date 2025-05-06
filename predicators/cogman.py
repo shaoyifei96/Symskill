@@ -89,12 +89,14 @@ class CogMan:
             logging.info("\033[93m[CogMan] Replanning triggered.\033[0m")
             assert self._current_goal is not None
             task = Task(state, self._current_goal)
+            # last_option_name = self._exec_monitor._last_option_name
+            last_option_name = self._exec_monitor._failure_memory[-1].option_name
             self._exec_monitor.reset(task, reset_failure_memory=False)
             if self._num_times_stay_close_to_previous_plan < 3:
-                self._reset_policy(task, stay_close_to_previous_plan = True) # approach is updated
+                self._reset_policy(task, stay_close_to_previous_plan=True, last_option_name=last_option_name)  # approach is updated
                 self._num_times_stay_close_to_previous_plan += 1
             else:
-                self._reset_policy(task, stay_close_to_previous_plan = False) # approach is updated
+                self._reset_policy(task, stay_close_to_previous_plan=False, last_option_name=last_option_name)  # approach is updated
                 self._num_times_stay_close_to_previous_plan = 0
             self._exec_monitor.update_approach_info(
                 self._approach.get_execution_monitoring_info())
@@ -179,7 +181,7 @@ class CogMan:
         return LowLevelTrajectory(self._episode_state_history,
                                   self._episode_action_history)
 
-    def _reset_policy(self, task: Task, stay_close_to_previous_plan: bool = False) -> None:
+    def _reset_policy(self, task: Task, stay_close_to_previous_plan: bool = False, last_option_name: str = None) -> None:
         """Call the approach or use the override policy."""
         if isinstance(self._exec_monitor, ExpectedAtomsRobocasaExecutionMonitor):
             self._approach._last_fail_info = self._exec_monitor._failure_memory
@@ -188,7 +190,8 @@ class CogMan:
         else:
             self._current_policy = self._approach.solve(task, 
                                                         timeout=CFG.timeout,
-                                                        stay_close_to_previous_plan = stay_close_to_previous_plan)
+                                                        stay_close_to_previous_plan = stay_close_to_previous_plan,
+                                                        last_option_name = last_option_name)
 
 
 def run_episode_and_get_observations(
