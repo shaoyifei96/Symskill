@@ -23,6 +23,7 @@ from hdbscan import HDBSCAN
 from scipy.spatial.distance import cdist
 from scipy.spatial.transform import Rotation
 from scipy.spatial.distance import pdist, squareform
+from scipy.spatial.transform import Rotation as R
 # Need linalg for inverse and norm
 from numpy.linalg import inv, norm, det, LinAlgError
 
@@ -37,7 +38,7 @@ from predicators.nsrt_learning.segmentation import segment_trajectory
 from predicators.nsrt_learning.strips_learning import learn_strips_operators
 from predicators.planning import PlanningFailure, PlanningTimeout, run_task_plan_once
 from predicators.settings import CFG
-from predicators.structs import Dataset, GroundAtomTrajectory, NSRT, Object, ParameterizedOption, Predicate, Segment, State, Task, Type, STRIPSOperator
+from predicators.structs import Dataset, GroundAtomTrajectory, NSRT, Object, ParameterizedOption, Predicate, Segment, State, Task, Type, STRIPSOperator, GroundAtom, DummyPredicate
 import warnings
 from scipy.stats import chi2
 import matplotlib.pyplot as plt
@@ -46,6 +47,8 @@ from matplotlib.patches import Ellipse # For 2D ellipses
 import numpy.linalg # For eigh
 import matplotlib.cm as cm # Import cm for colormaps
 import matplotlib.colors as mcolors # Import colors for normalization
+
+from ds_policy import DSPolicy, compute_vel_traj, UnifiedModelConfig
 ################################################################################
 #                          Programmatic classifiers                            #
 ################################################################################
@@ -322,6 +325,8 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         all_files = os.listdir(main_folder)
         approach_files = [main_folder + f for f in all_files if f.startswith(f"{CFG.env}__{CFG.approach}") and f.endswith(".NSRTs")]
         contact2rel_files = [main_folder + f for f in all_files if f.startswith(f"{CFG.env}__{CFG.approach}") and f.endswith("_contact2rel_preds.pkl")]
+        goal_files = [main_folder + f for f in all_files if f.startswith(f"{CFG.env}__{CFG.approach}") and f.endswith("_goal_preds.pkl")]
+        
         for file in approach_files:
             with open(file, "rb") as f:
                 loaded_nsrts = pkl.load(f)
@@ -329,6 +334,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         from predicators.ground_truth_models import get_gt_nsrts
         gt_nsrts = get_gt_nsrts(CFG.env, self._initial_predicates, self._initial_options)
         self._nsrts = set(gt_nsrts).union(self._nsrts)
+        
         for file in contact2rel_files:
             with open(file, "rb") as f:
                 contact2rel_preds = pkl.load(f)
@@ -337,6 +343,10 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                         CFG.dict_contact_predicate_to_rel_pose_predicates[key] = value
                     else:
                         CFG.dict_contact_predicate_to_rel_pose_predicates[key].update(value)
+        
+        for file in goal_files:
+            with open(file, "rb") as f:
+                CFG.learnt_goal  = pkl.load(f)
 
         if CFG.pretty_print_when_loading:  # pragma: no cover
             preds, _ = utils.extract_preds_and_types(self._nsrts)
@@ -411,7 +421,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 logging.info(f"Selected {len(self._learned_predicates)} predicates.")
         elif CFG.predicate_candidates_method == "contact_clustering":
             logging.info("Generating candidate predicates via contact clustering method...")
-            ground_atom_dataset, candidates, initial_monitor_preds = self._generate_candidate_predicates_contact_goal_clustering(dataset)
+            og_pred_atom_dataset, cluster_pred_atom_dataset, different_seg_count_trajs, candidates, initial_monitor_preds = self._generate_candidate_predicates_contact_goal_clustering(dataset)
             self._learned_predicates = set(candidates.keys()) | initial_monitor_preds
         else:
             raise ValueError(f"Invalid predicate candidates method: {CFG.predicate_candidates_method}")
@@ -428,6 +438,11 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         learned_preds_path = f"{save_path}_contact2rel_preds.pkl"
         with open(learned_preds_path, "wb") as f:
             pkl.dump(CFG.dict_contact_predicate_to_rel_pose_predicates, f)
+        
+        learned_goal_path = f"{save_path}_goal_preds.pkl"
+        with open(learned_goal_path, "wb") as f:
+            pkl.dump(CFG.learnt_goal, f)
+
 
         # Learn NSRTs with the final set of predicates
         # final_predicates = self._get_current_predicates()
@@ -439,12 +454,16 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         # segmented_trajs_final = [
         #     segment_trajectory(ll_traj, final_predicates, atom_seq=atom_seq)
         #     for ll_traj, atom_seq in atom_dataset_final
-        # ]
+        trajs = dataset.trajectories
+        # Remove trajectories with different segment counts in reverse order
+        # to avoid index shifting problems
+        for i in sorted(different_seg_count_trajs, reverse=True):
+            trajs.pop(i)
 
         # Call learn_nsrts with segmented trajectories
         self._learn_nsrts(
-            dataset.trajectories,
-            ground_atom_dataset,
+            trajs,
+            og_pred_atom_dataset,
             annotations=annotations,
             online_learning_cycle=None,
             passed_in_predicates= self._learned_predicates
@@ -1317,13 +1336,36 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             return {}, {} # Return empty dicts if gripper type is not found
 
         # Combine InContact and goal predicates for atom dataset creation
-        if CFG.use_in_origin_pred:
-            predicates_to_monitor = {in_contact_pred, in_origin_pred} | env.goal_predicates
+        if CFG.predefined_goal_predicates:
+            goal_predicates = CFG.goal_predicates
         else:
-            predicates_to_monitor = {in_contact_pred} | env.goal_predicates
+            goal_predicates = {DummyPredicate("goal")} # Dummy predicate, won't be evaluated in create_ground_atom_dataset
+        if CFG.remove_inOrigin_pred:
+            predicates_to_monitor = {in_contact_pred} | goal_predicates
+        else:
+            predicates_to_monitor = {in_contact_pred, in_origin_pred} | goal_predicates
         ground_atom_dataset = utils.create_ground_atom_dataset(dataset.trajectories, predicates_to_monitor)
 
         relative_pose_dataset_dict = defaultdict(list) # Maps (atom_pred, type1, type2) -> List[rel_pose]
+
+        # other obj -> obj_contact_with_gripper's relative pose trajectory in obj's frame
+        # {other_obj: list[list]}, each sub-list is a trajectory
+        contact_period_rel_trajs = {}
+        goal_reached_states = []
+        # Find objects that are common across all trajectories in the dataset
+        all_objs = set(ground_atom_dataset[0][0].states[0].data.keys())
+        for traj, _ in ground_atom_dataset[1:]:  # Skip the first one we already processed
+            if not traj.states:
+                continue  # Skip empty trajectories
+            traj_objs = set(traj.states[0].data.keys())
+            all_objs = all_objs.intersection(traj_objs)  # Keep only objects present in all trajectories
+        all_objs = list(all_objs)  # Convert back to list for further processing
+        all_objs = [o for o in all_objs if "finger" not in o.name.lower()]
+        logging.info(f"After filtering, {len(all_objs)} objects remain")
+        for obj in all_objs:
+            if obj.type == gripper_type:
+                continue
+            contact_period_rel_trajs[obj] = []
 
         quat_feat_name = "quaternion"
         trans_feat_name = "translation"
@@ -1337,7 +1379,6 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         # 3. instant of removed contact: achieving relative pose between two object (obj obj frame cluster goal )
         # done
         logging.info("Extracting relative poses ...")
-
         for i, (ll_traj, atom_seq) in enumerate(ground_atom_dataset):
             if not ll_traj.states: continue # Skip empty trajectories
             # logging.info(f"Processing trajectory {i} of {len(ground_atom_dataset)}")
@@ -1364,42 +1405,68 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
 
             skip_var =max(int(len(atom_seq) / 50),1)
             logging.debug(f"Processing trajectory {i+1}/{len(ground_atom_dataset)} with {len(atom_seq)} atoms, skipping every {skip_var} atoms.")
-            for t in range(1, len(atom_seq), skip_var): # Start from 1 to compare with t-1, skip every 4
+            achieved_goal = False 
+            for t in range(skip_var, len(atom_seq), skip_var): # Start from 1 to compare with t-1, skip every 4
                 state_t = ll_traj.states[t]
-                # state_tm1 = ll_traj.states[t-1] # Not needed for just looking at added atoms
                 atoms_t = atom_seq[t]
-                atoms_tm1 = atom_seq[t-1]
-                lost_atoms = atoms_t - atoms_tm1
+                atoms_tm1 = atom_seq[t-skip_var]
+                lost_atoms = atoms_tm1 - atoms_t
 
-                for atom in lost_atoms:
-                    if atom.predicate == in_contact_pred: # this is lost gripper with obj
-                        # meaning obj is achieving its goal wrt to another object
-                        # Cheating here: using goal predicate to find the other object
-                        obj1, obj2 = atom.objects
-                        assert obj2.type == gripper_type
-                        found_goal_obj = False
-                        for goal in env.goal_predicates:
-                            if obj1.type in goal.types:
-                                type_to_achieve_goal = next(t for t in goal.types if t != obj1.type)
-                                found_goal_obj = True
-                                break
-                        if not found_goal_obj:
-                            logging.warning(f"No goal object found for {obj1.type} in {env.goal_predicates}")
-                            continue
-                        obj3 = state_t.get_objects(type_to_achieve_goal)[0]
-                        rel_pose_lost_contact_obj3_in_obj1_frame = utils.calculate_relative_pose(
-                            state_t, obj1, obj3,
-                            trans_feat_name, quat_feat_name
-                        )
-                        key = (atom.predicate, obj1.type, obj3.type, "lost_contact_2in1")
-                        relative_pose_dataset_dict[key].append(rel_pose_lost_contact_obj3_in_obj1_frame)
+                # ------ before contact lost, or for last timestep in current traj ------- #
+                # ------ add goal predicate for them ------------------------------------- #
+                # ------ store states so that we can cluster them later as goal predicate- #
+                if not achieved_goal:
+                    if t >= len(atom_seq) - skip_var:
+                        t_start = t
+                        while t_start < len(atom_seq):
+                            ground_atom_dataset[i][1][t_start].add(DummyPredicate("goal"))
+                            goal_reached_states.append(ll_traj.states[t_start])
+                            t_start += 1
+                        achieved_goal = True
+                    else:
+                        if lost_atoms:
+                            t_start = None
+                            for t_test in range(t-skip_var, t):
+                                if len(atom_seq[t_test]) > len(atoms_t):
+                                    t_start = t_test+1
+                                    break
+                            logging.debug(f"Contact lost at t={t_start}")
+                            assert t_start is not None
+                            # if atom.predicate == in_contact_pred: # this is lost gripper with obj
+                            #     consistent_contact = False
+                            while t_start < len(atom_seq):
+                                ground_atom_dataset[i][1][t_start].add(DummyPredicate("goal"))
+                                goal_reached_states.append(ll_traj.states[t_start])
+                                t_start += 1
+                            achieved_goal = True
+
+                # ------------------------------------------------------------------------ #
 
                 for atom in atoms_t:
                     if CFG.clustering_change_only and atom in atoms_tm1: continue
-                    if atom.predicate == in_contact_pred or atom.predicate in env.goal_predicates:
+                    if hasattr(atom, "predicate") and atom.predicate == in_contact_pred:
+                        if atom in atoms_tm1:
+                            consistent_contact = True
+                        else:
+                            consistent_contact = False
                         # Ensure the atom involves the gripper type or handle goals correctly
                         obj1, obj2 = atom.objects
+                        assert obj2.type == gripper_type
 
+                        # ------ get relative pose trajs of obj_contact_with_gripper in all other obj's frame ------ #
+                        obj_contact_with_gripper = obj1
+
+
+                        for obj in all_objs: # go through all object to get relative pose see which one is best ref
+                            if obj.type == gripper_type or obj == obj_contact_with_gripper:
+                                continue
+                            relative_pose =utils.calculate_relative_pose(state_t, obj, obj_contact_with_gripper, trans_feat_name, quat_feat_name)
+                            if not consistent_contact: # start of contact
+                                contact_period_rel_trajs[obj].append([relative_pose])
+                            else:
+                                contact_period_rel_trajs[obj][-1].append(relative_pose)
+                        # -------------------------------------------------------------------------------------------- #
+                        # these are original ones used to compute rel pose during contact for finding end points of DS
                         # Calculate relative pose at the moment of contact (state t)
                         rel_pose_at_contact_obj2_in_obj1_frame = utils.calculate_relative_pose(
                             state_t, obj1, obj2,
@@ -1419,8 +1486,103 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                             key = (atom.predicate, obj1.type, obj2.type, "1in2")
                             relative_pose_dataset_dict[key].append(rel_pose_at_contact_obj1_in_obj2_frame)
 
+        # ------ train ds on each relative pose traj and determine obj of reference ------ #
+        obj_of_reference_best = None
+        min_reconstruction_error = float('inf')
+        list_of_reconstruction_errors = []
+        for obj, rel_pose_trajs in contact_period_rel_trajs.items():
+            if len(rel_pose_trajs) == 0: continue
+            x = []
+            quat = []
+            x_dot = []
+            omega = []
+            for rel_pose_traj in rel_pose_trajs:
+                x_traj = np.array(rel_pose_traj)[:, :3]
+                quat_traj = np.array(rel_pose_traj)[:, 3:]
+                x_dot_traj, omega_traj = compute_vel_traj(x_traj, np.array([R.from_quat(q).as_matrix() for q in quat_traj]), 1/60)
+                x.append(x_traj)
+                quat.append(quat_traj)
+                x_dot.append(x_dot_traj)
+                omega.append(omega_traj)
+            unified_config = UnifiedModelConfig(
+                mode="se3_lpvds",
+                K_candidates=[1]
+            )
+            ds_policy = DSPolicy(
+                x=x,
+                x_dot=x_dot,
+                quat=quat,
+                omega=omega,
+                gripper=[],
+                unified_config=unified_config,
+                dt=1/60
+            )
+            _, reconstruction_error = ds_policy.compute_reconstruction_error()
+            list_of_reconstruction_errors.append(reconstruction_error)
+            if reconstruction_error < min_reconstruction_error:
+                min_reconstruction_error = reconstruction_error
+                obj_of_reference_best = obj
+
+        # Visualize the x data for the object of reference
+        for j, (o_ref, rel_pose_trajs) in enumerate(contact_period_rel_trajs.items()):
+            if len(rel_pose_trajs) == 0: continue
+            import matplotlib.pyplot as plt
+            from mpl_toolkits.mplot3d import Axes3D
+            
+            fig = plt.figure(figsize=(15, 10))
+            ax = fig.add_subplot(111, projection='3d')
+            
+            # Plot each trajectory in a different color
+            colors = plt.cm.rainbow(np.linspace(0, 1, len(contact_period_rel_trajs[o_ref])))
+            
+            for i, rel_pose_traj in enumerate(rel_pose_trajs):
+                x_traj = np.array(rel_pose_traj)[:, :3]  # Get translation part
+                
+                # Plot trajectory
+                ax.plot(x_traj[:, 0], x_traj[:, 1], x_traj[:, 2], 
+                       color=colors[i], linewidth=2, alpha=0.7,
+                       label=f'Trajectory {i+1}')
+                
+                # Mark start and end points
+                ax.scatter(x_traj[0, 0], x_traj[0, 1], x_traj[0, 2], 
+                          color=colors[i], marker='o', s=100, label=f'Start {i+1}' if i == 0 else None)
+                ax.scatter(x_traj[-1, 0], x_traj[-1, 1], x_traj[-1, 2], 
+                          color=colors[i], marker='s', s=100, label=f'End {i+1}' if i == 0 else None)
+            
+            ax.set_title(f'Contact Period Relative Trajectories for {o_ref.name}, Reconstruction Error: {list_of_reconstruction_errors[j]:.1f}')
+            ax.set_xlabel('X')
+            ax.set_ylabel('Y')
+            ax.set_zlabel('Z')
+            
+            # Add legend
+            ax.legend()
+            
+            # Set equal aspect ratio
+            ax.set_box_aspect([1, 1, 1])
+            
+            # Save the visualization
+            os.makedirs("feature_data", exist_ok=True)
+            plt.savefig(f"feature_data/contact_period_trajectories_{o_ref.name}.png")
+            logging.info(f"Saved contact period trajectories visualization to feature_data/contact_period_trajectories_{o_ref.name}.png")
+            plt.close(fig)
+
+        for i, (ll_traj, atom_seq) in enumerate(ground_atom_dataset):
+            for j, atoms in enumerate(atom_seq):
+                for k, atom in enumerate(atoms):
+                    if isinstance(atom, DummyPredicate):
+                        ground_atom_dataset[i][1][j].remove(atom)
+                        ground_atom_dataset[i][1][j].add(GroundAtom(DummyPredicate("goal", [obj_of_reference_best.type, obj_contact_with_gripper.type]), [obj_of_reference_best, obj_contact_with_gripper]))
+                        
+        # add stored states before contact lost to relative_pose_dataset_dict
+        for state in goal_reached_states:
+            rel_pose = utils.calculate_relative_pose(state, obj_of_reference_best, obj_contact_with_gripper, trans_feat_name, quat_feat_name)
+            key = (DummyPredicate("goal"), obj_of_reference_best.type, obj_contact_with_gripper.type, "2in1")
+            relative_pose_dataset_dict[key].append(rel_pose)
+            
+        # ---------------------------------------------------------------------------------- #
+
         logging.info("Clustering collected relative contact poses...")
-        candidates: Dict[Predicate, float] = {}
+        candidate_cluster_preds: Dict[Predicate, float] = {}
         # predicate_counter = 0 # To ensure unique cluster IDs
 
         # Initialize cluster visualization storage attributes (copied from _generate_candidate_predicates)
@@ -1566,47 +1728,98 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                     mahalanobis_threshold=cluster_info['mahalanobis_threshold'] # Pass threshold
                 )
                 # Add predicate to candidates with cost (e.g., based on arity)
-                candidates[pred_generated] = float(pred_generated.arity) # Example cost
+                candidate_cluster_preds[pred_generated] = float(pred_generated.arity) # Example cost
                 if (pred.name, type1.name, type2.name) in CFG.dict_contact_predicate_to_rel_pose_predicates:
                     CFG.dict_contact_predicate_to_rel_pose_predicates[(pred.name, type1.name, type2.name)].add(pred_generated)
                 else:
                     CFG.dict_contact_predicate_to_rel_pose_predicates[(pred.name, type1.name, type2.name)] = set([pred_generated])
 
         # Rename predicates for PDDL compatibility
-        renamed_candidates = self._rename_predicates_to_remove_incompatible_chars(candidates)
+        renamed_cluster_candidates = self._rename_predicates_to_remove_incompatible_chars(candidate_cluster_preds)
 
         # Optionally Reconsider the atom seq
         # --- Debugging: Show segmentation with ONLY the new cluster predicates ---
         # kept_preds = set(renamed_candidates.keys())
-        kept_preds = set(predicates_to_monitor)
-        if kept_preds:
+        if CFG.reprocess_ground_atom_dataset_using_cluster_predicates:
+            kept_preds = set(predicates_to_monitor)
+            kept_preds2 = set(renamed_cluster_candidates.keys())
+            different_seg_count_trajs = []
+            num_seg_1 = []
+            num_seg_2 = []
             logging.info("--- Segmentation using ONLY newly generated cluster predicates ---")
-            cluster_pred_atom_dataset = self._create_atom_dataset(dataset, kept_preds)
-            for i, (ll_traj, atom_seq) in enumerate(cluster_pred_atom_dataset):
-                logging.info(f"Trajectory {i} segmentation with new preds ({len(atom_seq)} states):")
-                if not atom_seq:
-                    logging.info("  (No states or no atoms true in this trajectory)")
-                    continue
+            og_pred_atom_dataset = self._create_atom_dataset(dataset, kept_preds)
+            cluster_pred_atom_dataset = self._create_atom_dataset(dataset, kept_preds2)
+            for i, (traj1_ele, traj2_ele) in enumerate(zip(og_pred_atom_dataset, cluster_pred_atom_dataset)):
+                _, atom_seq1 = traj1_ele
+                _, atom_seq2 = traj2_ele
 
                 # Print changes in atom sets
-                last_atoms = None
-                for t, atoms in enumerate(atom_seq):
+                last_atoms1 = None
+                seg_count1 = 0
+                for t, atoms in enumerate(atom_seq1):
                     current_atoms = frozenset(atoms)
-                    if current_atoms != last_atoms:
-                        logging.info(f"  Time {t}: {current_atoms if current_atoms else '{}'}")
-                        last_atoms = current_atoms
-            logging.info("--- End segmentation with new predicates ---")
-        else:
-            logging.info("No new cluster predicates were generated to create atom dataset.")
+                    if current_atoms != last_atoms1:
+                        logging.info(f"Old  Time {t}: {current_atoms if current_atoms else '{}'}")
+                        last_atoms1 = current_atoms
+                        seg_count1 += 1
+                
+                last_atoms2 = None
+                seg_count2 = 0
+                for t, atoms in enumerate(atom_seq2):
+                    current_atoms = frozenset(atoms)
+                    if current_atoms != last_atoms2:
+                        logging.info(f"New  Time {t}: {current_atoms if current_atoms else '{}'}")
+                        last_atoms2 = current_atoms
+                        seg_count2 += 1
+                
+                if seg_count1 != seg_count2:
+                    different_seg_count_trajs.append(i)
+                    num_seg_1.append(seg_count1)
+                    num_seg_2.append(seg_count2)
+
+            
+            logging.info(f"Trajectories with different segment counts: {different_seg_count_trajs}, num_seg_1: {num_seg_1}, num_seg_2: {num_seg_2}, totoal_num_traj = {len(og_pred_atom_dataset)}")
+
+            # Filter out trajectories with different segment counts from both datasets
+            if different_seg_count_trajs:            
+                # Reverse sort the indices to safely remove items without affecting other indices
+                for idx in sorted(different_seg_count_trajs, reverse=True):
+                    if 0 <= idx < len(og_pred_atom_dataset):
+                        og_pred_atom_dataset.pop(idx)
+                    if 0 <= idx < len(cluster_pred_atom_dataset):
+                        cluster_pred_atom_dataset.pop(idx)
+                
+                logging.info(f"After filtering: {len(og_pred_atom_dataset)} trajectories remain")
+
+
+        if CFG.reprocess_ground_atom_dataset_using_cluster_replacement:
+            different_seg_count_trajs = [] # go through and replace the InContact Atoms with rel pose atoms
+            for i, (ll_traj, atom_seq) in enumerate(ground_atom_dataset):
+                for j, atoms in enumerate(atom_seq):
+                    atoms_new = []
+                    for atom in atoms:
+                        pred = list(CFG.dict_contact_predicate_to_rel_pose_predicates[atom.predicate.name, atom.objects[0].type.name, atom.objects[1].type.name])[0]
+                        grounded_pred = GroundAtom(pred, atom.entities)
+                        atoms_new.append(grounded_pred)
+                    ground_atom_dataset[i][1][j] = set(atoms_new)
+        
+        if not CFG.predefined_goal_predicates:
+            CFG.learnt_goal = [GroundAtom(DummyPredicate("goal", [obj_of_reference_best.type, obj_contact_with_gripper.type]), [obj_of_reference_best, obj_contact_with_gripper])]
+
+            for pred in predicates_to_monitor:
+                if isinstance(pred, DummyPredicate): # goal predicate
+                    pred = DummyPredicate("goal", [obj_of_reference_best.type, obj_contact_with_gripper.type])
+        
+
+        # logging.info("--- End segmentation with new predicates ---")
         # --- End Debugging ---
-
-        # If traj_dataset_dict needs to be used later, it should be stored or returned differently.
-        # Returning candidates to fit the existing beam search input type.
-
-        ### Returning Contact Segmented Ground Atom Dataset, learned predicates, and inital predicates
-        return ground_atom_dataset, renamed_candidates, predicates_to_monitor
-        ### Returning learned predicate segmented Ground Atom Dataset, learned predicates, and learned predicates again
-        return cluster_pred_atom_dataset, renamed_candidates, env.goal_predicates
+        if CFG.reprocess_ground_atom_dataset_using_cluster_replacement:
+            # if replacing, then goal predicates are gone, need some way to say how to successfully complete the task
+            return ground_atom_dataset, ground_atom_dataset, different_seg_count_trajs, renamed_cluster_candidates, set()
+        elif CFG.reprocess_ground_atom_dataset_using_cluster_predicates:
+            return og_pred_atom_dataset, cluster_pred_atom_dataset, different_seg_count_trajs, renamed_cluster_candidates, predicates_to_monitor
+        else:
+            return ground_atom_dataset, ground_atom_dataset, different_seg_count_trajs, renamed_cluster_candidates, predicates_to_monitor
 
     # --- Predicate Selection Functions (Beam Search) ---
     def _select_predicates_by_beam_search(self,

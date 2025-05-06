@@ -15,8 +15,12 @@ from predicators.meshcat_visualizer import MeshcatVisualizer
 class GlobalSettings:
 
     min_data_for_nsrt = 3
-    
-    use_in_origin_pred = False
+    reprocess_ground_atom_dataset_using_cluster_replacement = True
+    reprocess_ground_atom_dataset_using_cluster_predicates = False
+    remove_inOrigin_pred = True
+    predefined_goal_predicates = False
+    if not predefined_goal_predicates:
+        learnt_goal = None
 
     init_pose = np.array([0.24844874, 0.00726439, 0.59251043, 0.98900046, 0.05834797, 0.13247817, -0.0303833])
     # init_pose = np.array([0.21157339360837069, -0.004757503173138833, 1.3895575386300745, -0.9884290099143982, -0.051291853189468384, -0.14036346971988678, 0.025989433750510216])
@@ -25,12 +29,13 @@ class GlobalSettings:
 
     dict_contact_predicate_to_rel_pose_predicates = {}  # key: contact predicate, value: set of rel_pose predicates
     # clustering_invention approach parameters
-    predicate_candidates_method = "contact_clustering" # "low_speed" or "contact_clustering"
+    predicate_candidates_method = "contact_clustering"  # "low_speed" or "contact_clustering"
     clustering_inv_cov_reg = 1e-3
     clustering_change_only = False
 
     clustering_moving_average_window = 5
     clustering_debug = True
+    enable_meshcat = False
     enable_meshcat = False
     clustering_se3_trans_weight = 10  # 0.05 m # 10 times differnece
     clustering_se3_rot_weight = 0.0  # 30 deg = 0.5236 rad
@@ -817,7 +822,7 @@ class GlobalSettings:
                 {
                     # For certain environments, actions are lower level, so
                     # tasks take more actions to complete.
-                    "robo_kitchen": 5000,
+                    "robo_kitchen": 1000,
                     "pybullet_cover": 1000,
                     "pybullet_blocks": 1000,
                     "doors": 1000,

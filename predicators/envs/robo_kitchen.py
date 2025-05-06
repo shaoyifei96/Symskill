@@ -431,6 +431,8 @@ class RoboKitchenEnv(BaseEnv):
                     "controller_configs": controller_config,
                     "layout_ids": 3,
                     "style_ids": 0,
+                    "layout_ids": [0],
+                    "style_ids": None,
                     "translucent_robot": True,
                 }
 
@@ -445,9 +447,7 @@ class RoboKitchenEnv(BaseEnv):
                     use_camera_obs=False,
                     control_freq=20,
                     renderer="mjviewer",
-                    # seed=4, # for StoreFruit in layout 2
-                    # seed=2,  # for CloseSingleDoor in layout 2
-                    seed=1,  # for CloseSingleDoor in layout 3
+                    # seed=4,
                 )
 
                 self._env = VisualizationWrapper(self._env_raw)

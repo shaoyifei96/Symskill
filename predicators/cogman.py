@@ -68,7 +68,7 @@ class CogMan:
             imgs = self._perceiver.render_mental_images(task.init, env_task)
             self._episode_images.extend(imgs)
 
-    def step(self, observation: Observation) -> Optional[Action]:
+    def step(self, observation: Observation, record_replans: bool = False) -> Optional[Action]:
         """Receive an observation and produce an action, or None for done."""
         state = self._perceiver.step(observation)
         if CFG.make_cogman_videos:
@@ -84,9 +84,12 @@ class CogMan:
         if self._termination_fn is not None and self._termination_fn(state):
             logging.info("[CogMan] Termination triggered.")
             return None
+        replan_triggered = False
         # Check if we should replan.
         if self._exec_monitor.step(state):
             logging.info("\033[93m[CogMan] Replanning triggered.\033[0m")
+            if record_replans:
+                replan_triggered = True
             assert self._current_goal is not None
             task = Task(state, self._current_goal)
             # last_option_name = self._exec_monitor._last_option_name
@@ -110,6 +113,8 @@ class CogMan:
         act = self._current_policy(state)
         self._exec_monitor.update_action(act)
         self._episode_action_history.append(act)
+        if record_replans:
+            return act, replan_triggered
         return act
 
     def finish_episode(self, observation: Observation) -> None:
@@ -232,6 +237,7 @@ def run_episode_and_get_observations(
     metrics: Metrics = defaultdict(float)
     metrics["policy_call_time"] = 0.0
     metrics["num_options_executed"] = 0.0
+    metrics["num_replans"] = 0.0
     exception_raised_in_step = False
     if not (terminate_on_goal_reached and env.goal_reached()):
         for _ in range(max_num_steps):
@@ -239,7 +245,10 @@ def run_episode_and_get_observations(
             exception_raised_in_step = False
             try:
                 start_time = time.perf_counter()
-                act = cogman.step(obs)
+                act, replan_triggered = cogman.step(obs, record_replans=True)
+                if replan_triggered:
+                    metrics["num_replans"] += 1
+                    logging.info("\033[93m[CogMan] Num replans: %d\033[0m", metrics["num_replans"])
                 metrics["policy_call_time"] += time.perf_counter() - start_time
                 if act is None:
                     break

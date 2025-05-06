@@ -357,6 +357,14 @@ class Predicate:
 
     def __lt__(self, other: Predicate) -> bool:
         return str(self) < str(other)
+    
+
+class DummyPredicate(Predicate):
+    def __init__(self, name: str, types: Optional[Sequence[Type]] = None, classifier: Optional[Callable[[State, Sequence[Object]], bool]] = None):
+        super().__init__(name, types, classifier)
+
+    def _classifier(self, state: State, objects: Sequence[Object]) -> bool:
+        return True
 
 
 @dataclass(frozen=True, order=False, repr=False, eq=False)

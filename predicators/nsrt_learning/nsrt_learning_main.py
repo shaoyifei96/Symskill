@@ -182,8 +182,16 @@ def _learn_pnad_options_with_learner(pnads: List[PNAD], option_learner: _OptionL
     option_specs = option_learner.learn_option_specs(strips_ops, datastores)
     assert len(option_specs) == len(pnads)
     # Replace the option_specs in the PNADs.
+    # Filter out PNADs with None option specs
+    filtered_pnads = []
+    filtered_option_specs = []
     for pnad, option_spec in zip(pnads, option_specs):
-        pnad.option_spec = option_spec
+        if option_spec[0] is not None:
+            pnad.option_spec = option_spec
+            filtered_pnads.append(pnad)
+            filtered_option_specs.append(option_spec)
+    pnads = filtered_pnads
+    option_specs = filtered_option_specs
     # Seed the new parameterized option parameter spaces.
     for parameterized_option, _ in option_specs:
         parameterized_option.params_space.seed(CFG.seed)
