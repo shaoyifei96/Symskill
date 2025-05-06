@@ -325,6 +325,8 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         all_files = os.listdir(main_folder)
         approach_files = [main_folder + f for f in all_files if f.startswith(f"{CFG.env}__{CFG.approach}") and f.endswith(".NSRTs")]
         contact2rel_files = [main_folder + f for f in all_files if f.startswith(f"{CFG.env}__{CFG.approach}") and f.endswith("_contact2rel_preds.pkl")]
+        goal_files = [main_folder + f for f in all_files if f.startswith(f"{CFG.env}__{CFG.approach}") and f.endswith("_goal_preds.pkl")]
+        
         for file in approach_files:
             with open(file, "rb") as f:
                 loaded_nsrts = pkl.load(f)
@@ -332,6 +334,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         from predicators.ground_truth_models import get_gt_nsrts
         gt_nsrts = get_gt_nsrts(CFG.env, self._initial_predicates, self._initial_options)
         self._nsrts = set(gt_nsrts).union(self._nsrts)
+        
         for file in contact2rel_files:
             with open(file, "rb") as f:
                 contact2rel_preds = pkl.load(f)
@@ -340,6 +343,10 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                         CFG.dict_contact_predicate_to_rel_pose_predicates[key] = value
                     else:
                         CFG.dict_contact_predicate_to_rel_pose_predicates[key].update(value)
+        
+        for file in goal_files:
+            with open(file, "rb") as f:
+                CFG.learnt_goal  = pkl.load(f)
 
         if CFG.pretty_print_when_loading:  # pragma: no cover
             preds, _ = utils.extract_preds_and_types(self._nsrts)
@@ -425,6 +432,11 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         learned_preds_path = f"{save_path}_contact2rel_preds.pkl"
         with open(learned_preds_path, "wb") as f:
             pkl.dump(CFG.dict_contact_predicate_to_rel_pose_predicates, f)
+        
+        learned_goal_path = f"{save_path}_goal_preds.pkl"
+        with open(learned_goal_path, "wb") as f:
+            pkl.dump(CFG.learnt_goal, f)
+
 
         # Learn NSRTs with the final set of predicates
         # final_predicates = self._get_current_predicates()
