@@ -785,6 +785,15 @@ class _DSOptionLearner(_OptionLearnerBase):
                 x=x, x_dot=x_dot, quat=quat, omega=omega, gripper=gripper_or_obj, unified_config=unified_config, dt=dt, switch=False, relative_cluster_attractor=relative_cluster_attractor
             )
             ds_policy.plot_position_vector_field(save_path=f"./feature_data/DS_vector_field_{op.name}_gripper_in_{OOI_type_name}_frame.png")
+
+            # plot vector field in plane
+            plot_ds_policy_vector_fields_in_planes(
+                ds_policy,
+                op.name,
+                OOI_type_name,
+                save_dir="./feature_data/"
+            )
+
             # Create a ParameterizedOption that uses DSPolicy
             name = f"{op.name}DSOption"
             parameterized_option = _LearnedDSParameterizedOption(
@@ -1014,6 +1023,129 @@ def plot_DSPolicy_input_data(
             plt.show()
     return True
 
+
+def plot_ds_policy_vector_fields_in_planes(
+    ds_policy: DSPolicy,
+    op_name: str,
+    OOI_type_name: str,
+    save_dir: str = "./feature_data/",
+    grid_points: int = 10,
+    fixed_quat: np.ndarray = np.array([0.0, 0.0, 0.0, 1.0]) # xyzw
+) -> None:
+    """Plots 2D vector fields (XY, XZ, YZ planes) for the DSPolicy.
+
+    The "other" dimension is fixed at 0.0.
+    Assumes ds_policy.x contains trajectories in the frame of interest.
+    """
+    os.makedirs(save_dir, exist_ok=True)
+
+    if not ds_policy.x:
+        logging.warning(f"No trajectory data in ds_policy for {op_name}, cannot plot 2D vector fields.")
+        return
+
+    all_pos_data = np.concatenate(ds_policy.x, axis=0)
+    x_min, x_max = all_pos_data[:, 0].min(), all_pos_data[:, 0].max()
+    y_min, y_max = all_pos_data[:, 1].min(), all_pos_data[:, 1].max()
+    z_min, z_max = all_pos_data[:, 2].min(), all_pos_data[:, 2].max()
+
+    padding_factor = 0.15 # Increased padding slightly
+    x_pad = max((x_max - x_min) * padding_factor, 0.1) # Ensure some padding even if range is tiny
+    y_pad = max((y_max - y_min) * padding_factor, 0.1)
+    z_pad = max((z_max - z_min) * padding_factor, 0.1)
+
+    x_plot_range = (x_min - x_pad, x_max + x_pad)
+    y_plot_range = (y_min - y_pad, y_max + y_pad)
+    z_plot_range = (z_min - z_pad, z_max + z_pad)
+
+    # Planes to plot: (dim1_idx, dim2_idx, fixed_dim_idx, fixed_dim_val, dim1_label, dim2_label, plane_label)
+    planes_config = [
+        (0, 1, 2, 0.0, "X", "Y", "XY"), # XY plane, Z=0
+        (0, 2, 1, 0.0, "X", "Z", "XZ"), # XZ plane, Y=0
+        (1, 2, 0, 0.0, "Y", "Z", "YZ")  # YZ plane, X=0
+    ]
+    
+    original_switch_state = ds_policy.switch
+    ds_policy.switch = True  # Force re-evaluation of reference for each point
+
+    try:
+        for d1_idx, d2_idx, fixed_idx, fixed_val, d1_label, d2_label, plane_label in planes_config:
+            
+            dim_ranges = [x_plot_range, y_plot_range, z_plot_range]
+
+            d1_coords = np.linspace(dim_ranges[d1_idx][0], dim_ranges[d1_idx][1], grid_points)
+            d2_coords = np.linspace(dim_ranges[d2_idx][0], dim_ranges[d2_idx][1], grid_points)
+
+            D1_grid, D2_grid = np.meshgrid(d1_coords, d2_coords)
+            
+            U_vel = np.zeros_like(D1_grid) # Velocity component for d1
+            V_vel = np.zeros_like(D2_grid) # Velocity component for d2
+
+            for i_grid in range(grid_points):
+                for j_grid in range(grid_points):
+                    pos = np.zeros(3)
+                    pos[d1_idx] = D1_grid[i_grid, j_grid]
+                    pos[d2_idx] = D2_grid[i_grid, j_grid]
+                    pos[fixed_idx] = fixed_val
+                    
+                    current_eval_state = np.concatenate([pos, fixed_quat])
+                    
+                    # Ensure ref_traj_idx is set if not already (first call)
+                    if ds_policy.ref_traj_idx is None and ds_policy.x:
+                         ds_policy._choose_ref(current_eval_state[:3], switch=True)
+
+
+                    action_vec = ds_policy.get_action(current_eval_state, clf=True) 
+                    
+                    # Scale by 1/60 (for 60Hz time step)
+                    scaling_factor = 1/60
+                    U_vel[i_grid, j_grid] = action_vec[d1_idx] * scaling_factor
+                    V_vel[i_grid, j_grid] = action_vec[d2_idx] * scaling_factor
+
+            plt.figure(figsize=(8, 7))
+            
+            # Calculate magnitudes for coloring
+            magnitudes = np.sqrt(U_vel**2 + V_vel**2)
+            
+            # Use actual velocity values (magnitude scale)
+            quiver = plt.quiver(D1_grid, D2_grid, U_vel, V_vel, magnitudes, 
+                      angles='xy', scale_units='xy', scale=0.25,
+                      cmap='viridis', alpha=0.9, width=0.005, 
+                      headwidth=4, headlength=5)
+            
+            # Add a colorbar to show magnitude scale
+            cbar = plt.colorbar(quiver)
+            cbar.set_label('Velocity Magnitude (scaled by 1/60)', fontsize=10)
+
+            for traj_idx, demo_traj in enumerate(ds_policy.x):
+                plt.plot(demo_traj[:, d1_idx], demo_traj[:, d2_idx], 'b-', alpha=0.3, linewidth=1.5)
+                plt.scatter(demo_traj[0, d1_idx], demo_traj[0, d2_idx], color="green", s=30, marker="o", alpha=0.6, zorder=3) 
+                plt.scatter(demo_traj[-1, d1_idx], demo_traj[-1, d2_idx], color="black", s=30, marker="x", alpha=0.6, zorder=3)
+
+            if ds_policy.se3_lpvds and hasattr(ds_policy.model, 'p_att'):
+                attractor_pos = ds_policy.model.p_att
+                plt.scatter(attractor_pos[d1_idx], attractor_pos[d2_idx], color='magenta', s=150, marker='*', label='Attractor', zorder=5)
+                if ds_policy.relative_cluster_attractor is not None and not np.allclose(attractor_pos, ds_policy.relative_cluster_attractor[:3]):
+                     plt.scatter(ds_policy.relative_cluster_attractor[d1_idx], ds_policy.relative_cluster_attractor[d2_idx], color='cyan', s=120, marker='P', label='Relative Cluster Attractor', zorder=4)
+
+
+            plt.xlabel(d1_label, fontsize=12)
+            plt.ylabel(d2_label, fontsize=12)
+            plt.title(f"""DS Velocity Field ({plane_label} plane, {['X','Y','Z'][fixed_idx]}={fixed_val:.2f})
+Op: {op_name} (Ref Frame: {OOI_type_name})""", fontsize=10)
+            plt.axis('equal')
+            plt.grid(True, linestyle='--', alpha=0.7)
+            plt.legend(fontsize=8)
+            
+            # Set plot limits
+            plt.xlim(dim_ranges[d1_idx])
+            plt.ylim(dim_ranges[d2_idx])
+
+            plot_save_path = os.path.join(save_dir, f"DS_vector_field_{plane_label}_plane_{op_name}_{OOI_type_name}.png")
+            plt.savefig(plot_save_path, bbox_inches='tight')
+            logging.info(f"Saved {plane_label} plane vector field to {plot_save_path}")
+            plt.close()
+    finally:
+        ds_policy.switch = original_switch_state # Restore
 
 class _LearnedDSParameterizedOption(ParameterizedOption):
     """

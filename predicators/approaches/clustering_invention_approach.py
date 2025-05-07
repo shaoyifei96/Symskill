@@ -1361,6 +1361,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             all_objs = all_objs.intersection(traj_objs)  # Keep only objects present in all trajectories
         all_objs = list(all_objs)  # Convert back to list for further processing
         all_objs = [o for o in all_objs if "finger" not in o.name.lower()]
+        all_objs = [o for o in all_objs if "robot0" not in o.name.lower()]
         logging.info(f"After filtering, {len(all_objs)} objects remain")
 
         quat_feat_name = "quaternion"
