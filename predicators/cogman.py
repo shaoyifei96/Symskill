@@ -119,7 +119,7 @@ class CogMan:
 
     def finish_episode(self, observation: Observation) -> None:
         """Called at the end of an episode."""
-        logging.info("[CogMan] Finishing episode.")
+        print("[CogMan] Finishing episode.")
         if len(self._episode_state_history) == len(
                 self._episode_action_history):
             state = self._perceiver.step(observation)

@@ -70,7 +70,7 @@ class ExpectedAtomsExecutionMonitor(BaseExecutionMonitor):
             if not atom.holds(state)
         }
         if unsat_maintain_effects:
-            logging.info(f"Maintain effects execution monitor triggered replanning "
+            print(f"Maintain effects execution monitor triggered replanning "
                          f"because of these atoms: {unsat_maintain_effects}")
             return True
         return False
@@ -97,7 +97,7 @@ class ExpectedAtomsExecutionMonitor(BaseExecutionMonitor):
                     new_option_bool = True
                 self._last_option_name = self._running_option_name
                 self._option_start_timestep = self._curr_plan_timestep
-                logging.info(f"Starting new option: {self._running_option_name}")
+                print(f"Starting new option: {self._running_option_name}")
         return new_option_bool
 
     def _check_option_timeout(self) -> bool:
@@ -105,7 +105,7 @@ class ExpectedAtomsExecutionMonitor(BaseExecutionMonitor):
         if self._last_option_name is not None:
             time_in_option = self._curr_plan_timestep - self._option_start_timestep
             if time_in_option > self._max_option_timesteps:
-                logging.info(f"Option {self._running_option_name} exceeded max timesteps "
+                print(f"Option {self._running_option_name} exceeded max timesteps "
                            f"({time_in_option} > {self._max_option_timesteps})")
                 return True
         return False
@@ -135,7 +135,7 @@ class ExpectedAtomsExecutionMonitor(BaseExecutionMonitor):
                     # Check predicates
             unsat_atoms = self._check_predicates(state, next_expected_atoms)
             if unsat_atoms:
-                logging.info(
+                print(
                     "Expected atoms execution monitor triggered replanning "
                     f"because of these atoms: {unsat_atoms}")
                 return True

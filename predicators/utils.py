@@ -173,7 +173,7 @@ def calculate_relative_pose_from_state(state: State, o1: Object, o2: Object, tra
 
         return calculate_relative_pose(trans_o1, quat_o1, trans_o2, quat_o2)
     except KeyError as e:
-        logging.debug(f"Missing feature {e} for relative pose between {o1} and {o2}. Skipping.")
+        print(f"Missing feature {e} for relative pose between {o1} and {o2}. Skipping.")
         return None
     
 def calculate_relative_pose(pos_o1: np.ndarray, quat_o1: np.ndarray, pos_o2: np.ndarray, quat_o2: np.ndarray) -> Optional[np.ndarray]:
@@ -1521,7 +1521,7 @@ def nsrt_plan_to_greedy_option_policy(
                 "Executing the NSRT failed to achieve the necessary atoms.")
         cur_nsrt = nsrt_queue.pop(0)
         cur_option = cur_nsrt.sample_option(state, goal, fail_info, rng, cur_nsrt)
-        logging.debug(f"\033[32mUsing option {cur_option.name}{cur_option.objects}"
+        print(f"\033[32mUsing option {cur_option.name}{cur_option.objects}"
                       f"{cur_option.params} from NSRT plan.\033[0m")
         return cur_option
 
@@ -1987,7 +1987,7 @@ def run_hill_climbing(
     heuristics = [last_heuristic]
     visited = {initial_state}
     if verbose:
-        logging.info(f"\n\nStarting hill climbing at state {cur_node.state} "
+        print(f"\n\nStarting hill climbing at state {cur_node.state} "
                      f"with heuristic {last_heuristic}")
     start_time = time.perf_counter()
     while True:
@@ -1999,7 +1999,7 @@ def run_hill_climbing(
 
         if check_goal(cur_node.state):
             if verbose:
-                logging.info("\nTerminating hill climbing, achieved goal")
+                print("\nTerminating hill climbing, achieved goal")
             break
         best_heuristic = float("inf")
         best_child_node = None
@@ -2007,7 +2007,7 @@ def run_hill_climbing(
         all_best_heuristics = []
         for depth in range(0, enforced_depth + 1):
             if verbose:
-                logging.info(f"Searching for an improvement at depth {depth}")
+                print(f"Searching for an improvement at depth {depth}")
             # This is a list to ensure determinism. Note that duplicates are
             # filtered out in the `child_state in visited` check.
             successors_at_depth = []
@@ -2047,26 +2047,26 @@ def run_hill_climbing(
             if last_heuristic > best_heuristic:
                 # Some improvement found.
                 if verbose:
-                    logging.info(f"Found an improvement at depth {depth}")
+                    print(f"Found an improvement at depth {depth}")
                 break
             # Continue on to the next depth.
             current_depth_nodes = successors_at_depth
             if verbose:
-                logging.info(f"No improvement found at depth {depth}")
+                print(f"No improvement found at depth {depth}")
         if best_child_node is None:
             if verbose:
-                logging.info("\nTerminating hill climbing, no more successors")
+                print("\nTerminating hill climbing, no more successors")
             break
         if last_heuristic <= best_heuristic:
             if verbose:
-                logging.info(
+                print(
                     "\nTerminating hill climbing, could not improve score")
             break
         heuristics.extend(all_best_heuristics)
         cur_node = best_child_node
         last_heuristic = best_heuristic
         if verbose:
-            logging.info(f"\nHill climbing reached new state {cur_node.state} "
+            print(f"\nHill climbing reached new state {cur_node.state} "
                          f"with heuristic {last_heuristic}")
     states, actions = _finish_plan(cur_node)
     assert len(states) == len(heuristics)
@@ -2435,13 +2435,13 @@ def parse_model_output_into_option_plan(
             continue
         if option_name not in option_name_to_option.keys() or \
             "(" not in option_str:
-            logging.info(
+            print(
                 f"Line {option_str} output by model doesn't "
                 "contain a valid option name. Terminating option plan "
                 "parsing.")
             break
         if parse_continuous_params and "[" not in option_str:
-            logging.info(
+            print(
                 f"Line {option_str} output by model doesn't contain a "
                 "'[' and is thus improperly formatted.")
             break
@@ -2452,7 +2452,7 @@ def parse_model_output_into_option_plan(
             start_index = option_str_stripped.index('(') + 1
             end_index = option_str_stripped.index(')', start_index)
         except ValueError:
-            logging.info(
+            print(
                 f"Line {option_str} output by model is improperly formatted.")
             break
         typed_objects_str_list = option_str_stripped[
@@ -2464,14 +2464,14 @@ def parse_model_output_into_option_plan(
             object_type_str_list = type_object_string.strip().split(':')
             # We expect this list to be [object_name, type_name].
             if len(object_type_str_list) != 2:
-                logging.info(f"Line {option_str} output by model has a "
+                print(f"Line {option_str} output by model has a "
                              "malformed object-type list.")
                 malformed = True
                 break
             object_name = object_type_str_list[0]
             type_name = object_type_str_list[1]
             if object_name not in obj_name_to_obj.keys():
-                logging.info(f"Line {option_str} output by model has an "
+                print(f"Line {option_str} output by model has an "
                              "invalid object name.")
                 malformed = True
                 break
@@ -2479,14 +2479,14 @@ def parse_model_output_into_option_plan(
             # Check that the type of this object agrees
             # with what's expected given the ParameterizedOption.
             if type_name not in type_name_to_type:
-                logging.info(f"Line {option_str} output by model has an "
+                print(f"Line {option_str} output by model has an "
                              "invalid type name.")
                 malformed = True
                 break
             try:
                 if option.types[i] not in type_name_to_type[
                         type_name].get_ancestors():
-                    logging.info(
+                    print(
                         f"Line {option_str} output by model has an "
                         "invalid type that doesn't agree with the option"
                         f"{option}")
@@ -2495,7 +2495,7 @@ def parse_model_output_into_option_plan(
             except IndexError:
                 # In this case, there's more supplied arguments than the
                 # option has.
-                logging.info(f"Line {option_str} output by model has an "
+                print(f"Line {option_str} output by model has an "
                              "too many object arguments for option"
                              f"{option}")
                 malformed = True
@@ -2516,14 +2516,14 @@ def parse_model_output_into_option_plan(
                 try:
                     curr_cont_param = float(stripped_continuous_param_str)
                 except ValueError:
-                    logging.info(f"Line {option_str} output by model has an "
+                    print(f"Line {option_str} output by model has an "
                                  "invalid continouous parameter that can't be"
                                  "converted to a float.")
                     malformed = True
                     break
                 continuous_params_list.append(curr_cont_param)
             if len(continuous_params_list) != option.params_space.shape[0]:
-                logging.info(f"Line {option_str} output by model has "
+                print(f"Line {option_str} output by model has "
                              "invalid continouous parameter(s) that don't "
                              f"agree with {option}{option.params_space}.")
                 malformed = True
@@ -3131,7 +3131,7 @@ def load_ground_atom_dataset(
             ground_atom_dataset_atoms = pkl.load(f)
         assert ground_atom_dataset_atoms is not None
         assert len(trajectories) == len(ground_atom_dataset_atoms)
-        logging.info("\n\nLOADED GROUND ATOM DATASET")
+        print("\n\nLOADED GROUND ATOM DATASET")
 
         # The saved ground atom dataset consists only of sequences
         # of sets of GroundAtoms, we need to recombine this with
@@ -3765,7 +3765,7 @@ def save_video(outfile: str, video: Video) -> None:
     os.makedirs(outdir, exist_ok=True)
     outpath = os.path.join(outdir, outfile)
     imageio.mimwrite(outpath, video, fps=CFG.video_fps)  # type: ignore
-    logging.info(f"Wrote out to {outpath}")
+    print(f"Wrote out to {outpath}")
 
 
 def save_images(outfile_prefix: str, video: Video) -> None:
@@ -3778,7 +3778,7 @@ def save_images(outfile_prefix: str, video: Video) -> None:
         outfile = outfile_prefix + f"_image_{image_number}.png"
         outpath = os.path.join(outdir, outfile)
         imageio.imwrite(outpath, image)
-        logging.info(f"Wrote out to {outpath}")
+        print(f"Wrote out to {outpath}")
 
 
 def get_env_asset_path(asset_name: str, assert_exists: bool = True) -> str:
@@ -4001,7 +4001,7 @@ def parse_config_excluded_predicates(
                 pred.name
                 for pred in env.predicates if pred not in env.goal_predicates
             }
-            logging.info(f"All non-goal predicates excluded: {excluded_names}")
+            print(f"All non-goal predicates excluded: {excluded_names}")
             included = env.goal_predicates
         elif CFG.excluded_predicates == "all_goal":
             excluded_names = {
@@ -4020,7 +4020,7 @@ def parse_config_excluded_predicates(
             if CFG.offline_data_method != "demo+ground_atoms":
                 if CFG.allow_exclude_goal_predicates:
                     if not env.goal_predicates.issubset(included):
-                        logging.info("Note: excluding goal predicates!")
+                        print("Note: excluding goal predicates!")
                 else:
                     assert env.goal_predicates.issubset(included), \
                     "Can't exclude a goal predicate!"

@@ -95,7 +95,7 @@ class ExpectedAtomsRobocasaExecutionMonitor(BaseExecutionMonitor):
         failure_reason = f"<{prefix}>:"
         for atom in atoms:
             failure_reason += f"{str(atom)}, "
-        logging.info("Exe Monitor failed because of: " + failure_reason)
+        print("Exe Monitor failed because of: " + failure_reason)
         return failure_reason
 
     def _check_maintain_effects(self, state: State, maintain_effects: Set[GroundAtom]) -> Set[GroundAtom]:
@@ -142,7 +142,7 @@ class ExpectedAtomsRobocasaExecutionMonitor(BaseExecutionMonitor):
                     self._last_option_name_presistent = self._last_option_name
                 self._last_option_name = self._running_option_name
                 self._option_start_timestep = self._curr_plan_timestep
-                logging.info(f"Starting new option: {self._running_option_name}")
+                print(f"Starting new option: {self._running_option_name}")
         return new_option_bool, last_option_name
 
     def _check_option_timeout(self) -> bool:
@@ -150,7 +150,7 @@ class ExpectedAtomsRobocasaExecutionMonitor(BaseExecutionMonitor):
         if self._last_option_name is not None:
             time_in_option = self._curr_plan_timestep - self._option_start_timestep
             if time_in_option > self._max_option_exe_timesteps:
-                logging.info(f"Option {self._running_option_name} exceeded max timesteps "
+                print(f"Option {self._running_option_name} exceeded max timesteps "
                            f"({time_in_option} > {self._max_option_exe_timesteps})")
                 return True
         return False

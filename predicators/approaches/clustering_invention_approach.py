@@ -241,6 +241,7 @@ class _RelativeFeatureCovClusterClassifier(_BinaryClassifier):
             return False
 
         # Use the pre-calculated threshold
+        print(f"{mahalanobis_dist_sq} <=? {self.mahalanobis_threshold}")
         return mahalanobis_dist_sq <= self.mahalanobis_threshold
 
     def __str__(self) -> str:
@@ -746,13 +747,13 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 vars_str, body_str = pred.pretty_str()
                 logging.info(f"\tP{idx+1}({vars_str}) ≜ {body_str}")
                 name_map[body_str] = f"P{idx+1}"
-        logging.info("\n\nLoaded NSRTs:")
+        print("\n\nLoaded NSRTs:")
         for nsrt in sorted(self._nsrts):
             if CFG.pretty_print_when_loading:
-                logging.info(nsrt.pretty_str(name_map))
+                print(nsrt.pretty_str(name_map))
             else:
-                logging.info(nsrt)
-        logging.info("")
+                print(nsrt)
+        print("")
         # Seed the option parameter spaces after loading.
         for nsrt in self._nsrts:
             nsrt.option.params_space.seed(CFG.seed)

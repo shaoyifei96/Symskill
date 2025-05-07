@@ -1343,7 +1343,7 @@ class _LearnedDSParameterizedOption(ParameterizedOption):
         action_arr[6] = self._gripper_action
 
         # print(f"left_right_finger_dist: {left_right_finger_dist}")
-        if left_right_finger_dist > 0.1:# 0.1m is the threshold for gripper open
+        if left_right_finger_dist > 0.06:
             gripper_state = -1.0  # open
         else:
             gripper_state = 1.0  # close

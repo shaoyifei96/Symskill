@@ -989,8 +989,8 @@ def generate_sas_file_for_fd(
                f"--sas-file {sas_file} {dom_file} {prob_file}")
     fd_translation_cmd_output = subprocess.getoutput(cmd_str)
     if "Driver aborting" in fd_translation_cmd_output:
-        logging.debug(fd_translation_cmd_output)
-        logging.debug(prob_str)
+        print(fd_translation_cmd_output)
+        print(prob_str)
         raise PlanningFailure("FD failed to translate PDDL "
                               "to sas, there is likely a "
                               "dr-reachability issue! Run "
@@ -1243,14 +1243,14 @@ def run_task_plan_once(
         # Get first plan
         try:
             # first_plan = next(plan_generator)
-            # logging.debug(f"Plan [{', '.join(nsrt.name for nsrt in first_plan[0])}]")
+            # print(f"Plan [{', '.join(nsrt.name for nsrt in first_plan[0])}]")
             # plans.append(first_plan[0])
             # atoms_seqs.append(first_plan[1])
             # metrics_list.append(first_plan[2])
 
             # # Try to get more plans up to max_skeletons_optimized
             # for plan_tuple in islice(plan_generator, CFG.sesame_max_skeletons_optimized - 1):
-            #     logging.debug(f"Plan [{', '.join(nsrt.name for nsrt in plan_tuple[0])}]")
+            #     print(f"Plan [{', '.join(nsrt.name for nsrt in plan_tuple[0])}]")
             #     if redundancy_check(plan_tuple[0]):
             #         continue
             #     plans.append(plan_tuple[0])
@@ -1258,9 +1258,9 @@ def run_task_plan_once(
             #     metrics_list.append(plan_tuple[2])
 
             for plan_tuple in plan_generator:
-                logging.debug(f"Plan [{', '.join(nsrt.name for nsrt in plan_tuple[0])}]")
+                print(f"Plan [{', '.join(nsrt.name for nsrt in plan_tuple[0])}]")
                 # if not goal_effect_check(plan_tuple[0], goal):
-                #     logging.debug(f"This plan doesn't achieve the goal(s)")
+                #     print(f"This plan doesn't achieve the goal(s)")
                 #     continue
                 # if redundancy_check(plan_tuple[0], goal):
                 #     continue
@@ -1275,7 +1275,7 @@ def run_task_plan_once(
 
         # If previous plan exists, prioritize most similar plan
         if previous_plan and len(plans) > 1:  # only if there are multiple plans
-            logging.debug(f"Prev-Plan [{', '.join(nsrt.name for nsrt in previous_plan)}]")
+            print(f"Prev-Plan [{', '.join(nsrt.name for nsrt in previous_plan)}]")
             # Untested!
             # Calculate similarity scores based on matching operators
             similarities = []
@@ -1291,7 +1291,7 @@ def run_task_plan_once(
                 # check if plan is subplan of previous plan's tail, if so, score is high
                 similarities.append(score)
                 steps.append(len(plan))
-                # logging.debug(f"Re-Plan {i} [{', '.join(nsrt.name for nsrt in plan)}] has {score} score, {len(plan)} steps")
+                # print(f"Re-Plan {i} [{', '.join(nsrt.name for nsrt in plan)}] has {score} score, {len(plan)} steps")
 
             # filter out plans that are too long
             # min_steps = min(steps)
@@ -1305,10 +1305,10 @@ def run_task_plan_once(
             else:
                 # Choose random index since stay_close_to_previous_plan is False
                 best_idx = np.random.choice(range(len(similarities)))
-            logging.debug(f"Best Re-Plan [{', '.join(nsrt.name for nsrt in plans[best_idx])}] has {similarities[best_idx]} score, {steps[best_idx]} steps")
-            logging.debug(f"Best Re-Plan Atoms Seq: ")
+            print(f"Best Re-Plan [{', '.join(nsrt.name for nsrt in plans[best_idx])}] has {similarities[best_idx]} score, {steps[best_idx]} steps")
+            print(f"Best Re-Plan Atoms Seq: ")
             for i, atoms in enumerate(atoms_seqs[best_idx]):
-                logging.debug(f"Step {i+1}: {', '.join(atom._str for atom in atoms)}")
+                print(f"Step {i+1}: {', '.join(atom._str for atom in atoms)}")
             plan = plans[best_idx]
             atoms_seq = atoms_seqs[best_idx]
             metrics = metrics_list[best_idx]
@@ -1326,21 +1326,15 @@ def run_task_plan_once(
         else:
             # Otherwise choose the shortest plan
             # for i in range(len(plans)):
-            #     logging.debug(f"Init-Plan {i} [{', '.join(nsrt.name for nsrt in plans[i])}] has {len(plans[i])} steps")
+            #     print(f"Init-Plan {i} [{', '.join(nsrt.name for nsrt in plans[i])}] has {len(plans[i])} steps")
             min_plan_length = min(len(plan) for plan in plans)
             best_idx = [len(plan) for plan in plans].index(min_plan_length)
             # max_plan_length = max(len(plan) for plan in plans)
             # best_idx = [len(plan) for plan in plans].index(max_plan_length)
-            logging.debug(f"\033[91mTask: {task.goal}\033[0m")
-            logging.debug(f"Best Init-Plan [{', '.join(nsrt.name for nsrt in plans[best_idx])}] has {len(plans[best_idx])} steps")
-            logging.debug(f"Best Init-Plan Atoms Seq: ")
+            print(f"Best Init-Plan [{', '.join(nsrt.name for nsrt in plans[best_idx])}] has {len(plans[best_idx])} steps")
+            print(f"Best Init-Plan Atoms Seq: ")
             for i, atoms in enumerate(atoms_seqs[best_idx]):
-                logging.debug(f"\033[93mTime Step {i}: {', '.join(atom._str for atom in atoms)}\033[0m")
-                if i < len(plans[best_idx]):
-                    logging.debug(f"NSRT {i}: {plans[best_idx][i]}")
-            if len(plans[best_idx]) == 0:
-                raise PlanningFailure("Goal Predicate is Achieved, nothing to do!")
-
+                print(f"Step {i+1}: {', '.join(atom._str for atom in atoms)}")
             plan = plans[best_idx]
             atoms_seq = atoms_seqs[best_idx]
             metrics = metrics_list[best_idx]
@@ -1356,10 +1350,10 @@ def run_task_plan_once(
                 if move_to_init_nsrt is not None and gripper_obj is not None and base_obj is not None:
                     ground_move_to_init = move_to_init_nsrt.ground([gripper_obj, base_obj])
                     plan, atoms_seq = insert_between_tasks(plan, atoms_seq, ground_move_to_init)
-            logging.debug(f"Best Plan After Fix [{', '.join(nsrt.name for nsrt in plan)}]")
-            logging.debug(f"Best Plan Atoms Seq After Fix: ")
+            print(f"Best Plan After Fix [{', '.join(nsrt.name for nsrt in plan)}]")
+            print(f"Best Plan Atoms Seq After Fix: ")
             for i, atoms in enumerate(atoms_seq):
-                logging.debug(f"Step {i+1}: {', '.join(atom._str for atom in atoms)}")
+                print(f"Step {i+1}: {', '.join(atom._str for atom in atoms)}")
 
         if len(plan) > max_horizon:
             raise PlanningFailure(
@@ -1463,7 +1457,7 @@ def redundancy_check(plan: List[_GroundNSRT], goal: Set[GroundAtom]) -> bool:
                     break
             if not is_add_used:
                 # If the add effect is not used by any subsequent operator
-                logging.debug(f"Redundancy found: Add effect {add_atom} of operator {op.name}{op.objects} at step {i} is never used later.")
+                print(f"Redundancy found: Add effect {add_atom} of operator {op.name}{op.objects} at step {i} is never used later.")
                 return True
 
     # Check for useless delete effects (based on prompt's definition)
@@ -1549,7 +1543,7 @@ def insert_between_tasks(plan: List[_GroundNSRT], atoms_seq: List[Set[GroundAtom
 
                 # Check if g_nsrt is applicable.
                 if g_nsrt.preconditions.issubset(prev_atoms):
-                    logging.debug(f"Inserting {g_nsrt.short_str} between {last_added_task_name} and {current_op_task_name}")
+                    print(f"Inserting {g_nsrt.short_str} between {last_added_task_name} and {current_op_task_name}")
                     # Add g_nsrt to the new plan.
                     new_plan.append(g_nsrt)
                     # Calculate the state after g_nsrt.
