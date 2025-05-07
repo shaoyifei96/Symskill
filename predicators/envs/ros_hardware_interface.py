@@ -269,6 +269,13 @@ class ROSHardwareInterface:
                 rospy.logerr(f"Timeout waiting for message on {self.gripper_alt_pose_topic}")
                 return None
         return self._current_gripper_alt_pose_msg
+    
+    def get_object_pose(self) -> Optional[PoseStamped]:
+        """
+        Returns the latest received object PoseStamped message from mocap.
+        """
+        return self._current_object_pose_msg
+            
 
     # --- Robot Commands ---
     def publish_twist_command(self, linear_vel: np.ndarray, angular_vel: np.ndarray):

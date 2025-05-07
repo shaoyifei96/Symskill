@@ -53,6 +53,7 @@ import matplotlib.colors as mcolors # Import colors for normalization
 import ruptures as rpt
 import os
 from ds_policy import DSPolicy, compute_vel_traj, UnifiedModelConfig
+import rospy
 from scipy.ndimage import uniform_filter1d
 ################################################################################
 #                          Programmatic classifiers                            #
@@ -241,7 +242,7 @@ class _RelativeFeatureCovClusterClassifier(_BinaryClassifier):
             return False
 
         # Use the pre-calculated threshold
-        print(f"{mahalanobis_dist_sq} <=? {self.mahalanobis_threshold}")
+        rospy.loginfo_throttle(1, f"{mahalanobis_dist_sq} <=? {self.mahalanobis_threshold}")
         return mahalanobis_dist_sq <= self.mahalanobis_threshold
 
     def __str__(self) -> str:
@@ -1951,6 +1952,49 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         if not gripper_type:
             logging.warning("Gripper type not found. Cannot generate contact-based predicates.")
             return {}, {} # Return empty dicts if gripper type is not found
+
+        # Combine InContact and goal predicates for atom dataset creation
+        if CFG.predefined_goal_predicates:
+            goal_predicates = CFG.goal_predicates
+        else:
+            goal_predicates = {DummyPredicate("goal")} # Dummy predicate, won't be evaluated in create_ground_atom_dataset
+        if CFG.remove_inOrigin_pred:
+            predicates_to_monitor = {in_contact_pred} | goal_predicates
+        else:
+            predicates_to_monitor = {in_contact_pred, in_origin_pred} | goal_predicates
+        ground_atom_dataset = utils.create_ground_atom_dataset(dataset.trajectories, predicates_to_monitor)
+
+        relative_pose_dataset_dict = defaultdict(list) # Maps (atom_pred, type1, type2) -> List[rel_pose]
+
+        # other obj -> obj_contact_with_gripper's relative pose trajectory in obj's frame
+        # {other_obj: list[list]}, each sub-list is a trajectory
+        contact_period_rel_trajs = {}
+        goal_reached_states = []
+        # Find objects that are common across all trajectories in the dataset
+        all_objs = set(ground_atom_dataset[0][0].states[0].data.keys())
+        for traj, _ in ground_atom_dataset[1:]:  # Skip the first one we already processed
+            if not traj.states:
+                continue  # Skip empty trajectories
+            traj_objs = set(traj.states[0].data.keys())
+            all_objs = all_objs.intersection(traj_objs)  # Keep only objects present in all trajectories
+        all_objs = list(all_objs)  # Convert back to list for further processing
+        all_objs = [o for o in all_objs if "finger" not in o.name.lower()]
+        all_objs = [o for o in all_objs if "robot0" not in o.name.lower()]
+        
+        logging.info(f"After filtering, {len(all_objs)} objects remain")
+
+        quat_feat_name = "quaternion"
+        trans_feat_name = "translation"
+        pose_feat_name = "pose"
+
+        # 1. process of making contact: how to get to grasp (gripper obj centric DS with goal of cluster in step 2)
+        # Atom dataset auto split these
+        # 2. process of held contact: how to grasp(gripper obj centric cluster) (Obj Obj frame DS)
+        # 2.1 gripper obj centric: Already doing with clustering change only flag off
+        # 2.2 obj obj frame:(using goal predicate to find the other object)
+        # 3. instant of removed contact: achieving relative pose between two object (obj obj frame cluster goal )
+        # done
+        logging.info("Extracting relative poses ...")
         if CFG.predicate_candidates_method == "motion_analysis_contact":
             self._update_incontact_predicate_using_motion_analysis(dataset, in_contact_pred, gripper_type)
         learnt_goal_predicates = self.load_learnt_goals()

@@ -3,6 +3,8 @@
 import copy
 import re
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple, cast
+import time
+import rospy
 
 import numpy as np
 from gym.spaces import Box
@@ -31,6 +33,9 @@ from scipy.spatial.transform import Rotation as R
 if CFG.use_teleop:
     from robosuite.devices import Keyboard
 
+from predicators.envs.ros_hardware_interface import ROSHardwareInterface
+import tf
+from geometry_msgs.msg import PoseStamped
 
 # Disable JAX debug messages
 logging.getLogger("jax._src.cache_key").setLevel(logging.ERROR)
@@ -312,6 +317,10 @@ class RoboKitchenEnv(BaseEnv):
         print(colored(f"Selected task: {self.task_selected}", "green"))
 
         self.device = None  # control device
+        print(colored("Initializing ROS Hardware Interface...", "yellow"))
+        self._hw_interface = ROSHardwareInterface(init_gripper_open=True)
+        print(colored("ROSHardwareInterface initialized.", "green"))
+        self._robot_base_frame = self._hw_interface.robot_base_frame
         self._video_frames = []  # For saving video frames when GUI is not enabled
         self._frame_counter = 0  # To track steps for frame saving
 
@@ -647,87 +656,81 @@ class RoboKitchenEnv(BaseEnv):
                                ) -> Observation:
         """Reset the environment to an initial state based on the seed."""
         # Create or recreate environment if needed
-        if self._env is None:
-            complex_config = True  # NOTE: this should be removed. only for mac
-            if complex_config:
-                robot_type = "PandaOmron"
-                controller_config = load_composite_controller_config(robot=robot_type)
-                if CFG.robo_kitchen_task == "OpenDrawer":
-                    layout_ids = [0]
-                elif CFG.robo_kitchen_task == "PnPCabToCounterTomato" or CFG.robo_kitchen_task == "CookCheeseAndTomatoes":
-                    layout_ids = [10]
-                else:
-                    layout_ids = [3]
-                
-                # top handle sink requries style traditional 1 (5), traditional 2 (6), transitional 2 (11), mediterranean (9)
-                # for now just keep 6 for all tasks
+        # warnings.warn("Resetting environment to initial state from seed not implemented for robosuite kitchen")
+        self._env = "DummyEnv"
+        self._env_raw = None
+        current_state = self._get_current_observation(task_name)
+        return {"state_info": current_state, "obs_images": [], "contact_set": set()}
+        #     complex_config = True  # NOTE: this should be removed. only for mac
+        #     if complex_config:
+        #         robot_type = "PandaOmron"
+        #         controller_config = load_composite_controller_config(robot=robot_type)
 
-                config = {
-                    "env_name": task_name,
-                    "robots": robot_type,
-                    "controller_configs": controller_config,
-                    "layout_ids": layout_ids,
-                    "style_ids": [6], # this combination of layout and style makes sure the stove is stovetop, so similar to demos for turn on stove
-                    "translucent_robot": False,
-                }
+        #         config = {
+        #             "env_name": task_name,
+        #             "robots": robot_type,
+        #             "controller_configs": controller_config,
+        #             "layout_ids": 3,
+        #             "style_ids": 0,
+        #             "layout_ids": [3],
+        #             "style_ids": None,
+        #             "translucent_robot": True,
+        #         }
 
-                print(colored(f"Initializing environment for task: {task_name}", "yellow"))
+        #         print(colored(f"Initializing environment for task: {task_name}", "yellow"))
 
-                self._env_raw = robosuite.make(
-                    **config,
-                    has_renderer=self._using_gui,
-                    has_offscreen_renderer=not self._using_gui,
-                    render_camera="robot0_frontview",
-                    ignore_done=True,
-                    use_camera_obs=False,
-                    control_freq=20,
-                    renderer="mjviewer",
-                    # seed=4,
-                )
+        #         self._env_raw = robosuite.make(
+        #             **config,
+        #             has_renderer=self._using_gui,
+        #             has_offscreen_renderer=not self._using_gui,
+        #             render_camera="robot0_frontview",
+        #             ignore_done=True,
+        #             use_camera_obs=False,
+        #             control_freq=20,
+        #             renderer="mjviewer",
+        #             # seed=4,
+        #         )
 
-                self._env = VisualizationWrapper(self._env_raw)
-                self.ep_meta = self._env.get_ep_meta()
-            else:
-                print(f"Creating env for task: {task_name}, seed: {seed}, gui: {self._using_gui}")
-                self._env = create_env(
-                    env_name=task_name,
-                    render_onscreen=self._using_gui,
-                    seed=seed + 4,  # this seed the third demo opens to the right, will have replan
-                )
+        #         self._env = VisualizationWrapper(self._env_raw)
+        #         self.ep_meta = self._env.get_ep_meta()
+        #     else:
+        #         print(f"Creating env for task: {task_name}, seed: {seed}, gui: {self._using_gui}")
+        #         self._env = create_env(
+        #             env_name=task_name,
+        #             render_onscreen=self._using_gui,
+        #             seed=seed + 4,  # this seed the third demo opens to the right, will have replan
+        #         )
 
-        # Reset environment with seed
-        obs = self._env.reset()
-        # Compute robot arm sphere approximation once
-        if train_or_test == "test":
-            self._init_robot_arm_spheres()
+        # # Reset environment with seed
+        # obs = self._env.reset()
 
-        if CFG.use_teleop:
-            self.device = Keyboard(
-                env=self._env,
-                pos_sensitivity=4.0,
-                rot_sensitivity=4.0,
-            )
-            self.device.start_control()
+        # if CFG.use_teleop:
+        #     self.device = Keyboard(
+        #         env=self._env,
+        #         pos_sensitivity=4.0,
+        #         rot_sensitivity=4.0,
+        #     )
+        #     self.device.start_control()
 
-        # Update objects of interest based on task
-        self.objects_of_interest = self.get_objects_of_interest(task_name)
+        # # Update objects of interest based on task
+        # self.objects_of_interest = self.get_objects_of_interest(task_name)
 
-        # Get contact information
-        contact_set = self.get_object_level_contacts()
+        # # Get contact information
+        # contact_set = self.get_object_level_contacts()
 
-        self.num = 0
-        self.default_contact_num = len(self._env_raw.sim.data.contact)
-        self.default_contact_pairs = [(self._env_raw.sim.model.geom_id2name(contact.geom1), self._env_raw.sim.model.geom_id2name(contact.geom2)) for contact in self._env_raw.sim.data.contact]
+        # self.num = 0
+        # self.default_contact_num = len(self._env_raw.sim.data.contact)
+        # self.default_contact_pairs = [(self._env_raw.sim.model.geom_id2name(contact.geom1), self._env_raw.sim.model.geom_id2name(contact.geom2)) for contact in self._env_raw.sim.data.contact]
 
-        # Get initial gripper in base pose
-        initial_eef_pos_in_base = self._env.robots[0]._hand_pos["right"]
-        initial_eef_orn_mat_in_base = self._env.robots[0]._hand_orn["right"]
-        initial_eef_quat_in_base = T.mat2quat(initial_eef_orn_mat_in_base)
-        # CFG.init_pose = np.concatenate([initial_eef_pos_in_base, initial_eef_quat_in_base])
-        self.initial_eef_pos_quat = np.concatenate([initial_eef_pos_in_base, initial_eef_quat_in_base])
+        # # Get initial gripper in base pose
+        # initial_eef_pos_in_base = self._env.robots[0]._hand_pos["right"]
+        # initial_eef_orn_mat_in_base = self._env.robots[0]._hand_orn["right"]
+        # initial_eef_quat_in_base = T.mat2quat(initial_eef_orn_mat_in_base)
+        # # CFG.init_pose = np.concatenate([initial_eef_pos_in_base, initial_eef_quat_in_base])
+        # self.initial_eef_pos_quat = np.concatenate([initial_eef_pos_in_base, initial_eef_quat_in_base])
 
-        # Return observation
-        return {"state_info": obs, "obs_images": [], "contact_set": contact_set}
+        # # Return observation
+        # return {"state_info": obs, "obs_images": [], "contact_set": contact_set}
 
     def get_object_level_contacts(self) -> set[Tuple[Object, Object]]:
         """Get all contacts between objects in the environment, default to have robot and gripper, in addition to the objects of interest
@@ -815,7 +818,99 @@ class RoboKitchenEnv(BaseEnv):
                     contacts.add((gripper_obj, obj))
 
         return contacts
+    def _get_current_observation(self, task_name: str) -> Observation:
+        """Get the current observation from the hardware."""
+        state_info = {}
 
+        ee_pose_msg = self._hw_interface.get_ee_pose(wait_for_message=False, timeout=2.0)
+        assert ee_pose_msg is not None, "No end-effector pose message received" # mocap is in world frame now
+
+        # ee_pose_in_base = self._hw_interface.transform_pose(ee_pose_msg, self._robot_base_frame)
+
+        pos = ee_pose_msg.pose.position
+        quat = ee_pose_msg.pose.orientation
+        ee_pos_world = np.array([pos.x, pos.y, pos.z])
+        ee_quat_world = np.array([quat.x, quat.y, quat.z, quat.w])
+
+        # state_info["gripper_pos_quat"] = np.concatenate([ee_pos_world, ee_quat_world])
+        
+
+
+        # gripper_positions = self._hw_interface.get_gripper_positions()
+        # gripper_width = 0.0
+        # if gripper_positions is not None:
+        #     gripper_width = abs(gripper_positions[0]) + abs(gripper_positions[1])
+        # state_info["gripper_width"] = gripper_width
+
+        # Get poses from motion capture
+        # Handle Pose
+        door_pose_msg = self._hw_interface.get_door_pose(wait_for_message=False, timeout=2.0)
+        # transform the handle pose to the base frame
+        door_pose_msg = self._hw_interface.transform_pose(door_pose_msg, self._robot_base_frame)
+        pos = door_pose_msg.pose.position
+        quat = door_pose_msg.pose.orientation
+        state_info["door_pos_quat"] = np.concatenate(([pos.x, pos.y, pos.z], [quat.x, quat.y, quat.z, quat.w]))
+
+        # Cabinet Pose
+        cabinet_pose_msg = self._hw_interface.get_cabinet_pose(wait_for_message=False, timeout=2.0)
+        # transform the cabinet pose to the base frame
+        cabinet_pose_msg = self._hw_interface.transform_pose(cabinet_pose_msg, self._robot_base_frame)
+        pos = cabinet_pose_msg.pose.position
+        quat = cabinet_pose_msg.pose.orientation
+        state_info["cabinet_pos_quat"] = np.concatenate(([pos.x, pos.y, pos.z], [quat.x, quat.y, quat.z, quat.w]))
+
+        # Gripper Alternate Pose (Mocap)
+        gripper_alt_pose_msg = self._hw_interface.get_gripper_alt_pose(wait_for_message=False, timeout=2.0)
+        # transform the gripper alternate pose to the base frame
+        gripper_alt_pose_msg = self._hw_interface.transform_pose(gripper_alt_pose_msg, self._robot_base_frame)
+        pos = gripper_alt_pose_msg.pose.position
+        quat = gripper_alt_pose_msg.pose.orientation
+        state_info["gripper_pos_quat"] = np.concatenate(([pos.x, pos.y, pos.z], [quat.x, quat.y, quat.z, quat.w]))
+
+        try:
+            bottom_surface_pose_lookup = self._hw_interface.tf_listener.lookupTransform(
+                "mocap_world",
+                "bottom",
+                rospy.Time(0)
+            )
+            bottom_surface_pose_msg = PoseStamped()
+            bottom_surface_pose_msg.header.frame_id = self._robot_base_frame
+            bottom_surface_pose_msg.pose.position.x = bottom_surface_pose_lookup[0][0]
+            bottom_surface_pose_msg.pose.position.y = bottom_surface_pose_lookup[0][1]
+            bottom_surface_pose_msg.pose.position.z = bottom_surface_pose_lookup[0][2]
+            bottom_surface_pose_msg.pose.orientation.x = bottom_surface_pose_lookup[1][0]
+            bottom_surface_pose_msg.pose.orientation.y = bottom_surface_pose_lookup[1][1]
+            bottom_surface_pose_msg.pose.orientation.z = bottom_surface_pose_lookup[1][2]
+            bottom_surface_pose_msg.pose.orientation.w = bottom_surface_pose_lookup[1][3]
+        except (tf.LookupException, tf.ConnectivityException, tf.ExtrapolationException) as e:
+            rospy.logwarn(f"Failed to get bottom surface pose: {e}")
+            bottom_surface_pose_msg = None
+        # transform the bottom surface pose to the base frame
+        bottom_surface_pose_msg = self._hw_interface.transform_pose(bottom_surface_pose_msg, self._robot_base_frame)
+        pos = bottom_surface_pose_msg.pose.position
+        quat = bottom_surface_pose_msg.pose.orientation
+        state_info["bottom_pos_quat"] = np.concatenate(([pos.x, pos.y, pos.z], [quat.x, quat.y, quat.z, quat.w]))
+
+
+        state_info["robot0_base_pos_quat"] = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0])
+
+        gripper_positions = self._hw_interface.get_gripper_positions()
+        state_info["left_finger_pos_quat"] = np.array([-gripper_positions[0], 0.0, 0.0, 0.0, 0.0, 0.0, 1.0])
+        state_info["right_finger_pos_quat"] = np.array([gripper_positions[1], 0.0, 0.0, 0.0, 0.0, 0.0, 1.0])
+        
+        # Get object pose (if relevant for the task)
+        obj_msg = self._hw_interface.get_object_pose()
+        obj_msg = self._hw_interface.transform_pose(obj_msg, self._robot_base_frame)
+        assert obj_msg is not None, "No object pose message received"
+        pos = obj_msg.pose.position
+        quat = obj_msg.pose.orientation
+        state_info["obj_pos_quat"] = np.concatenate(([pos.x, pos.y, pos.z], [quat.x, quat.y, quat.z, quat.w]))
+
+        contact_set = set()
+
+        self.objects_of_interest = self.get_objects_of_interest(task_name)
+
+        return state_info
     @classmethod
     def get_name(cls) -> str:
         return "robo_kitchen"
@@ -887,7 +982,7 @@ class RoboKitchenEnv(BaseEnv):
         # Scale the action
         pos_delta = action.arr[:3] * MAX_CARTESIAN_DISPLACEMENT
         rot_delta = action.arr[3:6] * MAX_ROTATION_DISPLACEMENT
-        gripper_cmd = action.arr[6]
+        gripper_cmd_raw = action.arr[6]
 
         # Create 12D robocasa action:
         # - First 6D: right arm pose (position + rotation)
@@ -895,71 +990,31 @@ class RoboKitchenEnv(BaseEnv):
         # - Next 3D: base (no movement)
         # - Next 1D: torso (no movement)
         # - Last 1D: extra dimension (not used)
-        env_action = np.zeros(12, dtype=np.float32)
+        # env_action = np.zeros(12, dtype=np.float32)
 
-        if np.allclose(action.arr[3:], np.zeros(4)):
-            env_action[7:10] = action.arr[0:3]
-        else:
-            env_action[0:3] = pos_delta  # position control
-            env_action[3:6] = rot_delta  # rotation control
-            env_action[6] = gripper_cmd  # gripper control
-
-        # if CFG.use_teleop is None: # none for WBC
-        #     arm_ratio = 0.8
-        #     arm_pos = np.array([arm_ratio * pos_delta[0], arm_ratio * pos_delta[1], pos_delta[2]])
-        #     base_pos = (1.0 - arm_ratio) * pos_delta[0:2]
-        #     env_action[0:3] = arm_pos  # position control
-        #     env_action[3:6] = rot_delta  # rotation control
-        #     env_action[6] = gripper_cmd  # gripper control
-        #     env_action[7:9] = base_pos
-        #     # gripper_obj = self._current_state.get_objects(self.gripper_type)[0]
-        #     # base_obj = self._current_state.get_objects(self.base_type)[0]
-        #     # gripper_pos, gripper_quat = get_gripper_in_base_frame(self._current_state, gripper_obj, base_obj)
-        #     # # # convert gripper_quat to euler angles
-        #     # # # euler_angles = R.from_quat(gripper_quat).as_euler("xyz", degrees=False)
-        #     # # # print(f"euler_angles: {euler_angles}")
-        #     # # find delta pos and quat to control the base
-        #     # delta_pos = gripper_pos[0:2] - init_delta_gripper_base[0:2]
-        #     # distance = np.linalg.norm(gripper_pos)
-        #     # # get angle between robot and gripper with atan2
-        #     # angle = np.arctan2(gripper_pos[1], gripper_pos[0])
-        #     # # print(f"angle: {angle}, {distance}")
-        #     # # print(f"gripper_pos: {gripper_pos}")
-        #     # # print(f"delta_pos: {delta_pos}")
-        #     # # set deadzone to 0.01
-            
-        #     # if delta_pos[0] > -0.01 and delta_pos[0] < 0.25:
-        #     #     delta_pos[0] = 0.0
-        #     # if np.linalg.norm(delta_pos[1]) < 0.2:
-        #     #     delta_pos[1] = 0.0
-        #     # env_action[8] = env_action[8] + delta_pos[1] * 0.3 # keep base and arm close in y
-        # else: # either teleop or no teleop
-        #     env_action[0:3] = pos_delta  # position control
-        #     env_action[3:6] = rot_delta  # rotation control
-        #     env_action[6] = gripper_cmd  # gripper control
-        
-        # if CFG.use_teleop: # keyboard teleop populate other fields 
+        # env_action[0:3] = pos_delta  # position control
+        # env_action[3:6] = rot_delta  # rotation control
+        # env_action[6] = gripper_cmd  # gripper control
+        # if CFG.use_teleop:
         #     env_action[7:10] = input_ac_dict["base"]
+        # # env_action[7:10] are zeros (no base movement)
+        # # env_action[10] is zero (no torso movement)
+        # # env_action[11] is zero (extra dimension)
 
-        # # if np.linalg.norm(angle) < 0.1:
-        # #     angle = 0.0
-        # env_action[9] = angle *0.3
-        # delta_quat = gripper_quat - init_delta_gripper_base_rot
-        # if np.linalg.norm(delta_quat) < 0.05:
-        #     delta_quat = np.zeros(4)
-        # env_action[7:10] = delta_pos
-        # env_action[10] = gripper_quat
+        # # Execute action in environment (Robosuite:Mujoco Env)
+        # obs, _, _, _ = self._env.step(env_action)
 
-        # env_action[7:10] are zeros (no base movement)
-        # env_action[10] is zero (no torso movement)
-        # env_action[11] is zero (extra dimension)
+        # contact_set = self.get_object_level_contacts()
+        action_velocities = np.concatenate([pos_delta, rot_delta])
+        self._hw_interface.scale_and_publish_twist_action(action_velocities)
 
-        # Execute action in environment (Robosuite:Mujoco Env)
-        obs, _, _, _ = self._env.step(env_action)
 
-        contact_set = self.get_object_level_contacts()
+        gripper_cmd_hw = 1.0 if gripper_cmd_raw > 0 else 0.0
+        self._hw_interface.set_gripper_state(gripper_cmd_hw)
 
-        observation = {"state_info": obs, "obs_images": [], "contact_set": contact_set}
+        ob = self._get_current_observation(self.task_selected)
+
+        observation = {"state_info": ob, "obs_images": [], "contact_set": set(  )}
 
         self._current_observation = observation
         
