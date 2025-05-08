@@ -439,6 +439,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         if CFG.robo_kitchen_task == "OpenSingleDoor":
             # keep_indices = [0, 2, 3, 4, 6, 7, 8, 9, 10, 12, 14, 15, 16, 17, 19, 21, 25, 32, 33, 35, 36, 38, 39, 40, 42, 44, 45, 47, 48, 49]
             keep_indices = [0, 2, 6, 7] # all left cab
+            # keep_indices = [0, 2, 5, 6, 7] # all cab
             # keep_indices = [0]
             dataset._trajectories = [dataset._trajectories[i] for i in keep_indices if i < len(dataset._trajectories)]
         if CFG.robo_kitchen_task == "CloseSingleDoor":
@@ -448,10 +449,10 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             # keep_indices = [1]
             # keep_indices = [0, 2, 8, 9] # better microwaves
             dataset._trajectories = [dataset._trajectories[i] for i in keep_indices if i < len(dataset._trajectories)]
-        if CFG.robo_kitchen_task == "PnPCounterToCab":
-            keep_indices = [4, 6, 7]  # all left cab
-            # keep_indices = [6, 7]
-            dataset._trajectories = [dataset._trajectories[i] for i in keep_indices if i < len(dataset._trajectories)]
+        # if CFG.robo_kitchen_task == "PnPCounterToCab":
+        #     # keep_indices = [4, 6, 7, 12, 23]  # all left cab
+        #     keep_indices = [6, 23]
+        #     dataset._trajectories = [dataset._trajectories[i] for i in keep_indices if i < len(dataset._trajectories)]
 
         # logging.info(f"Filtered dataset to trajectories (indices: {keep_indices})")
         # Clear caches before starting learning
@@ -1867,7 +1868,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             assert len(list(env.goal_predicates)) == 1
             goal_pred = list(env.goal_predicates)[0]
             pred_key = (goal_pred.name, goal_pred.types[0].name, goal_pred.types[1].name)
-            CFG.dict_gt_goal_predicate_to_dummy_goal_predicates[pred_key] = DummyPredicate(f"{CFG.robo_kitchen_task}-goal", [obj_of_reference_best.type, obj_contact_with_gripper.type])
+            CFG.dict_gt_goal_predicate_to_dummy_goal_predicates[pred_key] = set([DummyPredicate(f"{CFG.robo_kitchen_task}-goal", [obj_of_reference_best.type, obj_contact_with_gripper.type])])
         for pred in predicates_to_monitor:
             if isinstance(pred, DummyPredicate): # goal predicate
                 pred = DummyPredicate(f"{CFG.robo_kitchen_task}-goal", [obj_of_reference_best.type, obj_contact_with_gripper.type])

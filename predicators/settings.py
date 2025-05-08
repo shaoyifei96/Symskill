@@ -18,7 +18,7 @@ class GlobalSettings:
     reprocess_ground_atom_dataset_using_cluster_predicates = False
     remove_inOrigin_pred = True
 
-    use_learnt_goal_predicates = True
+    use_learnt_goal_predicates = False
     use_negated_goal_predicates = False
 
     init_pose = np.array([0.24844874, 0.00726439, 0.59251043, 0.98900046, 0.05834797, 0.13247817, -0.0303833])
@@ -36,7 +36,7 @@ class GlobalSettings:
 
     clustering_moving_average_window = 5
     clustering_debug = True
-    enable_meshcat = False
+    enable_meshcat = True
     clustering_se3_trans_weight = 10  # 0.05 m # 10 times differnece
     clustering_se3_rot_weight = 0.0  # 30 deg = 0.5236 rad
     clustering_feature_constancy_percentile = 10  # of total number of data points = 13782

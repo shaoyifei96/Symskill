@@ -91,7 +91,7 @@ class RoboKitchenPerceiver(BasePerceiver):
                     new_goal.add(rel_pose_pred_atom)
                 else:
                     gt_goal_key = (g.predicate.name, g.entities[0].type.name, g.entities[1].type.name)
-                    dummy_goal_pred = CFG.dict_gt_goal_predicate_to_dummy_goal_predicates[gt_goal_key]
+                    dummy_goal_pred = list(CFG.dict_gt_goal_predicate_to_dummy_goal_predicates[gt_goal_key])[0]
                     rel_pose_preds = CFG.dict_contact_predicate_to_rel_pose_predicates[(dummy_goal_pred.name, dummy_goal_pred.types[0].name, dummy_goal_pred.types[1].name)]
                     rel_pose_pred = list(rel_pose_preds)[0]
                     type1_objs = [obj for obj in state if obj.type == rel_pose_pred.types[0]]
