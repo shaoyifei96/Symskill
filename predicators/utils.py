@@ -2632,11 +2632,8 @@ def abstract(state: State,
     # Next, classify all non-VLM predicates.
     atoms = set()
     for pred in preds:
-        if isinstance(pred, DummyPredicate):
-            continue
         if pred not in vlm_preds:
             for choice in get_object_combinations(list(state), pred.types):
-                # print(choice)
                 if pred.holds(state, choice):
                     atoms.add(GroundAtom(pred, choice))
     if len(vlm_preds) > 0:

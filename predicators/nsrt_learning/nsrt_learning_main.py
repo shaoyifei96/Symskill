@@ -170,6 +170,7 @@ def _learn_pnad_options(pnads: List[PNAD], known_options: Set[ParameterizedOptio
     logging.info("\nLearned operators with option specs:")
     for pnad in unknown_option_pnads:
         logging.info(pnad)
+    pnads[:] = known_option_pnads + unknown_option_pnads
 
 
 def _learn_pnad_options_with_learner(pnads: List[PNAD], option_learner: _OptionLearnerBase) -> None:
@@ -185,13 +186,16 @@ def _learn_pnad_options_with_learner(pnads: List[PNAD], option_learner: _OptionL
     # Filter out PNADs with None option specs
     filtered_pnads = []
     filtered_option_specs = []
+    filtered_datasets = []
     for pnad, option_spec in zip(pnads, option_specs):
         if option_spec[0] is not None:
             pnad.option_spec = option_spec
             filtered_pnads.append(pnad)
             filtered_option_specs.append(option_spec)
-    pnads = filtered_pnads
-    option_specs = filtered_option_specs
+            filtered_datasets.append(pnad.datastore)
+    pnads[:] = filtered_pnads
+    option_specs[:] = filtered_option_specs
+    datastores[:] = filtered_datasets
     # Seed the new parameterized option parameter spaces.
     for parameterized_option, _ in option_specs:
         parameterized_option.params_space.seed(CFG.seed)

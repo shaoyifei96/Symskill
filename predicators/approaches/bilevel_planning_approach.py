@@ -54,19 +54,6 @@ class BilevelPlanningApproach(BaseApproach):
         self._last_maintain_effects: List[Set[GroundAtom]] = []  # plan WITHOUT sim
         self._last_fail_info: List[OptionFailureInfo] = []  # plan WITHOUT sim
 
-    def _convert_task_goal_to_cluster_goal(self, goal: List[GroundAtom]) -> List[GroundAtom]:
-        """Convert task goal to predicate goal if using clustering reprocess."""
-        goal_atoms = set()
-        if not CFG.predefined_goal_predicates:
-            goal = CFG.learnt_goal
-        for atom in goal:
-            rel_pose_preds = CFG.dict_contact_predicate_to_rel_pose_predicates[(atom.predicate.name, atom.entities[0].type.name, atom.entities[1].type.name)]
-            rel_pose_pred = list(rel_pose_preds)[0]
-            rel_pose_pred_atom = GroundAtom(rel_pose_pred, atom.entities)
-            goal_atoms.add(rel_pose_pred_atom)
-
-        return goal_atoms
-
     def _solve(self, task: Task, timeout: int, stay_close_to_previous_plan: bool = False, last_option_name: str = None) -> Callable[[State], Action]:
         self._num_calls += 1
         # ensure random over successive calls
@@ -77,10 +64,6 @@ class BilevelPlanningApproach(BaseApproach):
         # Run task planning only and then greedily sample and execute in the
         # policy.
         if self._plan_without_sim:
-            # convert task.goal to predicate goal if using clustering reprocess
-            if CFG.reprocess_ground_atom_dataset_using_cluster_replacement or CFG.reprocess_ground_atom_dataset_using_cluster_predicates:
-                new_goal = self._convert_task_goal_to_cluster_goal(task.goal)
-                task = Task(task.init, new_goal)
             nsrt_plan, atoms_seq, metrics = self._run_task_plan(
                 task, nsrts, preds, timeout, seed, stay_close_to_previous_plan, last_option_name)
             self._last_nsrt_plan = nsrt_plan

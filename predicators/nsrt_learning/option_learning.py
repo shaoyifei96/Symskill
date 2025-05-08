@@ -772,7 +772,7 @@ class _DSOptionLearner(_OptionLearnerBase):
 
             # Configure DS Policy
             unified_config = UnifiedModelConfig(mode="se3_lpvds", K_candidates=[3],
-                                                enable_simple_ds_near_target=True,
+                                                enable_simple_ds_near_target=False,
                                                 simple_ds_pos_threshold=0.1,
                                                 simple_ds_ori_threshold=0.1,
                                                 K_pos=10.0,
@@ -797,7 +797,7 @@ class _DSOptionLearner(_OptionLearnerBase):
             # Create a ParameterizedOption that uses DSPolicy
             name = f"{op.name}DSOption"
             parameterized_option = _LearnedDSParameterizedOption(
-                name, op, ds_policy, OOI_type_name, gripper_or_obj_type_name, gripper_action=1.0 if np.mean(option_gripper_action) > 0.0 else -1.0, is_parameterized=self._is_parameterized
+                name, op, ds_policy, OOI_type_name, gripper_or_obj_type_name, gripper_action=1.0 if np.mean(option_gripper_action) > -0.5 else -1.0, is_parameterized=self._is_parameterized
             )
 
             option_specs.append((parameterized_option, list(op.parameters)))
@@ -830,7 +830,7 @@ def find_two_objects(op: STRIPSOperator, segment: Segment, var_to_obj: VarToObjS
     
     effects = set()
     for e in op.add_effects | op.delete_effects:
-        if e.predicate.name != "InOrigin":
+        if e.predicate.name != "InOrigin" and "NOT" not in e.predicate.name:
             effects.add(e)
     if len(effects) != 1:
         logging.warning(f"NSRT {op.name} has {len(effects)} effects (expected 1), cannot determine OOI/gripper reliably.")
@@ -1191,7 +1191,7 @@ class _LearnedDSParameterizedOption(ParameterizedOption):
         cur_nsrt = memory["current_nsrt"]
         effects = set()
         for e in cur_nsrt.add_effects | cur_nsrt.delete_effects:
-            if e.predicate.name != "InOrigin":
+            if e.predicate.name != "InOrigin" and "NOT" not in e.predicate.name:
                 effects.add(e)
         assert len(effects) == 1
         effect_objs = next(iter(effects)).objects

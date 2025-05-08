@@ -55,6 +55,34 @@ from ds_policy import DSPolicy, compute_vel_traj, UnifiedModelConfig
 
 
 @dataclass(frozen=True, eq=False, repr=False)
+class _NegationClassifier(_ProgrammaticClassifier):
+    """Negate a given classifier."""
+
+    body: Predicate
+
+    def __call__(self, s: State, o: Sequence[Object]) -> bool:
+        return not self.body.holds(s, o)
+
+    def __str__(self) -> str:
+        return f"NOT-{self.body}"
+
+    def pretty_str(self) -> Tuple[str, str]:
+        vars_str, body_str = self.body.pretty_str()
+        return vars_str, f"¬{body_str}"
+
+    def __getattr__(self, name: str) -> Any:
+        """Expose attributes of the body predicate's classifier."""
+        if name.startswith("__") and name.endswith("__"):
+            raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
+        try:
+            return getattr(self.body._classifier, name)
+        except AttributeError as e:
+            # Raise a new AttributeError to make it clear the attribute
+            # was not found on _NegationClassifier or its body's classifier.
+            raise AttributeError(f"'{type(self).__name__}' object and its body's classifier " f"have no attribute '{name}'") from e
+
+
+@dataclass(frozen=True, eq=False, repr=False)
 class _RelativeFeatureCovClusterClassifier(_BinaryClassifier):
     """Classifies based on the Mahalanobis distance of a relative feature vector
     (including 7D pose) between two objects to a target cluster center and covariance.
@@ -325,7 +353,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         all_files = os.listdir(main_folder)
         approach_files = [main_folder + f for f in all_files if f.startswith(f"{CFG.env}__{CFG.approach}") and f.endswith(".NSRTs")]
         contact2rel_files = [main_folder + f for f in all_files if f.startswith(f"{CFG.env}__{CFG.approach}") and f.endswith("_contact2rel_preds.pkl")]
-        goal_files = [main_folder + f for f in all_files if f.startswith(f"{CFG.env}__{CFG.approach}") and f.endswith("_goal_preds.pkl")]
+        goal_files = [main_folder + f for f in all_files if f.startswith(f"{CFG.env}__{CFG.approach}") and f.endswith("_gtgoal2dummy_preds.pkl")]
 
         for file in approach_files:
             with open(file, "rb") as f:
@@ -346,8 +374,12 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
 
         for file in goal_files:
             with open(file, "rb") as f:
-                goal_preds = pkl.load(f)
-                CFG.learnt_goal.extend(goal_preds)
+                gtgoal2dummy_preds = pkl.load(f)
+                for key, value in gtgoal2dummy_preds.items():
+                    if key not in CFG.dict_gt_goal_predicate_to_dummy_goal_predicates:
+                        CFG.dict_gt_goal_predicate_to_dummy_goal_predicates[key] = value
+                    else:
+                        CFG.dict_gt_goal_predicate_to_dummy_goal_predicates[key].update(value)
 
         if CFG.pretty_print_when_loading:  # pragma: no cover
             preds, _ = utils.extract_preds_and_types(self._nsrts)
@@ -371,6 +403,32 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         preds, _ = utils.extract_preds_and_types(self._nsrts)
         self._learned_predicates = set(preds.values()) - self._initial_predicates
 
+    def load_learnt_goals(self) -> Set[Predicate]:
+        goal_rel_pose_predicates = set()
+        negated_goal_predicates = set()
+
+        if CFG.use_learnt_goal_predicates:
+            main_folder = f"{CFG.approach_dir}/"
+            all_files = os.listdir(main_folder)
+            contact2rel_files = [main_folder + f for f in all_files if CFG.robo_kitchen_task not in f and f.startswith(f"{CFG.env}__{CFG.approach}") and f.endswith("_contact2rel_preds.pkl")]
+
+            for file in contact2rel_files:
+                with open(file, "rb") as f:
+                    contact2rel_preds = pkl.load(f)
+                    for key, value in contact2rel_preds.items():
+                        if "goal" in key[0]:
+                            goal_rel_pose_predicates |= value
+            
+            if CFG.use_negated_goal_predicates:
+                # Generate negated predicates for each goal predicate
+                for pred in goal_rel_pose_predicates:
+                    negated_classifier = _NegationClassifier(pred)
+                    negated_pred_name = f"NOT-{pred.name}"
+                    negated_predicate = Predicate(negated_pred_name, pred.types, negated_classifier)
+                    negated_goal_predicates.add(negated_predicate)
+                
+        return goal_rel_pose_predicates | negated_goal_predicates
+
     def _get_current_predicates(self) -> Set[Predicate]:
         return self._initial_predicates | self._learned_predicates
 
@@ -380,13 +438,19 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         # Filter dataset to only keep specific trajectory indices
         if CFG.robo_kitchen_task == "OpenSingleDoor":
             # keep_indices = [0, 2, 3, 4, 6, 7, 8, 9, 10, 12, 14, 15, 16, 17, 19, 21, 25, 32, 33, 35, 36, 38, 39, 40, 42, 44, 45, 47, 48, 49]
-            keep_indices = [0, 2, 6, 7]
+            keep_indices = [0, 2, 6, 7] # all left cab
+            # keep_indices = [0]
             dataset._trajectories = [dataset._trajectories[i] for i in keep_indices if i < len(dataset._trajectories)]
         if CFG.robo_kitchen_task == "CloseSingleDoor":
             # keep_indices = [0, 1, 2, 3, 4, 6, 7, 8, 9] # all left close
             # keep_indices = [0, 2, 4, 8, 9] # all microwave
             keep_indices = [1, 3, 6, 7] # all left cab
+            # keep_indices = [1]
             # keep_indices = [0, 2, 8, 9] # better microwaves
+            dataset._trajectories = [dataset._trajectories[i] for i in keep_indices if i < len(dataset._trajectories)]
+        if CFG.robo_kitchen_task == "PnPCounterToCab":
+            keep_indices = [4, 6, 7]  # all left cab
+            # keep_indices = [6, 7]
             dataset._trajectories = [dataset._trajectories[i] for i in keep_indices if i < len(dataset._trajectories)]
 
         # logging.info(f"Filtered dataset to trajectories (indices: {keep_indices})")
@@ -440,9 +504,9 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         with open(learned_preds_path, "wb") as f:
             pkl.dump(CFG.dict_contact_predicate_to_rel_pose_predicates, f)
 
-        learned_goal_path = f"{save_path}_goal_preds.pkl"
+        learned_goal_path = f"{save_path}_gtgoal2dummy_preds.pkl"
         with open(learned_goal_path, "wb") as f:
-            pkl.dump(CFG.learnt_goal, f)
+            pkl.dump(CFG.dict_gt_goal_predicate_to_dummy_goal_predicates, f)
 
         # Learn NSRTs with the final set of predicates
         # final_predicates = self._get_current_predicates()
@@ -1336,15 +1400,13 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             return {}, {} # Return empty dicts if gripper type is not found
 
         # Combine InContact and goal predicates for atom dataset creation
-        if CFG.predefined_goal_predicates:
-            goal_predicates = CFG.goal_predicates
-        else:
-            goal_predicates = {DummyPredicate("goal")} # Dummy predicate, won't be evaluated in create_ground_atom_dataset
+        learnt_goal_predicates = self.load_learnt_goals()
         if CFG.remove_inOrigin_pred:
-            predicates_to_monitor = {in_contact_pred} | goal_predicates
+            predicates_to_monitor = {in_contact_pred} | learnt_goal_predicates
         else:
-            predicates_to_monitor = {in_contact_pred, in_origin_pred} | goal_predicates
+            predicates_to_monitor = {in_contact_pred, in_origin_pred} | learnt_goal_predicates
         ground_atom_dataset = utils.create_ground_atom_dataset(dataset.trajectories, predicates_to_monitor)
+        predicates_to_monitor |= {DummyPredicate(f"{CFG.robo_kitchen_task}-goal")}
 
         relative_pose_dataset_dict = defaultdict(list) # Maps (atom_pred, type1, type2) -> List[rel_pose]
 
@@ -1360,8 +1422,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             traj_objs = set(traj.states[0].data.keys())
             all_objs = all_objs.intersection(traj_objs)  # Keep only objects present in all trajectories
         all_objs = list(all_objs)  # Convert back to list for further processing
-        all_objs = [o for o in all_objs if "finger" not in o.name.lower()]
-        all_objs = [o for o in all_objs if "robot0" not in o.name.lower()]
+        all_objs = [o for o in all_objs if "finger" not in o.name.lower() and "base" not in o.name.lower()]
         logging.info(f"After filtering, {len(all_objs)} objects remain")
 
         quat_feat_name = "quaternion"
@@ -1415,12 +1476,12 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                     if t >= len(atom_seq) - skip_var:
                         t_start = t
                         while t_start < len(atom_seq):
-                            ground_atom_dataset[i][1][t_start].add(DummyPredicate("goal"))
+                            ground_atom_dataset[i][1][t_start].add(DummyPredicate(f"{CFG.robo_kitchen_task}-goal"))
                             goal_reached_states.append(ll_traj.states[t_start])
                             t_start += 1
                         achieved_goal = True
                     else:
-                        if lost_atoms:
+                        if any(atom.predicate.name == in_contact_pred.name for atom in lost_atoms):
                             t_start = None
                             for t_test in range(t-skip_var, t):
                                 if len(atom_seq[t_test]) > len(atoms_t):
@@ -1431,7 +1492,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                             # if atom.predicate == in_contact_pred: # this is lost gripper with obj
                             #     consistent_contact = False
                             while t_start < len(atom_seq):
-                                ground_atom_dataset[i][1][t_start].add(DummyPredicate("goal"))
+                                ground_atom_dataset[i][1][t_start].add(DummyPredicate(f"{CFG.robo_kitchen_task}-goal"))
                                 goal_reached_states.append(ll_traj.states[t_start])
                                 t_start += 1
                             achieved_goal = True
@@ -1462,7 +1523,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                                 contact_period_rel_trajs[obj].append([relative_pose])
                             else:
                                 contact_period_rel_trajs[obj][-1].append(relative_pose)
-                        
+
                         # -------------------------------------------------------------------------------------------- #
                         # these are original ones used to compute rel pose during contact for finding end points of DS
                         # Calculate relative pose at the moment of contact (state t)
@@ -1569,12 +1630,12 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 for k, atom in enumerate(atoms):
                     if isinstance(atom, DummyPredicate):
                         ground_atom_dataset[i][1][j].remove(atom)
-                        ground_atom_dataset[i][1][j].add(GroundAtom(DummyPredicate("goal", [obj_of_reference_best.type, obj_contact_with_gripper.type]), [obj_of_reference_best, obj_contact_with_gripper]))
+                        ground_atom_dataset[i][1][j].add(GroundAtom(DummyPredicate(f"{CFG.robo_kitchen_task}-goal", [obj_of_reference_best.type, obj_contact_with_gripper.type]), [obj_of_reference_best, obj_contact_with_gripper]))
 
         # add stored states before contact lost to relative_pose_dataset_dict
         for state in goal_reached_states:
             rel_pose = utils.calculate_relative_pose(state, obj_of_reference_best, obj_contact_with_gripper, trans_feat_name, quat_feat_name)
-            key = (DummyPredicate("goal"), obj_of_reference_best.type, obj_contact_with_gripper.type, "2in1")
+            key = (DummyPredicate(f"{CFG.robo_kitchen_task}-goal"), obj_of_reference_best.type, obj_contact_with_gripper.type, "2in1")
             relative_pose_dataset_dict[key].append(rel_pose)
 
         # ---------------------------------------------------------------------------------- #
@@ -1597,7 +1658,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             feat_name = pose_feat_name # We are clustering relative SE(3) poses
             logging.debug(f"Clustering relative feature {feat_name} for ({type1.name}, {type2.name}) from {pred.name} with {len(data)} points.")
 
-            if len(data) < 10: continue # Skip if no data collected
+            # if len(data) < 10: continue # Skip if no data collected
 
             # Save feature data (optional, copied from _generate_candidate_predicates)
             # feature_key = f"contact_{type1.name}_{type2.name}_{feat_name}"
@@ -1794,23 +1855,28 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 for j, atoms in enumerate(atom_seq):
                     atoms_new = []
                     for atom in atoms:
+                        if "RelCovCluster" in atom.predicate.name:
+                            atoms_new.append(atom)
+                            continue
                         pred = list(CFG.dict_contact_predicate_to_rel_pose_predicates[atom.predicate.name, atom.objects[0].type.name, atom.objects[1].type.name])[0]
                         grounded_pred = GroundAtom(pred, atom.entities)
                         atoms_new.append(grounded_pred)
                     ground_atom_dataset[i][1][j] = set(atoms_new)
 
-        if not CFG.predefined_goal_predicates:
-            CFG.learnt_goal = [GroundAtom(DummyPredicate("goal", [obj_of_reference_best.type, obj_contact_with_gripper.type]), [obj_of_reference_best, obj_contact_with_gripper])]
-
-            for pred in predicates_to_monitor:
-                if isinstance(pred, DummyPredicate): # goal predicate
-                    pred = DummyPredicate("goal", [obj_of_reference_best.type, obj_contact_with_gripper.type])
+        if env.goal_predicates:
+            assert len(list(env.goal_predicates)) == 1
+            goal_pred = list(env.goal_predicates)[0]
+            pred_key = (goal_pred.name, goal_pred.types[0].name, goal_pred.types[1].name)
+            CFG.dict_gt_goal_predicate_to_dummy_goal_predicates[pred_key] = DummyPredicate(f"{CFG.robo_kitchen_task}-goal", [obj_of_reference_best.type, obj_contact_with_gripper.type])
+        for pred in predicates_to_monitor:
+            if isinstance(pred, DummyPredicate): # goal predicate
+                pred = DummyPredicate(f"{CFG.robo_kitchen_task}-goal", [obj_of_reference_best.type, obj_contact_with_gripper.type])
 
         # logging.info("--- End segmentation with new predicates ---")
         # --- End Debugging ---
         if CFG.reprocess_ground_atom_dataset_using_cluster_replacement:
             # if replacing, then goal predicates are gone, need some way to say how to successfully complete the task
-            return ground_atom_dataset, ground_atom_dataset, different_seg_count_trajs, renamed_cluster_candidates, set()
+            return ground_atom_dataset, ground_atom_dataset, different_seg_count_trajs, renamed_cluster_candidates, learnt_goal_predicates
         elif CFG.reprocess_ground_atom_dataset_using_cluster_predicates:
             return og_pred_atom_dataset, cluster_pred_atom_dataset, different_seg_count_trajs, renamed_cluster_candidates, predicates_to_monitor
         else:

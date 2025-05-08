@@ -767,20 +767,26 @@ class RoboKitchenEnv(BaseEnv):
     @property
     def goal_predicates(self) -> Set[Predicate]:
         """Get the subset of self.predicates that are used in goals."""
-        return {
-            self._pred_name_to_pred["DoorOpen"],
-            self._pred_name_to_pred["OnSurface"],
-            self._pred_name_to_pred["DoorClosed"],
-            self._pred_name_to_pred["KnobTurnedOn"],
-        }
+        # return set()
+        # return {
+        #     self._pred_name_to_pred["DoorOpen"],
+        #     self._pred_name_to_pred["OnSurface"],
+        #     self._pred_name_to_pred["DoorClosed"],
+        #     self._pred_name_to_pred["KnobTurnedOn"],
+        # }
         goal_desc = self.task_selected
         goal_preds = set()
         if goal_desc == "OpenSingleDoor":
             goal_preds = {self._pred_name_to_pred["DoorOpen"]}
         elif goal_desc == "PnPCounterToCab":
             goal_preds = {self._pred_name_to_pred["OnSurface"]}
+        elif goal_desc == "CloseSingleDoor":
+            goal_preds = {self._pred_name_to_pred["DoorClosed"]}
         elif goal_desc == "StoreFruit":
-            goal_preds = {self._pred_name_to_pred["DoorOpen"], self._pred_name_to_pred["OnSurface"]}
+            goal_preds = {
+                self._pred_name_to_pred["OnSurface"],
+                # self._pred_name_to_pred["DoorClosed"]
+            }
         return goal_preds
 
     @property

@@ -110,7 +110,7 @@ class NSRTLearningApproach(BilevelPlanningApproach):
                                   ground_atom_dataset,
                                   sampler_learner=CFG.sampler_learner,
                                   annotations=annotations)
-
+        
         from predicators.ground_truth_models import get_gt_nsrts
         gt_nsrts = get_gt_nsrts(CFG.env, self._initial_predicates, self._initial_options)
         self._nsrts = set(gt_nsrts).union(self._nsrts)

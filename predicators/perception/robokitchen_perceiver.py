@@ -1,5 +1,7 @@
 """A RoboKitchen-specific perceiver."""
 
+from typing import Set
+from predicators.settings import CFG
 from predicators.envs.robo_kitchen import RoboKitchenEnv
 from predicators.perception.base_perceiver import BasePerceiver
 from predicators.structs import EnvironmentTask, GroundAtom, Observation, \
@@ -65,7 +67,7 @@ class RoboKitchenPerceiver(BasePerceiver):
         elif goal_desc == 'StoreFruit':
             goal = {
                 GroundAtom(OnSurface, [obj, bottom]),
-                GroundAtom(DoorClosed, [door, cabinet]),
+                # GroundAtom(DoorClosed, [door, cabinet]),
             }
         elif goal_desc == 'TurnOnMicrowave':
             goal = {
@@ -77,6 +79,29 @@ class RoboKitchenPerceiver(BasePerceiver):
             }
         else:
             raise NotImplementedError(f"Unrecognized goal: {goal_desc}")
+
+        # convert task.goal to predicate goal if using clustering reprocess
+        if  len(list(state)) > 0 and (CFG.reprocess_ground_atom_dataset_using_cluster_replacement or CFG.reprocess_ground_atom_dataset_using_cluster_predicates):
+            new_goal = set()
+            for g in goal:
+                if "goal" in g.predicate.name:
+                    rel_pose_preds = CFG.dict_contact_predicate_to_rel_pose_predicates[(g.predicate.name, g.entities[0].type.name, g.entities[1].type.name)]
+                    rel_pose_pred = list(rel_pose_preds)[0]
+                    rel_pose_pred_atom = GroundAtom(rel_pose_pred, g.entities)
+                    new_goal.add(rel_pose_pred_atom)
+                else:
+                    gt_goal_key = (g.predicate.name, g.entities[0].type.name, g.entities[1].type.name)
+                    dummy_goal_pred = CFG.dict_gt_goal_predicate_to_dummy_goal_predicates[gt_goal_key]
+                    rel_pose_preds = CFG.dict_contact_predicate_to_rel_pose_predicates[(dummy_goal_pred.name, dummy_goal_pred.types[0].name, dummy_goal_pred.types[1].name)]
+                    rel_pose_pred = list(rel_pose_preds)[0]
+                    type1_objs = [obj for obj in state if obj.type == rel_pose_pred.types[0]]
+                    type2_objs = [obj for obj in state if obj.type == rel_pose_pred.types[1]]
+                    type1_obj = type1_objs[0]
+                    type2_obj = type2_objs[0]
+                    rel_pose_pred_atom = GroundAtom(rel_pose_pred, [type1_obj, type2_obj])
+                    new_goal.add(rel_pose_pred_atom)
+            goal = new_goal
+
         return Task(state, goal)
 
     def step(self, observation: Observation) -> State:
