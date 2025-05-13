@@ -42,8 +42,8 @@ logging.getLogger("jax._src.cache_key").setLevel(logging.ERROR)
 logging.getLogger("jax").setLevel(logging.ERROR)
 
 # Constants from demo files
-MAX_CARTESIAN_DISPLACEMENT = 1.0
-MAX_ROTATION_DISPLACEMENT = 1.0
+MAX_CARTESIAN_DISPLACEMENT = 3.0
+MAX_ROTATION_DISPLACEMENT = 3.0
 
 # gripper - base offset in base frame
 
