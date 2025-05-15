@@ -1323,7 +1323,7 @@ def run_task_plan_once(
             logging.debug(f"Best Init-Plan [{', '.join(nsrt.name for nsrt in plans[best_idx])}] has {len(plans[best_idx])} steps")
             logging.debug(f"Best Init-Plan Atoms Seq: ")
             for i, atoms in enumerate(atoms_seqs[best_idx]):
-                logging.debug(f"Step {i+1}: {', '.join(atom._str for atom in atoms)}")
+                logging.debug(f"Time Step {i}: {', '.join(atom._str for atom in atoms)}")
             plan = plans[best_idx]
             atoms_seq = atoms_seqs[best_idx]
             metrics = metrics_list[best_idx]
