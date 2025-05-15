@@ -495,6 +495,7 @@ class _BehaviorCloningOptionLearner(_OptionLearnerBase):
 
         for op, datastore in zip(strips_ops, datastores):
             logging.info(f"\nLearning option for NSRT {op.name}")
+            logging.info(op)
 
             X_regressor: List[Array] = []
             Y_regressor = []

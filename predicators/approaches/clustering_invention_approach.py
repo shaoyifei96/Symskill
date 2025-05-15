@@ -449,10 +449,10 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             # keep_indices = [1]
             # keep_indices = [0, 2, 8, 9] # better microwaves
             dataset._trajectories = [dataset._trajectories[i] for i in keep_indices if i < len(dataset._trajectories)]
-        # if CFG.robo_kitchen_task == "PnPCounterToCab":
-        #     # keep_indices = [4, 6, 7, 12, 23]  # all left cab
+        if CFG.robo_kitchen_task == "PnPCounterToCab":
+            keep_indices = [4, 6, 7, 12, 23]  # all left cab
         #     keep_indices = [6, 23]
-        #     dataset._trajectories = [dataset._trajectories[i] for i in keep_indices if i < len(dataset._trajectories)]
+            dataset._trajectories = [dataset._trajectories[i] for i in keep_indices if i < len(dataset._trajectories)]
 
         # logging.info(f"Filtered dataset to trajectories (indices: {keep_indices})")
         # Clear caches before starting learning
