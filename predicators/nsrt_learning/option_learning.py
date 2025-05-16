@@ -773,11 +773,11 @@ class _DSOptionLearner(_OptionLearnerBase):
 
             # Configure DS Policy
             unified_config = UnifiedModelConfig(mode="se3_lpvds", K_candidates=[3],
-                                                enable_simple_ds_near_target=False,
+                                                enable_simple_ds_near_target=True,
                                                 simple_ds_pos_threshold=0.1,
                                                 simple_ds_ori_threshold=0.1,
-                                                K_pos=10.0,
-                                                K_ori=10.0)
+                                                K_pos=5,
+                                                K_ori=5)
             # pos_config = PositionModelConfig(mode="none")
             # quat_config = QuaternionModelConfig(mode="simple")
 
@@ -1281,7 +1281,7 @@ class _LearnedDSParameterizedOption(ParameterizedOption):
         # Optimization: remember the most recent state and terminate early if
         # the state is repeated, since this option will never get unstuck.
         # Keep track of states in memory
-        mem_count = 10
+        mem_count = 8
 
         if "state_history" not in memory:
             memory["state_history"] = []
