@@ -33,6 +33,11 @@ class BaseEnv(abc.ABC):
         # If the environment has a GUI, this determines whether to launch it.
         self._using_gui = use_gui
 
+    @abc.abstractmethod
+    def close(self) -> None:
+        """Close the environment and release resources."""
+        raise NotImplementedError("Override me!")
+
     @classmethod
     @abc.abstractmethod
     def state_info_to_state(cls, state_info: Dict[str, Any]) -> State:

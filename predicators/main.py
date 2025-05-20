@@ -168,6 +168,8 @@ def main() -> None:
     _run_pipeline(env, cogman, approach_train_tasks, offline_dataset)
     script_time = time.perf_counter() - script_start
     logging.info(f"\n\nMain script terminated in {script_time:.5f} seconds")
+    # Close the environment.
+    env.close()
 
 
 def _run_pipeline(env: BaseEnv,

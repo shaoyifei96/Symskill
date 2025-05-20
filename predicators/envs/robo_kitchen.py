@@ -1082,6 +1082,17 @@ class RoboKitchenEnv(BaseEnv):
 
         return is_on
 
+    def close(self) -> None:
+        """Close the Robosuite environment."""
+        if self._env is not None:
+            self._env.close()
+            self._env = None
+            self._env_raw = None # Assuming _env_raw is closed by _env.close() or managed by it
+            if self.device is not None and hasattr(self.device, 'stop_control'): # Check for Keyboard device
+                self.device.stop_control()
+                self.device = None
+        logging.info("RoboKitchenEnv closed.")
+
 
 def frame_transform(pos_in_init: np.ndarray, quat_in_init: np.ndarray, target_pos: np.ndarray, target_rot: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
     rot_in_init = R.from_quat(quat_in_init).as_matrix()
