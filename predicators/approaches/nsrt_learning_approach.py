@@ -111,6 +111,27 @@ class NSRTLearningApproach(BilevelPlanningApproach):
                                   sampler_learner=CFG.sampler_learner,
                                   annotations=annotations)
         
+        # begin collecting each cluster's types
+        # each nsrt_rel_cluster_types is a dict with keys:
+        # preconditions, maintain_effects, add_effects, delete_effects, ignore_effects
+        # each value is a list of sets, where each set is a cluster's types
+        nsrt_rel_cluster_types = []
+        for i, nsrt in enumerate(self._nsrts):
+            op = {'preconditions': [], 'maintain_effects': [], 'add_effects': [], 'delete_effects': [], 'ignore_effects': []}
+            for j, cluster in enumerate(nsrt.preconditions):
+                op['preconditions'].append({v.type.name for v in cluster.variables})
+            for j, cluster in enumerate(nsrt.maintain_effects):
+                op['maintain_effects'].append({v.type.name for v in cluster.variables})
+            for j, cluster in enumerate(nsrt.add_effects):
+                op['add_effects'].append({v.type.name for v in cluster.variables})
+            for j, cluster in enumerate(nsrt.delete_effects):
+                op['delete_effects'].append({v.type.name for v in cluster.variables})
+            for j, cluster in enumerate(nsrt.ignore_effects):
+                op['ignore_effects'].append({v.type.name for v in cluster.variables})
+            nsrt_rel_cluster_types.append(op)
+        self._metrics["nsrt_rel_cluster_types"] = nsrt_rel_cluster_types
+        # end collecting each cluster's types
+        
         from predicators.ground_truth_models import get_gt_nsrts
         gt_nsrts = get_gt_nsrts(CFG.env, self._initial_predicates, self._initial_options)
         self._nsrts = set(gt_nsrts).union(self._nsrts)

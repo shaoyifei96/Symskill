@@ -526,6 +526,9 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         for i in sorted(different_seg_count_trajs, reverse=True):
             trajs.pop(i)
 
+        trajs_states_nums = [len(traj.states) for traj in trajs]
+        self._metrics['trajs_states_nums'] = trajs_states_nums
+        
         # Call learn_nsrts with segmented trajectories
         self._learn_nsrts(
             trajs,

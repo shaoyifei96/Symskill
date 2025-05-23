@@ -1,8 +1,13 @@
+import os
 import pytest
 from unittest.mock import patch
+import pickle
+from termcolor import colored
 
 from predicators.main import main as predicators_main
+from predicators import utils
 
+results_dir = "results"
 BASE_SIMULATED_ARGV = [
     'predicators/main.py',  # The first element of sys.argv is the script name
     "--env", "robo_kitchen",
@@ -17,17 +22,18 @@ BASE_SIMULATED_ARGV = [
     # some flags to override settings.py to ensure consistency
     "--num_train_tasks", "10",
     "--num_test_tasks", "1",
-    # "--test", "True"  # User-added argument
+    "--results_dir", results_dir,
+    # "--test_sym_skill", "True" 
 ]
 
-ROBO_KITCHEN_TASKS_TO_TEST = [
+ROBO_KITCHEN_TASK_NAMES = [
     "PnPCounterToCab",
     "OpenSingleDoor",
     "CloseSingleDoor",
 ]
 
 
-@pytest.mark.parametrize("robo_kitchen_task_name", ROBO_KITCHEN_TASKS_TO_TEST)
+@pytest.mark.parametrize("robo_kitchen_task_name", ROBO_KITCHEN_TASK_NAMES)
 def test_main(robo_kitchen_task_name):
     """
     Tests the main() function for various robo_kitchen_task configurations
@@ -41,7 +47,57 @@ def test_main(robo_kitchen_task_name):
     with patch('sys.argv', current_argv):
         predicators_main()
 
-    # TODO: Add more specific assertions here based on the expected behavior 
-    # of main() for each specific robo_kitchen_task_name.
-    # For example, you might check logs, created files, or the state of certain objects if possible.
-    assert True  # Placeholder if main() doesn't call sys.exit() or for basic run check
+        # start checking log files
+        # TODO
+        # end checking log files
+
+    assert True
+
+def compare_nsrt_rel_cluster_types(nsrt_rel_cluster_types_1, nsrt_rel_cluster_types_2):
+    """
+    nsrt_rel_cluster_types_1 and nsrt_rel_cluster_types_2 are lists of dicts
+    each dict corresponds to a single NSRT
+    each dict has keys: preconditions, maintain_effects, add_effects, delete_effects, ignore_effects
+    each value is a list of sets, where each set is a cluster's types
+    return True if nsrt_rel_cluster_types_1 and nsrt_rel_cluster_types_2 are the same
+    return False otherwise
+    """
+    if len(nsrt_rel_cluster_types_1) != len(nsrt_rel_cluster_types_2):
+        return False
+    for i, nsrt_1 in enumerate(nsrt_rel_cluster_types_1):
+        found_match = False
+        for j, nsrt_2 in enumerate(nsrt_rel_cluster_types_2):
+            if compare_two_nsrt_rel_cluster_types(nsrt_1, nsrt_2):
+                found_match = True
+                break
+        if not found_match:
+            return False
+    return True
+
+def compare_two_nsrt_rel_cluster_types(nsrt_1, nsrt_2):
+    """
+    nsrt_1 and nsrt_2 are dicts with keys: preconditions, maintain_effects, add_effects, delete_effects, ignore_effects
+    each value is a list of sets, where each set is a cluster's types
+    return True if nsrt_1 and nsrt_2 are the same
+    return False otherwise
+    """
+    for k, v in nsrt_1.items():
+        if v != nsrt_2[k]:
+            return False
+    return True
+
+# NOTE: this is for testing purposes only. This file should be run with pytest
+if __name__ == "__main__":
+    # start checking log files
+    outfile = "results/robo_kitchen__clustering_invention__OpenSingleDoor__0__all_goal______None.pkl"
+    assert os.path.exists(outfile)
+    with open(outfile, 'rb') as f:
+        log_data = pickle.load(f)
+    results = log_data['results']
+    base_outfile = "sym_skill_base_results/robo_kitchen__clustering_invention__OpenSingleDoor__0__all_goal______None.pkl"
+    assert os.path.exists(base_outfile)
+    with open(base_outfile, 'rb') as f:
+        base_log_data = pickle.load(f)
+    base_results = base_log_data['results']
+    print(compare_nsrt_rel_cluster_types(results['offline_learning_nsrt_rel_cluster_types'], base_results['offline_learning_nsrt_rel_cluster_types']))
+    # end checking log files
