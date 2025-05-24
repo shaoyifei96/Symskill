@@ -117,9 +117,15 @@ if __name__ == "__main__":
         base_log_data = pickle.load(f)
     base_results = base_log_data['results']
 
-    # start comparing results to base_results   
+    # start comparing results to base_results
+    # offline learning
     assert results['offline_learning_trajs_states_nums'] == base_results['offline_learning_trajs_states_nums']
     assert compare_nsrt_rel_cluster_types(results['offline_learning_nsrt_rel_cluster_types'], base_results['offline_learning_nsrt_rel_cluster_types'])
+    # online testing
+    succ_rate = results['num_solved'] / results['num_total']
+    base_succ_rate = base_results['num_solved'] / base_results['num_total']
+    assert abs(succ_rate - base_succ_rate) < 0.3
+    assert (results['replan_total_count'] - base_results['replan_total_count']) / base_results['replan_total_count'] < 0.3
     # end comparing results to base_results
 
     # end checking log files

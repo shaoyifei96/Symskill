@@ -1,0 +1,67 @@
+name: Symbolic Skill Test
+
+on:
+  workflow_dispatch: # Allows manual triggering
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10.17"]
+
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        submodules: 'recursive' # Checkout submodules
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v3
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Install OS dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libgl1-mesa-glx libosmesa6-dev patchelf libglew-dev
+
+    - name: Install robosuite
+      run: |
+        git clone https://github.com/Carperis/robosuite.git
+        cd robosuite
+        git checkout predicator_robocasa
+        pip install -e .
+        cd ..
+
+    - name: Install robocasa
+      run: |
+        git clone https://github.com/shaoyifei96/robocasa.git
+        cd robocasa
+        pip install -e .
+        # Download assets (models, textures)
+        python robocasa/scripts/download_assets.py --folder ./robocasa/models/scenes --type scene_assets
+        python robocasa/scripts/download_assets.py --folder ./robocasa/models/objects --type object_assets
+        python robocasa/scripts/download_assets.py --folder ./robocasa/models/textures --type texture_assets
+        # Download demo data
+        python robocasa/scripts/download_dataset.py --dataset pnp_demos
+        cd ..
+
+    - name: Install predicators_robocasa
+      run: |
+        pip install -e .
+        pip install termcolor pytest
+
+    - name: Set PYTHONHASHSEED
+      run: echo "PYTHONHASHSEED=0" >> $GITHUB_ENV
+
+    - name: Install ds_policy
+      run: |
+        git clone git@github.com:felixzheng02/ds_policy.git
+        cd ds_policy
+        git switch se3_lpvds
+        pip install -e .
+        cd ..
+
+    - name: Run pytest
+      run: |
+        pytest predicators_robocasa/tests/test_sym_skill.py 
