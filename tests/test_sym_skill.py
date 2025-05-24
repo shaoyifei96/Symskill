@@ -8,6 +8,8 @@ from predicators.main import main as predicators_main
 from predicators import utils
 
 results_dir = "results"
+base_results_dir = "sym_skill_base_results"
+online_learning_cycle = None
 BASE_SIMULATED_ARGV = [
     'predicators/main.py',  # The first element of sys.argv is the script name
     "--env", "robo_kitchen",
@@ -48,7 +50,22 @@ def test_main(robo_kitchen_task_name):
         predicators_main()
 
         # start checking log files
-        # TODO
+        outfile = (f"{results_dir}/{utils.get_config_path_str()}__{online_learning_cycle}.pkl")
+        assert os.path.exists(outfile)
+        with open(outfile, 'rb') as f:
+            log_data = pickle.load(f)
+        results = log_data['results']
+        base_outfile = f"{base_results_dir}/{utils.get_config_path_str()}__{online_learning_cycle}.pkl"
+        assert os.path.exists(base_outfile)
+        with open(base_outfile, 'rb') as f:
+            base_log_data = pickle.load(f)
+        base_results = base_log_data['results']
+
+        # start comparing results to base_results   
+        assert results['offline_learning_trajs_states_nums'] == base_results['offline_learning_trajs_states_nums']
+        assert compare_nsrt_rel_cluster_types(results['offline_learning_nsrt_rel_cluster_types'], base_results['offline_learning_nsrt_rel_cluster_types'])
+        # end comparing results to base_results
+
         # end checking log files
 
     assert True
@@ -94,10 +111,15 @@ if __name__ == "__main__":
     with open(outfile, 'rb') as f:
         log_data = pickle.load(f)
     results = log_data['results']
-    base_outfile = "sym_skill_base_results/robo_kitchen__clustering_invention__OpenSingleDoor__0__all_goal______None.pkl"
+    base_outfile = f"{base_results_dir}/robo_kitchen__clustering_invention__OpenSingleDoor__0__all_goal______None.pkl"
     assert os.path.exists(base_outfile)
     with open(base_outfile, 'rb') as f:
         base_log_data = pickle.load(f)
     base_results = base_log_data['results']
-    print(compare_nsrt_rel_cluster_types(results['offline_learning_nsrt_rel_cluster_types'], base_results['offline_learning_nsrt_rel_cluster_types']))
+
+    # start comparing results to base_results   
+    assert results['offline_learning_trajs_states_nums'] == base_results['offline_learning_trajs_states_nums']
+    assert compare_nsrt_rel_cluster_types(results['offline_learning_nsrt_rel_cluster_types'], base_results['offline_learning_nsrt_rel_cluster_types'])
+    # end comparing results to base_results
+
     # end checking log files
