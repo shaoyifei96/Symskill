@@ -2,7 +2,6 @@ import os
 import pytest
 from unittest.mock import patch
 import pickle
-from termcolor import colored
 
 from predicators.main import main as predicators_main
 from predicators import utils
@@ -25,7 +24,6 @@ BASE_SIMULATED_ARGV = [
     "--num_train_tasks", "10",
     "--num_test_tasks", "1",
     "--results_dir", results_dir,
-    # "--test_sym_skill", "True" 
 ]
 
 ROBO_KITCHEN_TASK_NAMES = [

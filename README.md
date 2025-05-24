@@ -20,6 +20,11 @@ and this [link](https://github.com/Andrew-Luo1/Mujoco-Headless-Tutorial/tree/mai
 1. Clear the ```saved_approach``` folder if there is one. Learn each task one by one, starting with the first one in sequence (setting ```CFG.robo_kitchen_task``` to OpenSingleDoor, PnPCounterToCab, CloseSingleDoor), make sure ```CFG.use_learnt_goal_predicates``` is True, and ```--load_approach``` in ```Debug Grammer Search Invention``` launch file is not included.
 1. Set the task to ```StoreFruit```, enable ```--load_approach``` flag now, and it should be able to do the first two tasks in a row. (Although there seems to be a little problem with return to origin after first task is done)
 
+## How to test SymSkill code
+Before refactoring code, copy files in ```results/``` and paste to a new folder ```sym_skill_base_results/```. These are base log files used for verification. After refactoring code, run ```pytest predicators_robocasa/tests/test_sym_skill.py```.
+
+```predicators_robocasa/tests/test_sym_skill.py``` effectively compare results from new log files with base log files. You can also add more tests in ```test_main()``` function.
+
 
 ## Learning Predicates for RoboCasa
 Robocasa is a mujoco based simulator. For each task, it provides 50 demonstrations, which can be used to learn to plan. This is the same as as in this paper [Learning Neuro-Symbolic Skills for Bilevel Planning](http://arxiv.org/abs/2206.10680), where the appendix explored the possibility of using demonstrations to a set of predicates first, by starting with the goal predicates. We are going to approach this problem in a similar way, with high sample efficiency and guaranteed low level action.
