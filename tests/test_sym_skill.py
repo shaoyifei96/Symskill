@@ -21,8 +21,8 @@ BASE_SIMULATED_ARGV = [
     "--option_learner", "ds_policy",
     "--execution_monitor", "expected_atoms_robocasa",
     # some flags to override settings.py to ensure consistency
-    "--num_train_tasks", "10",
-    "--num_test_tasks", "1",
+    # "--num_train_tasks", "10",
+    # "--num_test_tasks", "1",
     "--results_dir", results_dir,
 ]
 
@@ -78,6 +78,7 @@ def compare_nsrt_rel_cluster_types(nsrt_rel_cluster_types_1, nsrt_rel_cluster_ty
     return False otherwise
     """
     if len(nsrt_rel_cluster_types_1) != len(nsrt_rel_cluster_types_2):
+        print(f"nsrt_rel_cluster_types_1 and nsrt_rel_cluster_types_2 have different lengths: {len(nsrt_rel_cluster_types_1)} and {len(nsrt_rel_cluster_types_2)}")
         return False
     for i, nsrt_1 in enumerate(nsrt_rel_cluster_types_1):
         found_match = False
@@ -86,6 +87,7 @@ def compare_nsrt_rel_cluster_types(nsrt_rel_cluster_types_1, nsrt_rel_cluster_ty
                 found_match = True
                 break
         if not found_match:
+            print(f"No match found for nsrt_1: {nsrt_1}")
             return False
     return True
 

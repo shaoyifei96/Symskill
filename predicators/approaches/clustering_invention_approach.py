@@ -334,8 +334,8 @@ class _AbsoluteFeatureClusterClassifier(_UnaryClassifier):
 ################################################################################
 
 class ClusteringSearchInventionApproach(NSRTLearningApproach):
-    """An approach that invents predicates via feature clustering and beam search
-    selection."""
+    """An approach that invents predicates via feature clustering in relative frame as predicate
+    and then skill learning and operator learning with the predicates."""
 
     # Caches for expensive computations during beam search
     _atom_dataset_cache: Dict[FrozenSet[Predicate], List[GroundAtomTrajectory]] = {}
@@ -409,15 +409,18 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
 
         if CFG.use_learnt_goal_predicates:
             main_folder = f"{CFG.approach_dir}/"
-            all_files = os.listdir(main_folder)
-            contact2rel_files = [main_folder + f for f in all_files if CFG.robo_kitchen_task not in f and f.startswith(f"{CFG.env}__{CFG.approach}") and f.endswith("_contact2rel_preds.pkl")]
+            if os.path.exists(main_folder):
+                all_files = os.listdir(main_folder)
+                contact2rel_files = [main_folder + f for f in all_files if CFG.robo_kitchen_task not in f and f.startswith(f"{CFG.env}__{CFG.approach}") and f.endswith("_contact2rel_preds.pkl")]
 
-            for file in contact2rel_files:
-                with open(file, "rb") as f:
-                    contact2rel_preds = pkl.load(f)
-                    for key, value in contact2rel_preds.items():
-                        if "goal" in key[0]:
-                            goal_rel_pose_predicates |= value
+                for file in contact2rel_files:
+                    with open(file, "rb") as f:
+                        contact2rel_preds = pkl.load(f)
+                        for key, value in contact2rel_preds.items():
+                            if "goal" in key[0]:
+                                goal_rel_pose_predicates |= value
+            else:
+                logging.warning(f"Approach directory {main_folder} does not exist")
             
             if CFG.use_negated_goal_predicates:
                 # Generate negated predicates for each goal predicate
