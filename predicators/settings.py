@@ -13,6 +13,9 @@ from predicators.meshcat_visualizer import MeshcatVisualizer
 
 
 class GlobalSettings:
+    quat_feat_name = "quaternion"
+    trans_feat_name = "translation"
+    pose_feature_name = "pose"
     min_data_for_nsrt = 1
     reprocess_ground_atom_dataset_using_cluster_replacement = True
     reprocess_ground_atom_dataset_using_cluster_predicates = False
