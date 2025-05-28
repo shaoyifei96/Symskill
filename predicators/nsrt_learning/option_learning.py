@@ -692,6 +692,8 @@ class _DSOptionLearner(_OptionLearnerBase):
             for j, (segment, var_to_obj) in enumerate(datastore):
                 if len(segment.trajectory.states) < min_length_threshold: continue
                 OOI_obj, gripper_or_obj = find_two_objects(op, segment, var_to_obj, CFG.learn_option_between_gripper_obj)
+                # learning option between OOI and object, and then transform the frame to gripper frame does not work well
+                # so the option here is actually between gripper and OOI
                 if OOI_obj is None or gripper_or_obj is None:
                     logging.warning(f"NSRT {op.name} cannot find OOI or gripper from var_to_obj, ignoring segment")
                     continue
@@ -815,7 +817,7 @@ class _DSOptionLearner(_OptionLearnerBase):
 
 
 def find_two_objects(op: STRIPSOperator, segment: Segment, var_to_obj: VarToObjSub, learn_option_between_gripper_obj: bool = False) -> Tuple[Optional[Object], Optional[Object]]:
-    """Determine the Object of Interest (OOI) and the gripper object based on
+    """Determine the Object of Interest (OOI) (object of reference in paper) and the gripper object based on
     operator effects and contact information within the segment.
 
     Args:
@@ -830,7 +832,7 @@ def find_two_objects(op: STRIPSOperator, segment: Segment, var_to_obj: VarToObjS
     # 1. Check Number of Effects
     
     effects = set()
-    for e in op.add_effects | op.delete_effects:
+    for e in op.add_effects: #| op.delete_effects: # check add effects only since delete effects are most of the time lost contact with the gripper
         if e.predicate.name != "InOrigin" and "NOT" not in e.predicate.name:
             effects.add(e)
     if len(effects) != 1:
@@ -1191,7 +1193,7 @@ class _LearnedDSParameterizedOption(ParameterizedOption):
 
         cur_nsrt = memory["current_nsrt"]
         effects = set()
-        for e in cur_nsrt.add_effects | cur_nsrt.delete_effects:
+        for e in cur_nsrt.add_effects: #| cur_nsrt.delete_effects:
             if e.predicate.name != "InOrigin" and "NOT" not in e.predicate.name:
                 effects.add(e)
         assert len(effects) == 1

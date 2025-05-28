@@ -491,7 +491,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 logging.info(f"Selected {len(self._learned_predicates)} predicates.")
         elif CFG.predicate_candidates_method == "contact_clustering":
             logging.info("Generating candidate predicates via contact clustering method...")
-            og_pred_atom_dataset, cluster_pred_atom_dataset, different_seg_count_trajs, candidates, initial_monitor_preds = self._generate_candidate_predicates_contact_goal_clustering(dataset)
+            og_pred_atom_dataset, cluster_pred_atom_dataset, different_seg_count_trajs, candidates, initial_monitor_preds = self._generate_candidate_predicates_contact_goal_clustering_refactored(dataset)
             self._learned_predicates = set(candidates.keys()) | initial_monitor_preds
         else:
             raise ValueError(f"Invalid predicate candidates method: {CFG.predicate_candidates_method}")
@@ -1417,7 +1417,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
 
     
     def _postprocess_cluster_predicates(self, env, dataset: Dataset, ground_atom_dataset: List[GroundAtomTrajectory], predicates_to_monitor: Set[Predicate], renamed_cluster_candidates: Dict[Predicate, float], obj_of_reference_best: Type, obj_contact_with_gripper: Type, learnt_goal_predicates: Set[Predicate]):
-        if CFG.reprocess_ground_atom_dataset_using_cluster_predicates:
+        if CFG.reprocess_ground_atom_dataset_using_cluster_predicates: # this turns out to be not good, some traj get not segmented, some traj get segmented too early since cluster is sometimes big.
             kept_preds = set(predicates_to_monitor)
             kept_preds2 = set(renamed_cluster_candidates.keys())
             different_seg_count_trajs = []
@@ -1467,8 +1467,8 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
 
                 logging.info(f"After filtering: {len(og_pred_atom_dataset)} trajectories remain")
 
-        if CFG.reprocess_ground_atom_dataset_using_cluster_replacement:
-            different_seg_count_trajs = [] # go through and replace the InContact Atoms with rel pose atoms
+        if CFG.reprocess_ground_atom_dataset_using_cluster_replacement: #replace in contact atoms with rel pose atoms, so easier to do operator learning later
+            different_seg_count_trajs = [] 
             for i, (ll_traj, atom_seq) in enumerate(ground_atom_dataset):
                 for j, atoms in enumerate(atom_seq):
                     atoms_new = []
@@ -1487,8 +1487,11 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             pred_key = (goal_pred.name, goal_pred.types[0].name, goal_pred.types[1].name)
             CFG.dict_gt_goal_predicate_to_dummy_goal_predicates[pred_key] = set([DummyPredicate(f"{CFG.robo_kitchen_task}-goal", [obj_of_reference_best.type, obj_contact_with_gripper.type])])
         for pred in predicates_to_monitor:
-            if isinstance(pred, DummyPredicate): # goal predicate
-                pred = DummyPredicate(f"{CFG.robo_kitchen_task}-goal", [obj_of_reference_best.type, obj_contact_with_gripper.type])
+            pass # the following three lines seems to make dr-unreachable error more likely but don't know why
+            # if isinstance(pred, DummyPredicate): # goal predicate
+            #     predicates_to_monitor.remove(pred)
+            #     pred_new = DummyPredicate(f"{CFG.robo_kitchen_task}-goal", [obj_of_reference_best.type, obj_contact_with_gripper.type])
+            #     predicates_to_monitor.add(pred_new)
 
         # --- End Debugging ---
         if CFG.reprocess_ground_atom_dataset_using_cluster_replacement:
@@ -1655,6 +1658,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         # Rename predicates for PDDL compatibility
         renamed_cluster_candidates = self._rename_predicates_to_remove_incompatible_chars(candidate_cluster_preds)
         return renamed_cluster_candidates
+
     def _update_atom_sequences_with_goal_predicates(self, ground_atom_dataset: List[GroundAtomTrajectory], obj_of_reference_best: Object, obj_contact_with_gripper: Object, goal_reached_states: List[State], relative_pose_dataset_dict: Dict[Tuple[Predicate, Type, Type, str], List[np.ndarray]]):
         for i, (ll_traj, atom_seq) in enumerate(ground_atom_dataset):
             for j, atoms in enumerate(atom_seq):
@@ -1798,12 +1802,13 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             skip_var =max(int(len(atom_seq) / 50),1)
             logging.debug(f"Processing trajectory {i+1}/{len(ground_atom_dataset)} with {len(atom_seq)} atoms, skipping every {skip_var} atoms.")
             achieved_goal = False 
-            for t in range(skip_var, len(atom_seq), skip_var): # Start from 1 to compare with t-1, skip every 4
+            for t in range(skip_var, len(atom_seq), skip_var): # Start from 1 to compare with t-1, skip every 4, for efficiency
                 state_t = ll_traj.states[t]
                 atoms_t = atom_seq[t]
                 atoms_tm1 = atom_seq[t-skip_var]
                 lost_atoms = atoms_tm1 - atoms_t
-
+                # assume when lost contact, we have moved the item to where we want it to be
+                # or when the episode end, we have the item at where we want it to be
                 # ------ before contact lost, or for last timestep in current traj ------- #
                 # ------ add goal predicate for them ------------------------------------- #
                 # ------ store states so that we can cluster them later as goal predicate- #
@@ -1818,8 +1823,8 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                     else:
                         if any(atom.predicate.name == in_contact_pred.name for atom in lost_atoms):
                             t_start = None
-                            for t_test in range(t-skip_var, t):
-                                if len(atom_seq[t_test]) > len(atoms_t):
+                            for t_test in range(t-skip_var, t): # search for the last state before contact lost
+                                if len(atom_seq[t_test]) > len(atom_seq[t_test+1]):
                                     t_start = t_test+1
                                     break
                             logging.debug(f"Contact lost at t={t_start}")
@@ -1834,8 +1839,10 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
 
                 # ------------------------------------------------------------------------ #
 
-                for atom in atoms_t:
-                    if CFG.clustering_change_only and atom in atoms_tm1: continue
+                for atom in atoms_t: # this does not handle multiple objects in contact with the gripper at the same time
+                    if CFG.clustering_change_only and atom in atoms_tm1: continue 
+                    # this optionally only consider the change of contact, this turns out to be too few points for clustering
+                    # so usually all points in contact are used for clustering, i.e. CFG.clustering_change_only is False
                     if hasattr(atom, "predicate") and atom.predicate == in_contact_pred:
                         if atom in atoms_tm1:
                             consistent_contact = True
@@ -1851,19 +1858,19 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                             object_in_contact_with_gripper_longest_duration[i][obj_contact_with_gripper] = 0
                         object_in_contact_with_gripper_longest_duration[i][obj_contact_with_gripper] += 1
 
-                        for obj in all_objs: # go through all object to get relative pose see which one is best ref
+                        for obj in all_objs: # go through all object to get obj-obj relative pose
                             if obj.type == gripper_type or obj == obj_contact_with_gripper:
                                 continue
-                            relative_pose =utils.calculate_relative_pose(state_t, obj, obj_contact_with_gripper, CFG.trans_feat_name, CFG.quat_feat_name)
+                            relative_pose = utils.calculate_relative_pose(state_t, obj, obj_contact_with_gripper, CFG.trans_feat_name, CFG.quat_feat_name)
                             if obj not in contact_period_rel_trajs:
                                 contact_period_rel_trajs[obj] = []
                             if not consistent_contact: # start of contact
-                                contact_period_rel_trajs[obj].append([relative_pose])
+                                contact_period_rel_trajs[obj].append([relative_pose]) # separate the contact period into different trajectories
                             else:
                                 contact_period_rel_trajs[obj][-1].append(relative_pose)
 
                         # -------------------------------------------------------------------------------------------- #
-                        # these are original ones used to compute rel pose during contact for finding end points of DS
+                        # these are used to compute rel pose between GRIPPER and OBJECT for finding end points of DS
                         # Calculate relative pose at the moment of contact (state t)
                         rel_pose_at_contact_obj2_in_obj1_frame = utils.calculate_relative_pose(
                             state_t, obj1, obj2,
