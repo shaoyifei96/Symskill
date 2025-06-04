@@ -69,6 +69,11 @@ class RoboKitchenPerceiver(BasePerceiver):
                 GroundAtom(OnSurface, [obj, bottom]),
                 # GroundAtom(DoorClosed, [door, cabinet]),
             }
+        elif goal_desc == 'StoreFruitFull':
+            goal = {
+                GroundAtom(OnSurface, [obj, bottom]),
+                GroundAtom(DoorClosed, [door, cabinet]),
+            }
         elif goal_desc == 'TurnOnMicrowave':
             goal = {
                 GroundAtom(Dummy, [])
@@ -85,6 +90,7 @@ class RoboKitchenPerceiver(BasePerceiver):
             new_goal = set()
             for g in goal:
                 if "goal" in g.predicate.name:
+                    raise NotImplementedError("Not implemented properly! when saving goal, it is not converted to the right types")
                     rel_pose_preds = CFG.dict_contact_predicate_to_rel_pose_predicates[(g.predicate.name, g.entities[0].type.name, g.entities[1].type.name)]
                     rel_pose_pred = list(rel_pose_preds)[0]
                     rel_pose_pred_atom = GroundAtom(rel_pose_pred, g.entities)

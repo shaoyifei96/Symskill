@@ -230,6 +230,7 @@ class RoboKitchenEnv(BaseEnv):
         "TurnOnStove",
         "TurnOffStove",
         "StoreFruit",
+        "StoreFruitFull",
     ]
 
     def __init__(self, use_gui: bool = True) -> None:
@@ -269,6 +270,8 @@ class RoboKitchenEnv(BaseEnv):
             return [self.object_name_to_object("obj")]
         elif task_name == "StoreFruit":
             # return [self.object_name_to_object("handle"), self.object_name_to_object("obj")]
+            return [self.object_name_to_object("door"), self.object_name_to_object("obj")]
+        elif task_name == "StoreFruitFull":
             return [self.object_name_to_object("door"), self.object_name_to_object("obj")]
         elif task_name == "TurnOnStove":
             return [self.object_name_to_object("knob")]
@@ -410,10 +413,17 @@ class RoboKitchenEnv(BaseEnv):
             bottom = self.object_name_to_object("bottom")
             cabinet = self.object_name_to_object("cabinet")
             obj = self.object_name_to_object("obj")
+            if self._DoorOpen_holds(state, [door, cabinet]) and self._OnSurface_holds(state, [obj, bottom]):
+                return True
+        elif goal_desc == "StoreFruitFull":
+            door = self.object_name_to_object("door")
+            bottom = self.object_name_to_object("bottom")
+            cabinet = self.object_name_to_object("cabinet")
+            obj = self.object_name_to_object("obj")
             if self._DoorClosed_holds(state, [door, cabinet]) and self._OnSurface_holds(state, [obj, bottom]):
                 return True
         else:
-            return False
+            raise ValueError(f"Goal description {goal_desc} not supported")
 
     def _reset_initial_state(self, seed: int, train_or_test: str, task_name: str, complex_config: bool = False) -> Observation:
         """Reset the environment to an initial state based on the seed."""

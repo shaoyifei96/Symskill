@@ -1320,10 +1320,14 @@ def run_task_plan_once(
             best_idx = [len(plan) for plan in plans].index(min_plan_length)
             # max_plan_length = max(len(plan) for plan in plans)
             # best_idx = [len(plan) for plan in plans].index(max_plan_length)
+            logging.debug(f"\033[91mTask: {task.goal}\033[0m")
             logging.debug(f"Best Init-Plan [{', '.join(nsrt.name for nsrt in plans[best_idx])}] has {len(plans[best_idx])} steps")
             logging.debug(f"Best Init-Plan Atoms Seq: ")
             for i, atoms in enumerate(atoms_seqs[best_idx]):
-                logging.debug(f"Time Step {i}: {', '.join(atom._str for atom in atoms)}")
+                logging.debug(f"\033[93mTime Step {i}: {', '.join(atom._str for atom in atoms)}\033[0m")
+                if i < len(plans[best_idx]):
+                    logging.debug(f"NSRT {i}: {plans[best_idx][i]}")
+
             plan = plans[best_idx]
             atoms_seq = atoms_seqs[best_idx]
             metrics = metrics_list[best_idx]
