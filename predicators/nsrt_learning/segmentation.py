@@ -29,6 +29,8 @@ def segment_trajectory(
         atom_seq = [utils.abstract(s, predicates) for s in ll_traj.states]
     if CFG.segmenter == "atom_changes":
         return _segment_with_atom_changes(ll_traj, predicates, atom_seq, low_speed_only, low_speed_threshold)
+    if CFG.segmenter == "atom_changes_add_effects_only":
+        return _segment_with_atom_changes_add_effects_only(ll_traj, predicates, atom_seq)
     if CFG.segmenter == "atom_changes_low_speed_check":
         # The new segmenter inherently uses low speed checks.
         # Pass the threshold.
@@ -40,6 +42,11 @@ def segment_trajectory(
     print(f"Segmentation took {time.time() - start_time:.2f} seconds.")
     raise NotImplementedError(f"Unrecognized segmenter: {CFG.segmenter}.")
 
+def _segment_with_atom_changes_add_effects_only(ll_traj: LowLevelTrajectory, predicates: Set[Predicate], atom_seq: List[Set[GroundAtom]]) -> List[Segment]:
+    """Segment a trajectory based on atom changes, but only considering add effects."""
+    def _switch_fn(t: int) -> bool:
+        return not atom_seq[t + 1].issubset(atom_seq[t])
+    return _segment_with_switch_function(ll_traj, predicates, atom_seq, _switch_fn)
 
 def _segment_with_atom_changes(
     ll_traj: LowLevelTrajectory, predicates: Set[Predicate], atom_seq: List[Set[GroundAtom]], low_speed_only: bool = False, low_speed_threshold: float = 0.001
@@ -217,15 +224,24 @@ def _segment_with_switch_function(
             current_segment_traj = LowLevelTrajectory(current_segment_states, current_segment_actions, _train_task_idx=ll_traj._train_task_idx)
             if atom_seq is not None:
                 current_segment_final_atoms = atom_seq[t + 1]
+                # Compute maintain_atoms: intersection of all atom sets in the segment
+                segment_atom_sets = atom_seq[(t - len(current_segment_states) + 2):(t + 2)]
+                if segment_atom_sets:
+                    maintain_atoms = set.intersection(*segment_atom_sets)
+                else:
+                    maintain_atoms = set()
             else:
                 st1 = ll_traj.states[t + 1]
                 current_segment_final_atoms = utils.abstract(st1, predicates)
+                # If atom_seq is None, we can't compute maintain_atoms
+                maintain_atoms = None
             if ll_traj.actions[t].has_option():
                 segment = Segment(current_segment_traj, current_segment_init_atoms, current_segment_final_atoms, ll_traj.actions[t].get_option())
             else:
                 # If we're in option learning mode, include the default option
                 # here; replaced later during option learning.
-                segment = Segment(current_segment_traj, current_segment_init_atoms, current_segment_final_atoms)
+                segment = Segment(current_segment_traj, current_segment_init_atoms, current_segment_final_atoms, maintain_atoms=maintain_atoms)
+            # Set maintain_atoms on the segment
             segments.append(segment)
             current_segment_states = []
             current_segment_actions = []

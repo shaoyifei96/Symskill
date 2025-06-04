@@ -59,6 +59,8 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
                     frozenset(pnad.op.add_effects),
                     frozenset(segment.delete_effects),
                     frozenset(pnad.op.delete_effects),
+                    frozenset(segment.maintain_atoms),
+                    frozenset(pnad.op.maintain_effects),
                     segment_param_option,
                     pnad_param_option,
                     segment_option_objs,
@@ -85,7 +87,8 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
                 add_effects = {atom.lift(obj_to_var) for atom in segment.add_effects}
                 delete_effects = {atom.lift(obj_to_var) for atom in segment.delete_effects}
                 ignore_effects: Set[Predicate] = set()  # will be learned later
-                op = STRIPSOperator(f"{CFG.robo_kitchen_task}-Op{len(pnads)}", params, preconds, add_effects, delete_effects, ignore_effects)
+                maintain_effects: Set[LiftedAtom] = set() # will be learned later
+                op = STRIPSOperator(f"{CFG.robo_kitchen_task}-Op{len(pnads)}", params, preconds, add_effects, delete_effects, ignore_effects, maintain_effects)
                 datastore = [(segment, var_to_obj, type_to_obj_other)]
                 option_vars = [obj_to_var[o] for o in segment_option_objs]
                 option_spec = (segment_param_option, option_vars)
@@ -128,7 +131,7 @@ class ClusterAndIntersectSTRIPSLearner(ClusteringSTRIPSLearner):
         new_pnads = []
         for pnad in pnads:
             if CFG.cluster_and_intersect_soft_intersection_for_preconditions:
-                preconditions, preconditions_no_var = \
+                preconditions, preconditions_no_var, maintain_effects, maintain_effects_no_var = \
                     self._induce_preconditions_via_soft_intersection(pnad)
             else:
                 preconditions = self._induce_preconditions_via_intersection(
@@ -138,7 +141,7 @@ class ClusterAndIntersectSTRIPSLearner(ClusteringSTRIPSLearner):
             current_params = pnad.op.parameters
             # Extract variables from preconditions
             extra_param_types = set()
-            for atom in preconditions_no_var:
+            for atom in preconditions_no_var | maintain_effects_no_var:
                 extra_param_types.update(ent for ent in atom.entities if isinstance(ent, Type))
             # Handle preconditions with Type parameters if soft intersection was used
             # Sort extra_param_types for deterministic behavior
@@ -151,10 +154,12 @@ class ClusterAndIntersectSTRIPSLearner(ClusteringSTRIPSLearner):
             additional_preconditions = set()
             for atom in preconditions_no_var:
                 additional_preconditions.add(atom.convert_to_lifted_atom(new_vars_to_add_dict))
-            
+            additional_maintain_effects = set()
+            for atom in maintain_effects_no_var:
+                additional_maintain_effects.add(atom.convert_to_lifted_atom(new_vars_to_add_dict))
             # Combine all preconditions
             preconditions = preconditions.union(additional_preconditions)
-
+            maintain_effects = maintain_effects.union(additional_maintain_effects)
             # Update the datastore to include the new variables mapped to objects
             updated_datastore = []
             for segment, var_to_obj, type_to_obj_other in pnad.datastore:
@@ -169,9 +174,13 @@ class ClusterAndIntersectSTRIPSLearner(ClusteringSTRIPSLearner):
                 updated_datastore.append((segment, updated_var_to_obj))
 
             new_params = list(current_params) + new_vars_to_add
+            maintain_effects = {atom for atom in maintain_effects if atom.predicate.name != "InOrigin"}
+
             new_pnads.append(
                 PNAD(pnad.op.copy_with(parameters=new_params,
-                                     preconditions=preconditions),
+                                     preconditions=preconditions,
+                                     maintain_effects=maintain_effects,
+                                     ),
                      updated_datastore, pnad.option_spec))
         return new_pnads
 

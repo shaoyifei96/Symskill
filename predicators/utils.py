@@ -949,6 +949,8 @@ def unify_preconds_effects_options(
         add_effects2: FrozenSet[LiftedOrGroundAtom],
         delete_effects1: FrozenSet[LiftedOrGroundAtom],
         delete_effects2: FrozenSet[LiftedOrGroundAtom],
+        maintain_atoms1: FrozenSet[LiftedOrGroundAtom],
+        maintain_atoms2: FrozenSet[LiftedOrGroundAtom],
         param_option1: ParameterizedOption, param_option2: ParameterizedOption,
         option_args1: Tuple[_TypedEntity, ...],
         option_args2: Tuple[_TypedEntity, ...]) -> Tuple[bool, EntToEntSub]:
@@ -980,6 +982,10 @@ def unify_preconds_effects_options(
     f_new_add_effects2 = frozenset(new_add_effects2)
     new_delete_effects2 = wrap_atom_predicates(delete_effects2, "DEL-")
     f_new_delete_effects2 = frozenset(new_delete_effects2)
+    new_maintain_atoms1 = wrap_atom_predicates(maintain_atoms1, "MAINTAIN-")
+    f_new_maintain_atoms1 = frozenset(new_maintain_atoms1)
+    new_maintain_atoms2 = wrap_atom_predicates(maintain_atoms2, "MAINTAIN-")
+    f_new_maintain_atoms2 = frozenset(new_maintain_atoms2)
 
     all_atoms1 = (f_option_args1 | f_new_preconds1 | f_new_add_effects1
                   | f_new_delete_effects1)

@@ -26,7 +26,7 @@ class GlobalSettings:
 
     init_pose = np.array([0.24844874, 0.00726439, 0.59251043, 0.98900046, 0.05834797, 0.13247817, -0.0303833])
 
-    learn_option_between_gripper_obj = True
+    learn_option_between_gripper_obj = True # if False, then the option is between the ooi and the handled object, turns out to be much work since non-prehencial
 
     dict_contact_predicate_to_rel_pose_predicates = {}  # key: contact predicate, value: set of rel_pose predicates
     dict_gt_goal_predicate_to_dummy_goal_predicates = {}  # key: gt goal predicate, value: set of dummy goal predicates
@@ -74,8 +74,8 @@ class GlobalSettings:
     # robo_kitchen env parameters
     robo_kitchen_randomize_init_state = True  # not used
     # robo_kitchen_task = "PnPCounterToCab"
-    robo_kitchen_task = "OpenSingleDoor"
-    # robo_kitchen_task = "CloseSingleDoor"
+    # robo_kitchen_task = "OpenSingleDoor"
+    robo_kitchen_task = "CloseSingleDoor"
     # robo_kitchen_task = "TurnOnStove"
     # robo_kitchen_task = "StoreFruit"
     # robo_kitchen_task = "StoreFruitFull"
@@ -120,7 +120,7 @@ class GlobalSettings:
     # The method to use for segmentation. By default, segment using options.
     # If you are learning options, you should change this via the command line.
     # segmenter = "atom_changes_low_speed_check"
-    segmenter = "atom_changes"
+    segmenter = "atom_changes_add_effects_only"
     # segmenter = "contacts"
     # The method to use for generating demonstrations: "oracle" or "human".
     demonstrator = "human"

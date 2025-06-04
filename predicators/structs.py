@@ -758,13 +758,14 @@ class STRIPSOperator:
     add_effects: Set[LiftedAtom]
     delete_effects: Set[LiftedAtom]
     ignore_effects: Set[Predicate]
+    maintain_effects: Set[LiftedAtom]
 
     def make_nsrt(self, option: ParameterizedOption, option_vars: Sequence[Variable], sampler: NSRTSampler = field(repr=False)) -> NSRT:
         """Make an NSRT out of this STRIPSOperator object, given the necessary
         additional fields."""
-        maintain_effects = copy.deepcopy(self.preconditions)
-        # Filter out InOrigin from maintain_effects if present
-        maintain_effects = {atom for atom in maintain_effects if atom.predicate.name != "InOrigin"}
+        # maintain_effects = copy.deepcopy(self.preconditions)
+        # # Filter out InOrigin from maintain_effects if present
+        # maintain_effects = {atom for atom in maintain_effects if atom.predicate.name != "InOrigin"}
 
         return NSRT(
             self.name,
@@ -777,7 +778,7 @@ class STRIPSOperator:
             option_vars,
             sampler,
             # NOTE: we're using the preconditions as maintain effects. may not be correct for tasks that involve losing contact
-            maintain_effects=maintain_effects,
+            maintain_effects=self.maintain_effects,
         )
 
     @lru_cache(maxsize=None)
@@ -856,7 +857,7 @@ class STRIPSOperator:
         """Create a copy of the operator, optionally while replacing any of the
         arguments."""
         default_kwargs = dict(
-            name=self.name, parameters=self.parameters, preconditions=self.preconditions, add_effects=self.add_effects, delete_effects=self.delete_effects, ignore_effects=self.ignore_effects
+            name=self.name, parameters=self.parameters, preconditions=self.preconditions, add_effects=self.add_effects, delete_effects=self.delete_effects, ignore_effects=self.ignore_effects, maintain_effects=self.maintain_effects
         )
         assert set(kwargs.keys()).issubset(default_kwargs.keys())
         default_kwargs.update(kwargs)
@@ -1400,6 +1401,8 @@ class Segment:
     _goal: Optional[Set[GroundAtom]] = field(default=None)
     # Field used by the backchaining algorithm (gen_to_spec_learner.py)
     necessary_add_effects: Optional[Set[GroundAtom]] = field(default=None)
+    # New field to store maintain atoms (atoms that persist throughout the segment)
+    maintain_atoms: Optional[Set[GroundAtom]] = field(default=None)
 
     def __post_init__(self) -> None:
         assert len(self.states) == len(self.actions) + 1

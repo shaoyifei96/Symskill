@@ -321,7 +321,8 @@ class BaseSTRIPSLearner(abc.ABC):
 
     @staticmethod
     def _induce_preconditions_via_soft_intersection(
-            pnad: PNAD) -> Tuple[Set[LiftedAtom], Set[LiftedAtom_VarType]]:
+            pnad: PNAD
+    ) -> Tuple[Set[LiftedAtom], Set[LiftedAtom_VarType], Set[LiftedAtom_VarType]]:
         """Given a PNAD with a nonempty datastore, compute the preconditions
         for the PNAD's operator from a soft intersection of all lifted
         preimages.
@@ -329,6 +330,7 @@ class BaseSTRIPSLearner(abc.ABC):
         Keep the preconditions that appear in a more than a certain percentage
         of segments in the PNAD's datastore, as determined by
         CFG.precondition_soft_intersection_threshold_percent.
+        return preconditions, preconditions_no_var, maintain_atoms, maintain_atoms_no_var
         """
         assert len(pnad.datastore) > 0
         threshold_count = int(
@@ -336,7 +338,8 @@ class BaseSTRIPSLearner(abc.ABC):
             CFG.precondition_soft_intersection_threshold_percent)
         lifted_atom_counts: dict[LiftedAtom, int] = defaultdict(int)
         lifted_atom_counts_no_var: dict[LiftedAtom_VarType, int] = defaultdict(int)
-
+        lifted_maintain_counts: dict[LiftedAtom, int] = defaultdict(int)
+        lifted_maintain_counts_no_var: dict[LiftedAtom_VarType, int] = defaultdict(int)
 
         for segment, var_to_obj, type_to_other_obj in pnad.datastore:
             objects = set(var_to_obj.values())
@@ -362,15 +365,31 @@ class BaseSTRIPSLearner(abc.ABC):
                 except AssertionError:
                     lifted_atoms_no_var.add(atom.lift_mix_var_type(combined_obj_to_var))
 
-                        #    {atom.lift(obj_to_type_other) for atom in atoms_from_parameters}
-
             for la in lifted_atoms:
                 lifted_atom_counts[la] += 1
             for la in lifted_atoms_no_var:
                 lifted_atom_counts_no_var[la] += 1
 
+            maintain_atoms = {
+                atom
+                for atom in segment.maintain_atoms
+                if all(o in objects | other_objects for o in atom.objects)
+            }
+            lifted_maintain_atoms = set()
+            lifted_maintain_atoms_no_var = set()
+            for atom in maintain_atoms:
+                try:
+                    lifted_maintain_atoms.add(atom.lift(obj_to_var))
+                except AssertionError:
+                    lifted_maintain_atoms_no_var.add(atom.lift_mix_var_type(combined_obj_to_var))
+            for la in lifted_maintain_atoms:
+                lifted_maintain_counts[la] += 1
+            for la in lifted_maintain_atoms_no_var:
+                lifted_maintain_counts_no_var[la] += 1
+
         # Keep the lifted atoms that appear as preconditions in more than
         # threshold_count of the segments.
+
         preconditions = {
             la
             for la, count in lifted_atom_counts.items()
@@ -381,9 +400,17 @@ class BaseSTRIPSLearner(abc.ABC):
             for la, count in lifted_atom_counts_no_var.items()
             if count > threshold_count
         }
-
-        return preconditions, preconditions_no_var
-
+        maintain_atoms = {
+            la
+            for la, count in lifted_maintain_counts.items()
+            if count > threshold_count
+        }
+        maintain_atoms_no_var = {
+            la
+            for la, count in lifted_maintain_counts_no_var.items()
+            if count > threshold_count
+        }
+        return preconditions, preconditions_no_var, maintain_atoms, maintain_atoms_no_var
     @staticmethod
     def _compute_pnad_delete_effects(pnad: PNAD) -> None:
         """Update the given PNAD to change the delete effects to ones obtained
