@@ -1454,21 +1454,22 @@ def redundancy_check(plan: List[_GroundNSRT], goal: Set[GroundAtom]) -> bool:
                 return True
 
     # Check for useless delete effects (based on prompt's definition)
-    for i, op in enumerate(plan):
-        if not op.delete_effects or i == 0:
-            continue
-        for del_atom in op.delete_effects:
-            was_del_added_before = False
-            # Check previous operators' add effects
-            for prev_op in plan[:i]:
-                if del_atom in prev_op.add_effects | prev_op.preconditions:
-                    was_del_added_before = True
-                    break
-            if not was_del_added_before:
-                # If the delete effect was never added by a previous operator in the plan
-                # Note: This doesn't check if the atom was true in the initial state.
-                logging.debug(f"Redundancy found: Delete effect {del_atom} of operator {op.name}{op.objects} at step {i} never appeare in add effects/preconditions of a previous step in the plan.")
-                return True
+    # allow redundancy delete effects, they are there since sometimes replan starts from weird middle state
+    # for i, op in enumerate(plan):
+    #     if not op.delete_effects or i == 0:
+    #         continue
+    #     for del_atom in op.delete_effects:
+    #         was_del_added_before = False
+    #         # Check previous operators' add effects
+    #         for prev_op in plan[:i]:
+    #             if del_atom in prev_op.add_effects | prev_op.preconditions:
+    #                 was_del_added_before = True
+    #                 break
+    #         if not was_del_added_before:
+    #             # If the delete effect was never added by a previous operator in the plan
+    #             # Note: This doesn't check if the atom was true in the initial state.
+    #             logging.debug(f"Redundancy found: Delete effect {del_atom} of operator {op.name}{op.objects} at step {i} never appeared in add effects/preconditions of a previous step in the plan.")
+    #             return True
 
     # If all checks passed
     return False
