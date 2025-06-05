@@ -777,7 +777,6 @@ class STRIPSOperator:
             option,
             option_vars,
             sampler,
-            # NOTE: we're using the preconditions as maintain effects. may not be correct for tasks that involve losing contact
             maintain_effects=self.maintain_effects,
         )
 

@@ -117,12 +117,20 @@ def learn_nsrts_from_data(
     # STEP 5: Make, log, and return the NSRTs.
     nsrts = []
     seg_to_nsrt = {}
+    temp_pnads_for_maintain_diff = []
+    max_nsrt_name = 0
     for pnad in pnads:
+        if not pnad.op.maintain_effects == pnad.op.preconditions:
+            temp_pnads_for_maintain_diff.append(pnad) # add one more time so we can add op for without whole preconditions
         nsrt = pnad.make_nsrt()
         nsrts.append(nsrt)
         for seg, _ in pnad.datastore:
             assert seg not in seg_to_nsrt
             seg_to_nsrt[seg] = nsrt
+    for pnad in temp_pnads_for_maintain_diff:
+        temp_pnad = PNAD(pnad.op.copy_with(name = pnad.op.name + "m", preconditions=pnad.op.maintain_effects), pnad.datastore, pnad.option_spec)
+        nsrt = temp_pnad.make_nsrt()
+        nsrts.append(nsrt)
     logging.info("\nLearned NSRTs:")
     for nsrt in nsrts:
         logging.info(nsrt)
