@@ -128,24 +128,25 @@ def learn_nsrts_from_data(
         for seg, _ in pnad.datastore:
             assert seg not in seg_to_nsrt
             seg_to_nsrt[seg] = nsrt
-    for pnad in pnads:
-        # remove the effects that are not consistent in at least one operator
-        old_pre = pnad.op.preconditions 
-        old_maintain = pnad.op.maintain_effects
-        new_pre = set()
-        new_maintain = set()
-        # Filter preconditions and maintain effects to remove atoms with predicates in changed_effects
-        for pre in old_pre:
-            if pre.predicate not in {effect.predicate for effect in changed_effects}:
-                new_pre.add(pre)
+    if len(changed_effects) > 0:
+        for pnad in pnads:
+            # remove the effects that are not consistent in at least one operator
+            old_pre = pnad.op.preconditions 
+            old_maintain = pnad.op.maintain_effects
+            new_pre = set()
+            new_maintain = set()
+            # Filter preconditions and maintain effects to remove atoms with predicates in changed_effects
+            for pre in old_pre:
+                if pre.predicate not in {effect.predicate for effect in changed_effects}:
+                    new_pre.add(pre)
+                
+            for maintain in old_maintain:
+                if maintain.predicate not in {effect.predicate for effect in changed_effects}:
+                    new_maintain.add(maintain)
             
-        for maintain in old_maintain:
-            if maintain.predicate not in {effect.predicate for effect in changed_effects}:
-                new_maintain.add(maintain)
-        
-        temp_pnad = PNAD(pnad.op.copy_with(name = pnad.op.name + "m", preconditions = new_pre, maintain_effects = new_maintain), pnad.datastore, pnad.option_spec)
-        nsrt = temp_pnad.make_nsrt()
-        nsrts.append(nsrt)
+            temp_pnad = PNAD(pnad.op.copy_with(name = pnad.op.name + "m", preconditions = new_pre, maintain_effects = new_maintain), pnad.datastore, pnad.option_spec)
+            nsrt = temp_pnad.make_nsrt()
+            nsrts.append(nsrt)
     logging.info("\nLearned NSRTs:")
     for nsrt in nsrts:
         logging.info(nsrt)
