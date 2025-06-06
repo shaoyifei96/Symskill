@@ -1073,6 +1073,35 @@ class NSRT:
         ignore_effects = {a for a in self.ignore_effects if a in kept}
         return NSRT(self.name, self.parameters, preconditions, add_effects, delete_effects, ignore_effects, self.option, self.option_vars, self._sampler, maintain_effects)
 
+    def copy_with(self, **kwargs: Any) -> NSRT:
+        """Create a copy of this NSRT with the given fields replaced.
+
+        Args:
+            **kwargs: Fields to replace in the new NSRT. Must be valid field names.
+
+        Returns:
+            A new NSRT with the specified fields replaced.
+        """
+        # Get all current field values
+        current_values = {
+            'name': self.name,
+            'parameters': self.parameters,
+            'preconditions': self.preconditions,
+            'add_effects': self.add_effects,
+            'delete_effects': self.delete_effects,
+            'ignore_effects': self.ignore_effects,
+            'option': self.option,
+            'option_vars': self.option_vars,
+            '_sampler': self._sampler,
+            'maintain_effects': self.maintain_effects
+        }
+        
+        # Update with new values
+        current_values.update(kwargs)
+        
+        # Create and return new NSRT
+        return NSRT(**current_values)
+
 
 @dataclass(frozen=True, repr=False, eq=False)
 class _GroundNSRT:

@@ -38,7 +38,7 @@ from predicators.nsrt_learning.segmentation import segment_trajectory
 from predicators.nsrt_learning.strips_learning import learn_strips_operators
 from predicators.planning import PlanningFailure, PlanningTimeout, run_task_plan_once
 from predicators.settings import CFG
-from predicators.structs import Dataset, GroundAtomTrajectory, NSRT, Object, ParameterizedOption, Predicate, Segment, State, Task, Type, STRIPSOperator, GroundAtom, DummyPredicate
+from predicators.structs import Dataset, GroundAtomTrajectory, NSRT, LiftedAtom, Object, ParameterizedOption, Predicate, Segment, State, Task, Type, STRIPSOperator, GroundAtom, DummyPredicate
 import warnings
 from scipy.stats import chi2
 import matplotlib.pyplot as plt
@@ -347,6 +347,55 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
     def get_name(cls) -> str:
         return "clustering_invention"
 
+    def _add_additional_remove_effects_operators(self) -> None:
+        """Add additional remove effects operators to the loaded operators."""
+        updated_nsrts = set()
+        for nsrt in self._nsrts:
+            new_delete_effects = nsrt.delete_effects
+            new_params = nsrt.parameters
+            if len(nsrt.add_effects) == 1:
+                add_eff = list(nsrt.add_effects)[0]
+                if add_eff.entities[1].type.name == "gripper_type":
+                    object_in_contact = add_eff.entities[0].type.name
+                    # in this case, all other gripper object effects should be added to delete effects
+                    for (key1, key2, key3) in CFG.dict_contact_predicate_to_rel_pose_predicates:
+                        if key1 == 'InContact' and not key2 == object_in_contact:
+                            # this is a gripper object effect that is not the one in contact
+                            # we need to add it to the delete effects
+                            eff_to_delete = CFG.dict_contact_predicate_to_rel_pose_predicates[key1, key2, key3]
+                            for eff in eff_to_delete:
+                                # Find the corresponding variables from NSRT parameters
+                                # The first variable should be the object type, second should be gripper
+                                obj_var = None
+                                gripper_var = None
+                                for var in nsrt.parameters:
+                                    if var.type.name == key2:  # object type
+                                        obj_var = var
+                                    elif var.type.name == "gripper_type":
+                                        gripper_var = var
+                                
+                                if obj_var is not None and gripper_var is not None:
+                                    # Create the LiftedAtom with the correct variables
+                                    lifted_atom = LiftedAtom(eff, [obj_var, gripper_var])
+                                    new_delete_effects.add(lifted_atom)
+                                elif obj_var is None:
+                                    extra_param_type = eff.types[0]
+                                    new_vars_to_add = utils.create_new_variables([extra_param_type], new_params)
+                                    new_params = new_params + new_vars_to_add
+                                    obj_var = new_vars_to_add[0]
+                                    lifted_atom = LiftedAtom(eff, [obj_var, gripper_var])
+                                    new_delete_effects.add(lifted_atom)
+                                else:
+                                    raise ValueError(f"Could not find object or gripper variable for {eff} in {nsrt.parameters}")
+            else:
+                logging.warning(f"NSRT {nsrt} has {len(nsrt.add_effects)} add effects, directly adding to updated_nsrts")
+            nsrt = nsrt.copy_with(parameters=new_params, delete_effects=new_delete_effects)
+            # Add the potentially modified NSRT to the updated set
+            updated_nsrts.add(nsrt)
+        
+        # Update self._nsrts with the modified NSRTs
+        self._nsrts = updated_nsrts
+
     def load(self, online_learning_cycle: Optional[int]) -> None:
         # We need to properly load the learned predicates if they exist
         main_folder = f"{CFG.approach_dir}/"
@@ -381,6 +430,8 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                     else:
                         CFG.dict_gt_goal_predicate_to_dummy_goal_predicates[key].update(value)
 
+        self._add_additional_remove_effects_operators()
+        
         if CFG.pretty_print_when_loading:  # pragma: no cover
             preds, _ = utils.extract_preds_and_types(self._nsrts)
             name_map = {}

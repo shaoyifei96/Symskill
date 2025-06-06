@@ -1161,7 +1161,7 @@ class _LearnedDSParameterizedOption(ParameterizedOption):
         self, name: str, operator: STRIPSOperator, ds_policy: DSPolicy, ooi_type_name: str, gripper_or_obj_type: str, gripper_action: float, is_parameterized: bool = True
     ) -> None:  # DSPolicy object
         types = [v.type for v in operator.parameters]
-        self.operator = operator
+        # self.operator = operator
         self._ds_policy = ds_policy
         self._is_parameterized = is_parameterized
         self._ooi_type = ooi_type_name
@@ -1279,7 +1279,8 @@ class _LearnedDSParameterizedOption(ParameterizedOption):
 
     def _optimized_effect_based_terminal(self, state: State, memory: Dict, objects: Sequence[Object], params: Array) -> bool:
         # NOTE: based on optimized_effect_based_terminal in _LearnedNeuralParameterizedOption
-        terminate = self.effect_based_terminal(state, objects)
+        # disabled effect-based terminal check, since having a operator in the option make things more difficult to copy
+            # terminate = self.effect_based_terminal(state, objects)
         # Optimization: remember the most recent state and terminate early if
         # the state is repeated, since this option will never get unstuck.
         # Keep track of states in memory
