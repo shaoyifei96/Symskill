@@ -998,7 +998,7 @@ class NSRT:
     @property
     def op(self) -> STRIPSOperator:
         """Return the STRIPSOperator associated with this NSRT."""
-        return STRIPSOperator(self.name, self.parameters, self.preconditions, self.add_effects, self.delete_effects, self.ignore_effects)
+        return STRIPSOperator(self.name, self.parameters, self.preconditions, self.add_effects, self.delete_effects, self.ignore_effects, self.maintain_effects)
 
     def __str__(self) -> str:
         return self._str

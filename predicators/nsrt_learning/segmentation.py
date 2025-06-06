@@ -225,7 +225,8 @@ def _segment_with_switch_function(
             if atom_seq is not None:
                 current_segment_final_atoms = atom_seq[t + 1]
                 # Compute maintain_atoms: intersection of all atom sets in the segment
-                segment_atom_sets = atom_seq[(t - len(current_segment_states) + 2):(t + 2)]
+                segment_atom_sets = atom_seq[(t - len(current_segment_states) + 2):(t + 1)] 
+                # we know there is a change at t+2, so maitain effects are valid until t+1
                 if segment_atom_sets:
                     maintain_atoms = set.intersection(*segment_atom_sets)
                 else:
