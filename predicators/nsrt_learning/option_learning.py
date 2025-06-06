@@ -1185,6 +1185,27 @@ class _LearnedDSParameterizedOption(ParameterizedOption):
         # NOTE: assume objects contains gripper and obj_of_interest. We can find base from state
         # use the first base in state as base
         memory["time_step"] += 1
+        
+        # === ACCESS FAILURE INFORMATION ===
+        # The failure information from execution monitor is already available in memory!
+        failure_memory = memory.get("fail_memory", [])
+        if failure_memory:
+            logging.info(f"DS Option {self.name} accessing {len(failure_memory)} failure entries")
+            # Process failures and collect indices to remove
+            processed_indices = []
+            for idx, failure_info in enumerate(failure_memory):
+                logging.info(f"Previous failure: {failure_info.option_name} - {failure_info.cause}")
+                if failure_info.option_name == self.name:
+                    # NOTE: failure adaptation logic here
+                    self._ds_policy.resample()
+                    processed_indices.append(idx)
+            
+            # Remove processed failures (in reverse order to maintain indices)
+            for idx in reversed(processed_indices):
+                failure_memory.pop(idx)
+            
+            logging.info(f"Processed {len(processed_indices)} failures, {len(failure_memory)} failures remaining")
+        
         base = None
         OOI_obj = None
         gripper_or_obj = None
