@@ -93,7 +93,7 @@ class GlobalSettings:
         visualizer = None
     option_to_init_pose: Dict[str, List[np.ndarray]] = {}
     option_to_policy = {}
-    use_teleop = False
+    use_teleop = False # Keyboard teleop, for debugging
 
     """Unchanging settings."""
     # global parameters

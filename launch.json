@@ -36,7 +36,8 @@
             "--excluded_predicates", "all_goal", 
             "--option_learner", "ds_policy", 
             "--execution_monitor", "expected_atoms_robocasa",
-            // "--load_approach"
+            "--included_options", "MoveToInitPoseOption"
+            "--load_approach"
         ]
         // change segmenter to atom
         // "args": ["--env", "robo_kitchen", "--use_gui", "--approach", "grammar_search_invention", "--seed", "0", "--bilevel_plan_without_sim", "True","--debug", "--excluded_predicates", "all", "--option_learner", "direct_bc"],
@@ -64,7 +65,46 @@
       "args": ["--robot","PandaOmron","--task", "OpenSingleDoor", "--layout", "2", "--style", "0"],
         "console": "integratedTerminal",
         "pythonPath": "/home/yifei/miniconda3/envs/task_plan_casa3/bin/python"
-      }
+      },
+      {
+        "name": "Debug Collect Dataset with Videos",
+        "type": "python",
+        "request": "launch",
+        "program": "${workspaceFolder}/predicators_robocasa/predicators/main.py",
+        "args": ["--env", "robo_kitchen", "--approach", "clustering_invention", "--seed", "0", "--bilevel_plan_without_sim", "True","--debug", "--option_learner", "direct_bc", "--excluded_predicates", "all"],
+        "console": "integratedTerminal",
+        "pythonPath": "/home/yifei/miniconda3/envs/task_plan_casa3/bin/python"
+      },
+      {
+        "name": "Python: Pytest test_sym_skill.py",
+        "type": "python",
+        "request": "launch",
+        "module": "pytest",
+        "args": [
+          "${workspaceFolder}/predicators_robocasa/tests/test_sym_skill.py"
+        ],
+        "console": "integratedTerminal",
+        "justMyCode": false,
+        "pythonPath": "/home/yifei/miniconda3/envs/task_plan_casa3/bin/python"
+      },
+      {
+        "name": "Python: Debug robocasa/collect_demos.py",
+        "type": "python", 
+        "request": "launch",
+        "program": "${workspaceFolder}/robocasa/robocasa/scripts/collect_demos.py",
+      "args": ["--robot","PandaOmron", "--environment", "StoreFruit", "--device", "keyboard"],
+        "console": "integratedTerminal",
+        "pythonPath": "/home/yifei/miniconda3/envs/task_plan_casa3/bin/python"
+      },
+      {
+        "name": "Python: Debug robocasa/dataset_states_to_obs.py",
+        "type": "python", 
+        "request": "launch",
+        "program": "${workspaceFolder}/robocasa/robocasa/scripts/dataset_states_to_obs.py",
+      "args": ["--dataset", "./robocasa/datasets/v0.1/multi_stage/customized_tasks/StoreFruit/2025-04-23/demo.hdf5", "--output_name", "new_obs.hdf5"],
+        "console": "integratedTerminal",
+        "pythonPath": "/home/yifei/miniconda3/envs/task_plan_casa3/bin/python"
+      },
     ]
   }
 
