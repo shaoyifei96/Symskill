@@ -41,6 +41,8 @@ from predicators.settings import CFG
 from predicators.structs import Dataset, GroundAtomTrajectory, NSRT, LiftedAtom, Object, ParameterizedOption, Predicate, Segment, State, Task, Type, STRIPSOperator, GroundAtom, DummyPredicate
 import warnings
 from scipy.stats import chi2
+from scipy.spatial.transform import Rotation as R
+
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 from matplotlib.patches import Ellipse # For 2D ellipses
@@ -222,7 +224,7 @@ class _RelativeFeatureClusterClassifier(_BinaryClassifier):
             if self.feature_name == self._trans_feat_name and self._quat_feat_name in obj1.type.feature_names:
                 try:
                     obj1_quat = s.get(obj1, self._quat_feat_name)
-                    obj1_rot = Rotation.from_quat(obj1_quat)
+                    obj1_rot = R.from_quat(obj1_quat)
                     world_diff = np.subtract(obj2_feat, obj1_feat)
                     relative_feature = obj1_rot.inv().apply(world_diff)
                 except KeyError:
@@ -544,6 +546,10 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             logging.info("Generating candidate predicates via contact clustering method...")
             og_pred_atom_dataset, cluster_pred_atom_dataset, different_seg_count_trajs, candidates, initial_monitor_preds = self._generate_candidate_predicates_contact_goal_clustering_refactored(dataset)
             self._learned_predicates = set(candidates.keys()) | initial_monitor_preds
+        elif CFG.predicate_candidates_method == "motion_analysis_contact": # converting motion analysis to contact predicate 
+            logging.info("Generating candidate predicates via motion analysis contact method...")
+            og_pred_atom_dataset, cluster_pred_atom_dataset, different_seg_count_trajs, candidates, initial_monitor_preds = self._generate_candidate_predicates_contact_goal_clustering_refactored(dataset)
+            self._learned_predicates = set(candidates.keys()) | initial_monitor_preds
         else:
             raise ValueError(f"Invalid predicate candidates method: {CFG.predicate_candidates_method}")
             # self._learned_predicates = self._select_predicates_by_beam_search(candidates, dataset, self._train_tasks)
@@ -639,9 +645,9 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             logging.info(f"Saved {len(data)} data points for feature {feature_key} to {data_path}")
 
             # Select clustering epsilon based on feature type
-            if feat_name == trans_feat_name:
+            if feat_name == CFG.trans_feat_name:
                 epsilon = CFG.clustering_translation_epsilon
-            elif feat_name == quat_feat_name:
+            elif feat_name == CFG.quat_feat_name:
                 epsilon = CFG.clustering_quaternion_epsilon
             else: #pose_feature
                 epsilon = CFG.clustering_epsilon
@@ -680,7 +686,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                         raise ValueError("At least one quaternion in cluster is near zero. Skipping this cluster.")
 
                     # Convert to Rotation objects
-                    rotations = Rotation.from_quat(quaternions)
+                    rotations = R.from_quat(quaternions)
                     # Calculate the mean rotation
                     mean_rotation = rotations.mean()
                     # Convert back to quaternion [qx, qy, qz, qw]
@@ -690,7 +696,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                     cluster_center = np.concatenate((mean_translation, mean_quaternion))
 
                     # logging.warning(f"INCORRECT MEAN CALCULATION:!!!!!!!!!!!!!!!!!!!") # Remove this warning
-                    # normalize the quat -- No longer needed as Rotation.mean handles it
+                    # normalize the quat -- No longer needed as R.mean handles it
                     # cluster_center[3:7] = cluster_center[3:7] / np.linalg.norm(cluster_center[3:7])
                     # difference between cluster_center and cluster_points
                     cluster_center_diff = np.zeros(len(cluster_points))
@@ -756,6 +762,90 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         # Rename predicates for PDDL compatibility (reuse from grammar search)
         renamed_candidates = self._rename_predicates_to_remove_incompatible_chars(candidates)
         return renamed_candidates
+
+    def _update_incontact_predicate_using_motion_analysis(self, dataset: Dataset, in_contact_pred: Predicate, gripper_type: Type) -> Dict[Tuple[Type, Type, str], List[np.ndarray]]:
+        """Update incontact predicates using motion analysis.
+        Incontact seems like a previledged predicate, we can remove it by just looking at which 
+        object is in motion to determine if it is in contact with the gripper.
+        """
+
+
+        # Filter types so things other than gripper and are useful are kept!!!
+        # types = {obj.type for traj in dataset.trajectories for obj in traj.states[0]}
+        # Example filter (adjust as needed):
+        disallowed_type_names = {"gripper_type", "left_finger_type", "right_finger_type"} # Added door_type based on usage
+        # Dictionary to store motion data for each object in each trajectory
+        motion_data = defaultdict(lambda: defaultdict(list))
+
+        gripper_obj = None
+        for obj in dataset.trajectories[0].states[0].get_objects(gripper_type):
+            gripper_obj = obj
+            break
+        assert gripper_obj is not None, "No gripper object found in the dataset"
+        
+        for i, traj in enumerate(dataset.trajectories):
+            logging.debug(f"Processing trajectory {i+1}/{len(dataset.trajectories)} for motion analysis")
+            
+            # Get all objects in the trajectory
+            all_objects = set()
+            for state in traj.states:
+                all_objects.update(state.data.keys())
+            
+            # Calculate velocity for each object
+            for t in range(len(traj.states) - 1):
+                state_t = traj.states[t]
+                state_t1 = traj.states[t+1]
+                
+                for obj in all_objects:
+                    if obj not in state_t.data or obj not in state_t1.data or obj.type.name in disallowed_type_names:
+                        continue
+                        
+                    # Get translation data
+                    trans_t = state_t.get(obj, CFG.trans_feat_name)
+                    trans_t1 = state_t1.get(obj, CFG.trans_feat_name)
+                    rot_t = state_t.get(obj, CFG.quat_feat_name)
+                    rot_t1 = state_t1.get(obj, CFG.quat_feat_name)
+                    
+                    if trans_t is not None and trans_t1 is not None and rot_t is not None and rot_t1 is not None:
+                        # Calculate velocity (change in position)
+                        delta1 = np.linalg.norm(trans_t1 - trans_t)
+                        q1 = R.from_quat(rot_t)
+                        q2 = R.from_quat(rot_t1)
+                        q_diff = q2 * q1.inv()
+                        delta2 = q_diff.magnitude()
+                        motion_data[i][obj].append((t, delta1+delta2))
+            
+            
+            # clear in contact set for each state !!!! This makes our method not previledged, good!
+            for state in dataset.trajectories[i].states:
+                state.items_in_contact = set()
+            
+            # For each trajectory, find the object with most motion
+            max_motion_obj = None
+            max_motion = 0
+            for obj, motion_list in motion_data[i].items():
+                total_motion = sum(vel for _, vel in motion_list)
+                if total_motion > max_motion:
+                    max_motion = total_motion
+                    max_motion_obj = obj
+            
+            if max_motion_obj is not None:
+                # Find first and last frame of significant motion
+                motion_threshold = 0.001  # 10 Hz data, vel > 1 cm/s (there is also rot motion)
+                motion_frames = [t for t, vel in motion_data[i][max_motion_obj] if vel > motion_threshold]
+                
+                if motion_frames:
+                    first_motion = min(motion_frames)
+                    last_motion = max(motion_frames)
+                    
+                    # Mark the object as in contact during the motion period
+                    for t in range(first_motion, last_motion + 1):
+                        if t < len(traj.states):
+                            
+                            dataset.trajectories[i].states[t].items_in_contact = {(gripper_obj, max_motion_obj)}
+                            # Update the state to mark the object as in contact
+                            # This assumes you have a way to mark objects as in contact
+                            # You might need to modify this based on your state representation
 
     def _generate_relative_low_speed_feature_datasets(self, dataset: Dataset) -> Dict[Tuple[Type, Type, str], List[np.ndarray]]:
         """Extracts relative features constant between consecutive states.
@@ -1077,7 +1167,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                         else:
                             # Filter to only valid quaternions for mean calculation
                             valid_quats = quaternions[valid_quats_mask]
-                            valid_rots = Rotation.from_quat(valid_quats)
+                            valid_rots = R.from_quat(valid_quats)
                             mean_rotation = valid_rots.mean()
                             mean_quaternion = mean_rotation.as_quat()
                             mean_translation = np.mean(translations, axis=0) # Mean of all translations
@@ -1200,7 +1290,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                     if np.isclose(q_norm, 0): raise ValueError("Centroid quaternion norm is zero.")
                     centroid_quat /= q_norm
 
-                    rot_mat = Rotation.from_quat(centroid_quat).as_matrix()
+                    rot_mat = R.from_quat(centroid_quat).as_matrix()
                     axis_len = CFG.clustering_visualization_frame_axis_length # Add to CFG (e.g., 0.05)
 
                     # Quiver args
@@ -1448,6 +1538,8 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         if not gripper_type:
             logging.warning("Gripper type not found. Cannot generate contact-based predicates.")
             return {}, {} # Return empty dicts if gripper type is not found
+        if CFG.predicate_candidates_method == "motion_analysis_contact":
+            self._update_incontact_predicate_using_motion_analysis(dataset, in_contact_pred, gripper_type)
         learnt_goal_predicates = self.load_learnt_goals()
         predicates_to_monitor, ground_atom_dataset = self._create_gnd_atom_datasets(dataset, in_contact_pred, in_origin_pred, learnt_goal_predicates)
         all_objs = self._find_common_objects(ground_atom_dataset)
@@ -1608,7 +1700,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                     quaternions = cluster_points[:, 3:]
 
                     valid_quats = quaternions
-                    rotations = Rotation.from_quat(valid_quats)
+                    rotations = R.from_quat(valid_quats)
                     mean_rotation = rotations.mean()
                     mean_quaternion = mean_rotation.as_quat()
                     mean_translation = np.mean(translations, axis=0)
@@ -2567,9 +2659,8 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 center_quat = center[3:]
 
                 # Use scipy's Rotation for quaternion multiplication
-                from scipy.spatial.transform import Rotation
-                center_rot = Rotation.from_quat(center_quat)
-                noise_rot = Rotation.from_quat(noise_quat)
+                center_rot = R.from_quat(center_quat)
+                noise_rot = R.from_quat(noise_quat)
                 noisy_rot = noise_rot * center_rot
                 noisy_quat = noisy_rot.as_quat()
 

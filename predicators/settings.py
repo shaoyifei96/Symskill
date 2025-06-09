@@ -21,7 +21,7 @@ class GlobalSettings:
     reprocess_ground_atom_dataset_using_cluster_predicates = False
     remove_inOrigin_pred = True
 
-    use_learnt_goal_predicates = False
+    use_learnt_goal_predicates = True
     use_negated_goal_predicates = False
 
     init_pose = np.array([0.24844874, 0.00726439, 0.59251043, 0.98900046, 0.05834797, 0.13247817, -0.0303833])
@@ -32,7 +32,7 @@ class GlobalSettings:
     dict_gt_goal_predicate_to_dummy_goal_predicates = {}  # key: gt goal predicate, value: set of dummy goal predicates
 
     # clustering_invention approach parameters
-    predicate_candidates_method = "contact_clustering"  # "low_speed" or "contact_clustering"
+    predicate_candidates_method = "motion_analysis_contact"  # "low_speed" or "contact_clustering" or "motion_analysis_contact"
     clustering_inv_cov_reg = 1e-3
     clustering_change_only = False
 
@@ -74,8 +74,8 @@ class GlobalSettings:
     # robo_kitchen env parameters
     robo_kitchen_randomize_init_state = True  # not used
     # robo_kitchen_task = "PnPCounterToCab"
-    # robo_kitchen_task = "OpenSingleDoor"
-    robo_kitchen_task = "CloseSingleDoor"
+    robo_kitchen_task = "OpenSingleDoor"
+    # robo_kitchen_task = "CloseSingleDoor"
     # robo_kitchen_task = "TurnOnStove"
     # robo_kitchen_task = "StoreFruit"
     # robo_kitchen_task = "StoreFruitFull"
