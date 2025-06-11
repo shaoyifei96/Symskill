@@ -21,7 +21,7 @@ class GlobalSettings:
     reprocess_ground_atom_dataset_using_cluster_predicates = False
     remove_inOrigin_pred = True
 
-    use_learnt_goal_predicates = True
+    use_learnt_goal_predicates = False
     use_negated_goal_predicates = False
 
     init_pose = np.array([0.24844874, 0.00726439, 0.59251043, 0.98900046, 0.05834797, 0.13247817, -0.0303833])
@@ -74,11 +74,14 @@ class GlobalSettings:
     # robo_kitchen env parameters
     robo_kitchen_randomize_init_state = True  # not used
     # robo_kitchen_task = "PnPCounterToCab"
-    robo_kitchen_task = "OpenSingleDoor"
+    # robo_kitchen_task = "OpenSingleDoor"
     # robo_kitchen_task = "CloseSingleDoor"
     # robo_kitchen_task = "TurnOnStove"
     # robo_kitchen_task = "StoreFruit"
     # robo_kitchen_task = "StoreFruitFull"
+    # robo_kitchen_task = "TurnOnMicrowave"
+    # robo_kitchen_task = "CloseDrawer"
+    robo_kitchen_task = "TurnOnStove"
     # robo_kitchen_viz_debug = False # i think the use_gui flag covers this
     robo_kitchen_contact_smoothing_window = 21
     robo_kitchen_load_dataset = True  # this has priority, if False, then save flag is considered
@@ -98,7 +101,7 @@ class GlobalSettings:
     """Unchanging settings."""
     # global parameters
     num_train_tasks = 50 if robo_kitchen_task == "PnPCounterToCab" else 10  # in robocasa, either the max demo number or num_train_tasks will be used
-    num_test_tasks = 10
+    num_test_tasks = 1
     # Perform online learning for this many cycles or until this many
     # transitions have been collected, whichever happens first.
     num_online_learning_cycles = 10

@@ -955,7 +955,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         and the effective epsilon used for clustering.
         """
         if not feature_data:
-            return np.array([]), np.array([]), set(), initial_epsilon
+            return np.array([]), np.array([]), set()
 
         data_array = np.array(feature_data)
         if data_array.ndim == 1:
@@ -965,7 +965,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         if data_array.shape[0] < 2:
             labels = np.array([0]) if data_array.shape[0] == 1 else np.array([])
             unique_labels = {0} if data_array.shape[0] == 1 else set()
-            return data_array, labels, unique_labels, initial_epsilon
+            return data_array, labels, unique_labels
 
         # --- Determine Metric and Epsilon ---
 
@@ -1627,7 +1627,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         if env.goal_predicates:
             assert len(list(env.goal_predicates)) == 1
             goal_pred = list(env.goal_predicates)[0]
-            pred_key = (goal_pred.name, goal_pred.types[0].name, goal_pred.types[1].name)
+            pred_key = tuple([goal_pred.name] + [t.name for t in goal_pred.types])
             CFG.dict_gt_goal_predicate_to_dummy_goal_predicates[pred_key] = set([DummyPredicate(f"{CFG.robo_kitchen_task}-goal", [obj_of_reference_best.type, obj_contact_with_gripper.type])])
         for pred in predicates_to_monitor:
             pass # the following three lines seems to make dr-unreachable error more likely but don't know why
@@ -1945,6 +1945,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             skip_var =max(int(len(atom_seq) / 50),1)
             logging.debug(f"Processing trajectory {i+1}/{len(ground_atom_dataset)} with {len(atom_seq)} atoms, skipping every {skip_var} atoms.")
             achieved_goal = False 
+            skip_var = 1 # NOTE: should be removed. To test TurnOnMicrowave
             for t in range(skip_var, len(atom_seq), skip_var): # Start from 1 to compare with t-1, skip every 4, for efficiency
                 state_t = ll_traj.states[t]
                 atoms_t = atom_seq[t]

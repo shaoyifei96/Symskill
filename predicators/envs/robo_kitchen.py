@@ -67,7 +67,10 @@ class RoboKitchenEnv(BaseEnv):
     handle_type = Type("handle_type", ["translation", "quaternion"], parent=grab_type)
     surface_type = Type("surface_type", ["translation", "quaternion"], parent=object_type)
     thing_type = Type("thing_type", ["translation", "quaternion"], parent=grab_type)
-    stove_type = Type("stove_type", ["translation", "quaternion"], parent=object_type)
+    stove_type = Type("stove_type", ["translation", "quaternion", "on"], parent=object_type)
+    microwave_type = Type("microwave_type", ["translation", "quaternion", "on"], parent=object_type)
+    microwave_button_type = Type("microwave_button_type", ["translation", "quaternion"], parent=grab_type)
+    drawer_type = Type("drawer_type", ["translation", "quaternion"], parent=object_type)
 
     obj_name_to_type = {
         # "handle": handle_type,
@@ -85,6 +88,10 @@ class RoboKitchenEnv(BaseEnv):
         "bottom": surface_type,
         "knob": knob_type,
         "stovetop": stove_type,
+        "microwave": microwave_type,
+        "microwave_start_button": microwave_button_type,
+        "drawer": cabinet_type,  # The drawer fixture (stationary cabinet structure)
+        "drawer_inner_box": drawer_type,  # The movable sliding part
     }
 
     tasks_extended = [
@@ -274,7 +281,11 @@ class RoboKitchenEnv(BaseEnv):
         elif task_name == "StoreFruitFull":
             return [self.object_name_to_object("door"), self.object_name_to_object("obj")]
         elif task_name == "TurnOnStove":
-            return [self.object_name_to_object("knob")]
+            return [self.object_name_to_object("knob"), self.object_name_to_object("stovetop")]
+        elif task_name == "TurnOnMicrowave":
+            return [self.object_name_to_object("microwave_start_button")]
+        elif task_name == "CloseDrawer":
+            return [self.object_name_to_object("drawer_inner_box")]
         else:
             raise ValueError(f"Task {task_name} not supported")
 
@@ -404,9 +415,8 @@ class RoboKitchenEnv(BaseEnv):
             if self._OnSurface_holds(state, [obj, bottom]):
                 return True
         elif goal_desc == "TurnOnStove":
-            knob = self.object_name_to_object("knob")
             stove = self.object_name_to_object("stovetop")
-            if self._KnobTurnedOn_holds(state, [knob, stove]):
+            if stove is not None and self._StoveOn_holds(state, [stove]):
                 return True
         elif goal_desc == "StoreFruit":
             door = self.object_name_to_object("door")
@@ -421,6 +431,15 @@ class RoboKitchenEnv(BaseEnv):
             cabinet = self.object_name_to_object("cabinet")
             obj = self.object_name_to_object("obj")
             if self._DoorClosed_holds(state, [door, cabinet]) and self._OnSurface_holds(state, [obj, bottom]):
+                return True
+        elif goal_desc == "TurnOnMicrowave":
+            microwave = self.object_name_to_object("microwave")
+            if microwave is not None and self._MicrowaveOn_holds(state, [microwave]):
+                return True
+        elif goal_desc == "CloseDrawer":
+            drawer_inner_box = self.object_name_to_object("drawer_inner_box")
+            drawer_cabinet = self.object_name_to_object("drawer")
+            if self._DrawerClosed_holds(state, [drawer_inner_box, drawer_cabinet]):
                 return True
         else:
             raise ValueError(f"Goal description {goal_desc} not supported")
@@ -538,23 +557,14 @@ class RoboKitchenEnv(BaseEnv):
                 for contact_name in contact_name_to_object:
                     if contact_name in contact:
                         contact = contact_name_to_object[contact_name]
+                
+                # Check if object name is in contact string, or if contact ends with object name suffix
                 if obj_name in contact and link7_contact_pairs:
                     obj = self.object_name_to_object(obj_name)
                     contacts.add((robot_body_obj, obj))
-                # else:
-                #     new_obj = Object(contact, self.object_type)
-                #     contacts.add((gripper_obj, new_obj))
-
-        # robot_base_contact = self._env.get_contacts(self._env.robots[0].robot_model.models[0])  # robot base
-        # robot_base_obj = Object("robot_base", self.object_type)
-        # for contact in robot_base_contact: # each contact is a string
-        #     for obj_name in object_names:
-        #         if obj_name in contact:
-        #             obj = self.object_name_to_object(obj_name)
-        #             contacts.add((robot_base_obj, obj))
-        #         else:
-        #             new_obj = Object(contact, self.object_type)
-        #             contacts.add((robot_base_obj, new_obj))
+                elif "_" in obj_name and contact.endswith(obj_name.split("_", 1)[1]) and link7_contact_pairs:
+                    obj = self.object_name_to_object(obj_name)
+                    contacts.add((robot_body_obj, obj))
 
         gripper_contact = self._env.get_contacts(self._env.robots[0].robot_model.models[1])  # gripper
         gripper_obj = self.object_name_to_object("gripper")
@@ -563,12 +573,20 @@ class RoboKitchenEnv(BaseEnv):
                 for contact_name in contact_name_to_object:
                     if contact_name in contact:
                         contact = contact_name_to_object[contact_name]
+                
+                # Check if object name is in contact string, or if contact ends with object name suffix  
                 if obj_name in contact:
                     obj = self.object_name_to_object(obj_name)
                     contacts.add((gripper_obj, obj))
-                # else:
-                #     new_obj = Object(contact, self.object_type)
-                #     contacts.add((gripper_obj, new_obj))
+                elif "_" in obj_name and contact.endswith(obj_name.split("_", 1)[1]):
+                    obj = self.object_name_to_object(obj_name)
+                    contacts.add((gripper_obj, obj))
+                
+                # Special handling for drawer contacts - drawers appear as "door" in contact names
+                # For CloseDrawer task, map door contacts to drawer_inner_box (the movable part)
+                if obj_name == "drawer_inner_box" and "door" in contact:
+                    obj = self.object_name_to_object(obj_name)
+                    contacts.add((gripper_obj, obj))
 
         return contacts
 
@@ -587,11 +605,14 @@ class RoboKitchenEnv(BaseEnv):
             # Predicate("DoorOpen", [cls.handle_type, cls.cabinet_type], cls._DoorOpen_holds),
             Predicate("DoorOpen", [cls.door_type, cls.cabinet_type], cls._DoorOpen_holds),
             Predicate("DoorClosed", [cls.door_type, cls.cabinet_type], cls._DoorClosed_holds),
+            Predicate("DrawerClosed", [cls.drawer_type, cls.cabinet_type], cls._DrawerClosed_holds),
             Predicate("InContact", [cls.object_type, cls.object_type], cls._InContact_holds),
             Predicate("OnSurface", [cls.thing_type, cls.surface_type], cls._OnSurface_holds),
             Predicate("DoorHalfOpen", [cls.handle_type, cls.cabinet_type], cls._DoorHalfOpen_holds),
             Predicate("KnobTurnedOn", [cls.knob_type, cls.stove_type], cls._KnobTurnedOn_holds),
             Predicate("InOrigin", [cls.gripper_type, cls.base_type], cls._InOrigin_holds),
+            Predicate("MicrowaveOn", [cls.microwave_type], cls._MicrowaveOn_holds),
+            Predicate("StoveOn", [cls.stove_type], cls._StoveOn_holds),
         }
 
         return {p.name: p for p in preds}
@@ -797,6 +818,12 @@ class RoboKitchenEnv(BaseEnv):
                 self._pred_name_to_pred["OnSurface"],
                 # self._pred_name_to_pred["DoorClosed"]
             }
+        elif goal_desc == "TurnOnMicrowave":
+            goal_preds = {self._pred_name_to_pred["MicrowaveOn"]}
+        elif goal_desc == "TurnOnStove":
+            goal_preds = {self._pred_name_to_pred["StoveOn"]}
+        elif goal_desc == "CloseDrawer":
+            goal_preds = {self._pred_name_to_pred["DrawerClosed"]}
         return goal_preds
 
     @property
@@ -828,6 +855,8 @@ class RoboKitchenEnv(BaseEnv):
             self.door_type,
             self.knob_type,
             self.stove_type,
+            self.microwave_type,
+            self.microwave_button_type,
         }
 
     def get_observation(self) -> Observation:
@@ -874,6 +903,18 @@ class RoboKitchenEnv(BaseEnv):
                 obj = cls.object_name_to_object(obj_name)
                 if obj is not None:
                     state_dict[obj] = {"translation": translation, "quaternion": quaternion}
+
+        # Add the 'on' feature to the microwave object
+        if "microwave_on" in state_info:
+            mic_obj = cls.object_name_to_object("microwave")
+            if mic_obj is not None and mic_obj in state_dict:
+                state_dict[mic_obj]["on"] = np.array([state_info["microwave_on"]])
+
+        # Add the 'on' feature to the stove object
+        if "stove_on" in state_info:
+            stove_obj = cls.object_name_to_object("stovetop")
+            if stove_obj is not None and stove_obj in state_dict:
+                state_dict[stove_obj]["on"] = np.array([state_info["stove_on"]])
 
         state = utils.create_state_from_dict(state_dict)
         state.simulator_state = {}
@@ -1091,6 +1132,42 @@ class RoboKitchenEnv(BaseEnv):
         is_on = cls.knob_on_thresh <= np.abs(rotation_value) <= 2 * np.pi - cls.knob_on_thresh
 
         return is_on
+
+    @classmethod
+    def _MicrowaveOn_holds(cls, state: State, objects: Sequence[Object]) -> bool:
+        """Check if the microwave is on."""
+        microwave, = objects
+        return state.get(microwave, "on")[0] > 0.5
+
+    @classmethod
+    def _StoveOn_holds(cls, state: State, objects: Sequence[Object]) -> bool:
+        """Check if the stove is on."""
+        stove, = objects
+        return state.get(stove, "on")[0] > 0.5
+
+    @classmethod
+    def _DrawerClosed_holds(cls, state: State, objects: Sequence[Object]) -> bool:
+        """Check if drawer is closed by checking the slide joint position.
+        
+        For drawers, closed means the slide joint position is close to 0.
+        Unlike doors which rotate, drawers slide linearly.
+        """
+        drawer, cabinet = objects
+        
+        # For now, we'll use the same position-based approach as doors
+        # but interpret it differently for drawers
+        drawer_pos = state.get(drawer, "translation")
+        cabinet_pos = state.get(cabinet, "translation")
+        
+        # Calculate relative position - for a closed drawer, it should be
+        # very close to the cabinet's position in the Y dimension (slide axis)
+        rel_pos = drawer_pos - cabinet_pos
+        
+        # For a closed drawer, the Y displacement should be minimal
+        # (drawers slide along Y-axis according to the XML)
+        drawer_close_thresh = 0.05  # meters - threshold for considering drawer closed
+        
+        return abs(rel_pos[1]) < drawer_close_thresh
 
     def close(self) -> None:
         """Close the Robosuite environment."""

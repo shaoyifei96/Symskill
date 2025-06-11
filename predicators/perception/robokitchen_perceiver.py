@@ -23,8 +23,11 @@ class RoboKitchenPerceiver(BasePerceiver):
         Dummy = pred_name_to_pred["Dummy"]
         DoorOpen = pred_name_to_pred["DoorOpen"]
         DoorClosed = pred_name_to_pred["DoorClosed"]
+        DrawerClosed = pred_name_to_pred["DrawerClosed"]
         OnSurface = pred_name_to_pred["OnSurface"]
         KnobTurnedOn = pred_name_to_pred["KnobTurnedOn"]
+        MicrowaveOn = pred_name_to_pred["MicrowaveOn"]
+        StoveOn = pred_name_to_pred["StoveOn"]
 
         # handle = RoboKitchenEnv.object_name_to_object("handle")
         # left_handle = RoboKitchenEnv.object_name_to_object("left_door_handle")
@@ -37,6 +40,9 @@ class RoboKitchenPerceiver(BasePerceiver):
         bottom = RoboKitchenEnv.object_name_to_object("bottom")
         stove = RoboKitchenEnv.object_name_to_object("stovetop")
         knob = RoboKitchenEnv.object_name_to_object("knob")
+        microwave = RoboKitchenEnv.object_name_to_object("microwave")
+        drawer = RoboKitchenEnv.object_name_to_object("drawer")
+        drawer_inner_box = RoboKitchenEnv.object_name_to_object("drawer_inner_box")
 
         goal_desc = env_task.goal_description
         if goal_desc == 'OpenSingleDoor':
@@ -76,11 +82,15 @@ class RoboKitchenPerceiver(BasePerceiver):
             }
         elif goal_desc == 'TurnOnMicrowave':
             goal = {
-                GroundAtom(Dummy, [])
+                GroundAtom(MicrowaveOn, [microwave])
             }
         elif goal_desc == 'TurnOnStove':
             goal = {
-                GroundAtom(KnobTurnedOn, [knob, stove]),
+                GroundAtom(StoveOn, [stove]),
+            }
+        elif goal_desc == 'CloseDrawer':
+            goal = {
+                GroundAtom(DrawerClosed, [drawer_inner_box, drawer]),
             }
         else:
             raise NotImplementedError(f"Unrecognized goal: {goal_desc}")
@@ -91,21 +101,36 @@ class RoboKitchenPerceiver(BasePerceiver):
             for g in goal:
                 if "goal" in g.predicate.name:
                     raise NotImplementedError("Not implemented properly! when saving goal, it is not converted to the right types")
-                    rel_pose_preds = CFG.dict_contact_predicate_to_rel_pose_predicates[(g.predicate.name, g.entities[0].type.name, g.entities[1].type.name)]
+                    # Build key based on number of entities
+                    if len(g.entities) == 1:
+                        rel_pose_key = (g.predicate.name, g.entities[0].type.name)
+                    else:
+                        rel_pose_key = (g.predicate.name, g.entities[0].type.name, g.entities[1].type.name)
+                    rel_pose_preds = CFG.dict_contact_predicate_to_rel_pose_predicates[rel_pose_key]
                     rel_pose_pred = list(rel_pose_preds)[0]
                     rel_pose_pred_atom = GroundAtom(rel_pose_pred, g.entities)
                     new_goal.add(rel_pose_pred_atom)
                 else:
-                    gt_goal_key = (g.predicate.name, g.entities[0].type.name, g.entities[1].type.name)
-                    dummy_goal_pred = list(CFG.dict_gt_goal_predicate_to_dummy_goal_predicates[gt_goal_key])[0]
-                    rel_pose_preds = CFG.dict_contact_predicate_to_rel_pose_predicates[(dummy_goal_pred.name, dummy_goal_pred.types[0].name, dummy_goal_pred.types[1].name)]
-                    rel_pose_pred = list(rel_pose_preds)[0]
-                    type1_objs = [obj for obj in state if obj.type == rel_pose_pred.types[0]]
-                    type2_objs = [obj for obj in state if obj.type == rel_pose_pred.types[1]]
-                    type1_obj = type1_objs[0]
-                    type2_obj = type2_objs[0]
-                    rel_pose_pred_atom = GroundAtom(rel_pose_pred, [type1_obj, type2_obj])
-                    new_goal.add(rel_pose_pred_atom)
+                    # Build key based on number of entities
+                    if len(g.entities) == 1:
+                        gt_goal_key = (g.predicate.name, g.entities[0].type.name)
+                    else:
+                        gt_goal_key = (g.predicate.name, g.entities[0].type.name, g.entities[1].type.name)
+                    
+                    # Check if this predicate needs conversion (only for 2-entity predicates currently)
+                    if gt_goal_key in CFG.dict_gt_goal_predicate_to_dummy_goal_predicates:
+                        dummy_goal_pred = list(CFG.dict_gt_goal_predicate_to_dummy_goal_predicates[gt_goal_key])[0]
+                        rel_pose_preds = CFG.dict_contact_predicate_to_rel_pose_predicates[(dummy_goal_pred.name, dummy_goal_pred.types[0].name, dummy_goal_pred.types[1].name)]
+                        rel_pose_pred = list(rel_pose_preds)[0]
+                        type1_objs = [obj for obj in state if obj.type == rel_pose_pred.types[0]]
+                        type2_objs = [obj for obj in state if obj.type == rel_pose_pred.types[1]]
+                        type1_obj = type1_objs[0]
+                        type2_obj = type2_objs[0]
+                        rel_pose_pred_atom = GroundAtom(rel_pose_pred, [type1_obj, type2_obj])
+                        new_goal.add(rel_pose_pred_atom)
+                    else:
+                        # For predicates not in the conversion dict (like MicrowaveOn), keep as is
+                        new_goal.add(g)
             goal = new_goal
 
         return Task(state, goal)
