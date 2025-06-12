@@ -510,6 +510,9 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             keep_indices = [6, 7, 12, 23, 39, 44, 45, 46]  # all left cab
             # keep_indices = [6, 23]
             dataset._trajectories = [dataset._trajectories[i] for i in keep_indices if i < len(dataset._trajectories)]
+        if CFG.robo_kitchen_task == "TurnOnStove":
+            keep_indices = [0, 1, 2, 3, 4, 6, 7, 8, 9]
+            dataset._trajectories = [dataset._trajectories[i] for i in keep_indices if i < len(dataset._trajectories)]
 
         # logging.info(f"Filtered dataset to trajectories (indices: {keep_indices})")
         # Clear caches before starting learning
@@ -813,7 +816,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                         q2 = R.from_quat(rot_t1)
                         q_diff = q2 * q1.inv()
                         delta2 = q_diff.magnitude()
-                        motion_data[i][obj].append((t, delta1+delta2))
+                        motion_data[i][obj].append((t, delta1+10*delta2)) # NOTE: adjust weight here
             
             
             # clear in contact set for each state !!!! This makes our method not previledged, good!
@@ -1998,9 +2001,11 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
 
                         # ------ get relative pose trajs of obj_contact_with_gripper in all other obj's frame ------ #
                         obj_contact_with_gripper = obj1
-                        if obj_contact_with_gripper not in object_in_contact_with_gripper_longest_duration[i]:
-                            object_in_contact_with_gripper_longest_duration[i][obj_contact_with_gripper] = 0
-                        object_in_contact_with_gripper_longest_duration[i][obj_contact_with_gripper] += 1
+                        # Exclude robot base from contact duration tracking
+                        if "base" not in obj_contact_with_gripper.name.lower():
+                            if obj_contact_with_gripper not in object_in_contact_with_gripper_longest_duration[i]:
+                                object_in_contact_with_gripper_longest_duration[i][obj_contact_with_gripper] = 0
+                            object_in_contact_with_gripper_longest_duration[i][obj_contact_with_gripper] += 1
 
                         for obj in all_objs: # go through all object to get obj-obj relative pose
                             if obj.type == gripper_type or obj == obj_contact_with_gripper:
