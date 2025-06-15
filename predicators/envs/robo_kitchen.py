@@ -38,6 +38,23 @@ logging.getLogger("jax").setLevel(logging.ERROR)
 MAX_CARTESIAN_DISPLACEMENT = 1.0
 MAX_ROTATION_DISPLACEMENT = 1.0
 
+# gripper - base offset in base frame
+
+init_delta_gripper_base = np.array([ 0.24262412, -0.00722384,  0.58795444])
+init_delta_gripper_base_rot = np.array([ 0.99227682,  0.03468661, -0.11850566,  0.01183061])
+
+# q1 = np.array([x1, y1, z1, w1])  # First quaternion
+# q2 = np.array([x2, y2, z2, w2])  # Second quaternion
+
+# # Convert to Rotation objects
+# r1 = R.from_quat(q1)
+# r2 = R.from_quat(q2)
+
+# # Get relative rotation (q2 * q1^-1)
+# relative_rot = r2 * r1.inv()
+
+# # Get the resulting quaternion
+# result_quat = relative_rot.as_quat()
 
 class RoboKitchenEnv(BaseEnv):
     """Kitchen environment using robosuite."""
@@ -379,6 +396,7 @@ class RoboKitchenEnv(BaseEnv):
         goal_desc = self.task_selected
 
         if goal_desc == "OpenSingleDoor":
+            return False
             # handle = self.object_name_to_object("handle")
             # cabinet = self.object_name_to_object("cabinet")
             # if self._DoorOpen_holds(state, [handle, cabinet]):
@@ -664,12 +682,48 @@ class RoboKitchenEnv(BaseEnv):
         # - Next 1D: torso (no movement)
         # - Last 1D: extra dimension (not used)
         env_action = np.zeros(12, dtype=np.float32)
+        arm_ratio = 0.5
+        arm_pos = np.array([arm_ratio * pos_delta[0], arm_ratio * pos_delta[1], pos_delta[2]])
+        base_pos = (1.0 - arm_ratio) * pos_delta[0:2]
 
-        env_action[0:3] = pos_delta  # position control
+
+        env_action[0:3] = arm_pos  # position control
         env_action[3:6] = rot_delta  # rotation control
         env_action[6] = gripper_cmd  # gripper control
         if CFG.use_teleop:
             env_action[7:10] = input_ac_dict["base"]
+        elif CFG.use_teleop is None:
+            env_action[7:9] = base_pos
+        gripper_obj = self._current_state.get_objects(self.gripper_type)[0]
+        base_obj = self._current_state.get_objects(self.base_type)[0]
+        gripper_pos, gripper_quat = get_gripper_in_base_frame(self._current_state, gripper_obj, base_obj)
+        # # convert gripper_quat to euler angles
+        # # euler_angles = R.from_quat(gripper_quat).as_euler("xyz", degrees=False)
+        # # print(f"euler_angles: {euler_angles}")
+        # find delta pos and quat to control the base
+        delta_pos = gripper_pos[0:2] - init_delta_gripper_base[0:2]
+        distance = np.linalg.norm(gripper_pos)
+        # get angle between robot and gripper with atan2
+        angle = np.arctan2(gripper_pos[1], gripper_pos[0])
+        # print(f"angle: {angle}, {distance}")
+        # print(f"gripper_pos: {gripper_pos}")
+        # print(f"delta_pos: {delta_pos}")
+        # set deadzone to 0.01
+        
+        if delta_pos[0] > -0.01 and delta_pos[0] < 0.25:
+            delta_pos[0] = 0.0
+        if np.linalg.norm(delta_pos[1]) < 0.2:
+            delta_pos[1] = 0.0
+        env_action[8] = env_action[8] + delta_pos[1] * 0.3
+        # # if np.linalg.norm(angle) < 0.1:
+        # #     angle = 0.0
+        # env_action[9] = angle *0.3
+        # delta_quat = gripper_quat - init_delta_gripper_base_rot
+        # if np.linalg.norm(delta_quat) < 0.05:
+        #     delta_quat = np.zeros(4)
+        # env_action[7:10] = delta_pos
+        # env_action[10] = gripper_quat
+
         # env_action[7:10] are zeros (no base movement)
         # env_action[10] is zero (no torso movement)
         # env_action[11] is zero (extra dimension)
@@ -1190,3 +1244,38 @@ def frame_transform(pos_in_init: np.ndarray, quat_in_init: np.ndarray, target_po
     rot_in_target = target_rot.T @ rot_in_init
 
     return pos_in_target, rot_in_target
+def get_gripper_in_base_frame(state: State, gripper: Object, base: Object) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Get gripper's position and quaternion in base frame.
+    
+    Args:
+        state: Current state containing object poses
+        gripper: Gripper object
+        base: Base object
+    
+    Returns:
+        Tuple of (position, quaternion) in base frame
+    """
+    # Get base and gripper poses in world frame
+    base_pos = state.get(base, "translation")  # [x, y, z]
+    base_quat = state.get(base, "quaternion")  # [x, y, z, w]
+    gripper_pos = state.get(gripper, "translation")  # [x, y, z]
+    gripper_quat = state.get(gripper, "quaternion")  # [x, y, z, w]
+    
+    # Convert quaternions to rotation matrices
+    base_rot = R.from_quat(base_quat).as_matrix()
+    gripper_rot = R.from_quat(gripper_quat).as_matrix()
+    
+    # Calculate position in base frame
+    # First subtract base position to get relative position in world frame
+    rel_pos_world = gripper_pos - base_pos
+    # Then rotate to base frame
+    rel_pos_base = base_rot.T @ rel_pos_world
+    
+    # Calculate quaternion in base frame
+    # First get relative rotation in world frame
+    rel_rot_world = gripper_rot @ base_rot.T
+    # Convert back to quaternion
+    rel_quat_base = R.from_matrix(rel_rot_world).as_quat()
+    
+    return rel_pos_base, rel_quat_base

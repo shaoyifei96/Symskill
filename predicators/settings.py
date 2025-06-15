@@ -21,7 +21,7 @@ class GlobalSettings:
     reprocess_ground_atom_dataset_using_cluster_predicates = False
     remove_inOrigin_pred = True
 
-    use_learnt_goal_predicates = False
+    use_learnt_goal_predicates = True
     use_negated_goal_predicates = False
 
     init_pose = np.array([0.24844874, 0.00726439, 0.59251043, 0.98900046, 0.05834797, 0.13247817, -0.0303833])
@@ -75,18 +75,18 @@ class GlobalSettings:
     robo_kitchen_randomize_init_state = True  # not used
     # robo_kitchen_task = "PnPCounterToCab"
     # robo_kitchen_task = "OpenSingleDoor"
-    # robo_kitchen_task = "CloseSingleDoor"
-    # robo_kitchen_task = "TurnOnStove"
-    # robo_kitchen_task = "StoreFruit"
-    # robo_kitchen_task = "StoreFruitFull"
+    robo_kitchen_task = "CloseSingleDoor"
     # robo_kitchen_task = "TurnOnMicrowave"
     # robo_kitchen_task = "CloseDrawer"
-    robo_kitchen_task = "TurnOnStove"
+    # robo_kitchen_task = "TurnOnStove"
+    # composite tasks
+    # robo_kitchen_task = "StoreFruit"
+    # robo_kitchen_task = "StoreFruitFull"
     # robo_kitchen_viz_debug = False # i think the use_gui flag covers this
     robo_kitchen_contact_smoothing_window = 21
-    robo_kitchen_load_dataset = False  # this has priority, if False, then save flag is considered
+    robo_kitchen_load_dataset = True  # this has priority, if False, then save flag is considered
     robo_kitchen_save_dataset = not robo_kitchen_load_dataset
-    robo_kitchen_save_traj_by_segment = True
+    robo_kitchen_save_traj_by_segment = False
     robo_kitchen_policy_model = "node"  # "simple_ds" or "node"
     make_test_videos = False
     loglevel = 10
@@ -96,7 +96,7 @@ class GlobalSettings:
         visualizer = None
     option_to_init_pose: Dict[str, List[np.ndarray]] = {}
     option_to_policy = {}
-    use_teleop = False # Keyboard teleop, for debugging
+    use_teleop = None # None for WBC, True for Keyboard, False for no motion
 
     """Unchanging settings."""
     # global parameters

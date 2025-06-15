@@ -1181,6 +1181,9 @@ class _LearnedDSParameterizedOption(ParameterizedOption):
         grounded_op = self.operator.ground(tuple(objects))
         return all(pre.holds(state) for pre in grounded_op.preconditions)
 
+
+
+
     def _DS_based_policy(self, state: State, memory: Dict, objects: Sequence[Object], params: Array) -> Action:
         # NOTE: assume objects contains gripper and obj_of_interest. We can find base from state
         # use the first base in state as base
