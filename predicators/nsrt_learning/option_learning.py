@@ -1164,7 +1164,7 @@ class _LearnedDSParameterizedOption(ParameterizedOption):
     A parameterized option that uses DSPolicy for action selection.
     """
 
-    prev_left_right_finger_dist = 0.0
+    prev_left_right_finger_dist = None
 
     def __init__(
         self, name: str, operator: STRIPSOperator, ds_policy: DSPolicy, ooi_type_name: str, gripper_or_obj_type: str, gripper_action: float, is_parameterized: bool = True
@@ -1200,23 +1200,24 @@ class _LearnedDSParameterizedOption(ParameterizedOption):
         
         # === ACCESS FAILURE INFORMATION ===
         # The failure information from execution monitor is already available in memory!
-        failure_memory = memory.get("fail_memory", [])
-        if failure_memory:
-            logging.info(f"DS Option {self.name} accessing {len(failure_memory)} failure entries")
-            # Process failures and collect indices to remove
-            processed_indices = []
-            for idx, failure_info in enumerate(failure_memory):
-                logging.info(f"Previous failure: {failure_info.option_name} - {failure_info.cause}")
-                if failure_info.option_name == self.name:
-                    # NOTE: failure adaptation logic here
-                    self._ds_policy.resample()
-                    processed_indices.append(idx)
-            
-            # Remove processed failures (in reverse order to maintain indices)
-            for idx in reversed(processed_indices):
-                failure_memory.pop(idx)
-            
-            logging.info(f"Processed {len(processed_indices)} failures, {len(failure_memory)} failures remaining")
+        if CFG.resample_in_cluster:
+            failure_memory = memory.get("fail_memory", [])
+            if failure_memory:
+                logging.info(f"DS Option {self.name} accessing {len(failure_memory)} failure entries")
+                # Process failures and collect indices to remove
+                processed_indices = []
+                for idx, failure_info in enumerate(failure_memory):
+                    logging.info(f"Previous failure: {failure_info.option_name} - {failure_info.cause}")
+                    if failure_info.option_name == self.name:
+                        # NOTE: failure adaptation logic here
+                        self._ds_policy.resample()
+                        processed_indices.append(idx)
+                
+                # Remove processed failures (in reverse order to maintain indices)
+                for idx in reversed(processed_indices):
+                    failure_memory.pop(idx)
+                
+                logging.info(f"Processed {len(processed_indices)} failures, {len(failure_memory)} failures remaining")
         
         base = None
         OOI_obj = None
@@ -1290,7 +1291,10 @@ class _LearnedDSParameterizedOption(ParameterizedOption):
         else:
             gripper_state = 1.0  # close
 
-        if gripper_state == self._gripper_action and np.abs(left_right_finger_dist - self.prev_left_right_finger_dist) < 1e-3:
+        if self.prev_left_right_finger_dist is None \
+            or (gripper_state == self._gripper_action \
+            and np.abs(left_right_finger_dist - self.prev_left_right_finger_dist) < 1e-3):
+            # NOTE: this is a hack to prevent the option from getting stuck when the finger distance is close to 0.1
             action_low = np.array([-1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0], dtype=np.float32)
             action_high = np.array([1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0], dtype=np.float32)
         else:
@@ -1298,7 +1302,10 @@ class _LearnedDSParameterizedOption(ParameterizedOption):
             action_high = np.array([0, 0, 0, 0, 0, 0, 1.0], dtype=np.float32)
         action_arr = np.clip(action_arr, action_low, action_high)
         # print(f"action_arr: {action_arr}")
+        # if self.prev_left_right_finger_dist is None:
         self.prev_left_right_finger_dist = left_right_finger_dist
+        # else: #exponential moving average
+        #     self.prev_left_right_finger_dist = 0.7 * self.prev_left_right_finger_dist + 0.3 * left_right_finger_dist
 
         if CFG.visualizer:
             rel_gripper_visualizer_rot = np.array([[0, 0, 1], [1, 0, 0], [0, 1, 0]])  # NOTE: this is a "correction" term: to rotate gripper's frame to visualize in the way we want
@@ -1313,7 +1320,7 @@ class _LearnedDSParameterizedOption(ParameterizedOption):
     def _optimized_effect_based_terminal(self, state: State, memory: Dict, objects: Sequence[Object], params: Array) -> bool:
         # NOTE: based on optimized_effect_based_terminal in _LearnedNeuralParameterizedOption
         # disabled effect-based terminal check, since having a operator in the option make things more difficult to copy
-        terminate = self.effect_based_terminal(state, objects)
+        # terminate = self.effect_based_terminal(state, objects)
         # Optimization: remember the most recent state and terminate early if
         # the state is repeated, since this option will never get unstuck.
         # Keep track of states in memory

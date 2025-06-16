@@ -507,7 +507,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             dataset._trajectories = [dataset._trajectories[i] for i in keep_indices if i < len(dataset._trajectories)]
         if CFG.robo_kitchen_task == "PnPCounterToCab":
             # keep_indices = [4, 6, 7, 12, 23, 33, 39, 44, 45, 46, 48]  # all left cab
-            keep_indices = [6, 7, 12, 23, 39, 44, 45, 46]  # all left cab
+            keep_indices = [6, 7, 23, 39, 44, 45, 46]  # all left cab
             # keep_indices = [6, 23]
             dataset._trajectories = [dataset._trajectories[i] for i in keep_indices if i < len(dataset._trajectories)]
         if CFG.robo_kitchen_task == "TurnOnStove":
@@ -834,9 +834,8 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             
             if max_motion_obj is not None:
                 # Find first and last frame of significant motion
-                motion_threshold = 0.001  # 10 Hz data, vel > 1 cm/s (there is also rot motion)
-                motion_frames = [t for t, vel in motion_data[i][max_motion_obj] if vel > motion_threshold]
-                
+                motion_frames = [t for t, vel in motion_data[i][max_motion_obj] if vel > CFG.motion_analysis_contact_threshold and t > 5]
+                # NOTE: we are only looking at motion after 5 steps, since the first few steps are noisy 
                 if motion_frames:
                     first_motion = min(motion_frames)
                     last_motion = max(motion_frames)

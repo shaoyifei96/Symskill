@@ -35,8 +35,11 @@ class GlobalSettings:
 
     # clustering_invention approach parameters
     predicate_candidates_method = "motion_analysis_contact"  # "low_speed" or "contact_clustering" or "motion_analysis_contact"
+    motion_analysis_contact_threshold = 0.04
     clustering_inv_cov_reg = 1e-3
     clustering_change_only = False
+    
+    resample_in_cluster = False
 
     clustering_moving_average_window = 5
     clustering_debug = True
@@ -77,13 +80,13 @@ class GlobalSettings:
     robo_kitchen_randomize_init_state = True  # not used
     # robo_kitchen_task = "PnPCounterToCab"
     # robo_kitchen_task = "OpenSingleDoor"
-    robo_kitchen_task = "CloseSingleDoor"
+    # robo_kitchen_task = "CloseSingleDoor"
     # robo_kitchen_task = "TurnOnMicrowave"
     # robo_kitchen_task = "CloseDrawer"
     # robo_kitchen_task = "TurnOnStove"
     # composite tasks
     # robo_kitchen_task = "StoreFruit"
-    # robo_kitchen_task = "StoreFruitFull"
+    robo_kitchen_task = "StoreFruitFull"
     # robo_kitchen_viz_debug = False # i think the use_gui flag covers this
     robo_kitchen_contact_smoothing_window = 21
     robo_kitchen_load_dataset = True  # this has priority, if False, then save flag is considered

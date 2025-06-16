@@ -60,7 +60,7 @@ class RoboKitchenEnv(BaseEnv):
     """Kitchen environment using robosuite."""
 
     door_open_thresh = np.deg2rad(80)  # rad
-    door_close_thresh = np.deg2rad(5)  # rad
+    door_close_thresh = np.deg2rad(10)  # rad
     knob_on_thresh = 0.35  # rad
     door_half_open_thresh = 0.4  # rad
     grab_close_distance_thresh = 0.02  # m
@@ -709,7 +709,7 @@ class RoboKitchenEnv(BaseEnv):
                 delta_pos[0] = 0.0
             if np.linalg.norm(delta_pos[1]) < 0.2:
                 delta_pos[1] = 0.0
-            env_action[8] = env_action[8] + delta_pos[1] * 0.3
+            # env_action[8] = env_action[8] + delta_pos[1] * 0.3 # keep base and arm close in y
         else: # either teleop or no teleop
             env_action[0:3] = pos_delta  # position control
             env_action[3:6] = rot_delta  # rotation control

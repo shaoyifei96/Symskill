@@ -22,6 +22,7 @@ import torch
 from predicators.DS_models.gen_demo_model import DynamicalSystem
 
 from scipy.spatial.transform import Rotation as R
+from predicators.utils import calculate_relative_pose
 
 import warnings
 
@@ -417,6 +418,23 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
             gripper_pos_in_base, gripper_rot_in_base = frame_transform(gripper_pos, gripper_quat, base_pos, R.from_quat(base_quat).as_matrix())
             gripper_quat_in_base = R.from_matrix(gripper_rot_in_base).as_quat()
 
+
+            left_finger = None
+            right_finger = None 
+
+            for obj in state.data:
+                if obj.type.name == "left_finger_type":
+                    left_finger = obj
+                if obj.type.name == "right_finger_type":
+                    right_finger = obj
+                if left_finger and right_finger:
+                    break
+
+            assert base and left_finger and right_finger
+
+            left_right_finger_dist = calculate_relative_pose(state, left_finger, right_finger, "translation", "quaternion")
+            left_right_finger_dist = np.linalg.norm(left_right_finger_dist[:3])
+
             if np.linalg.norm(np.concatenate([gripper_pos_in_base, gripper_quat_in_base], axis=0) - memory["waypoints"][memory["current_waypoint"]]) < 0.2:
                 if memory["current_waypoint"] < memory["num_waypoints"] - 1:
                     memory["current_waypoint"] += 1 
@@ -450,8 +468,13 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
             # action[3:6] = 0.0
             action[6] = -1.0  # Keep gripper open
 
-            action_low = np.array([-1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0], dtype=np.float32)
-            action_high = np.array([1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0], dtype=np.float32)
+            if left_right_finger_dist < 0.10:
+                action_low = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -1.0], dtype=np.float32)
+                action_high = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0], dtype=np.float32)
+            else:
+                action_low = np.array([-1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0], dtype=np.float32)
+                action_high = np.array([1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0], dtype=np.float32)
+
             action = np.clip(action, action_low, action_high)
 
             return Action(action)
