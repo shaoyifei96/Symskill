@@ -396,7 +396,6 @@ class RoboKitchenEnv(BaseEnv):
         goal_desc = self.task_selected
 
         if goal_desc == "OpenSingleDoor":
-            return False
             # handle = self.object_name_to_object("handle")
             # cabinet = self.object_name_to_object("cabinet")
             # if self._DoorOpen_holds(state, [handle, cabinet]):
