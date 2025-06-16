@@ -755,13 +755,22 @@ class _DSOptionLearner(_OptionLearnerBase):
             relative_cluster_attractor = None
             dict_key = ("InContact", set_OOI_type_name.pop(), set_gripper_or_obj_type_name.pop())
             # TODO: Goal can be checked too
-            if dict_key in CFG.dict_contact_predicate_to_rel_pose_predicates:
-                relative_clusters = CFG.dict_contact_predicate_to_rel_pose_predicates[dict_key]
-                if len(relative_clusters) == 1:
-                    relative_cluster_attractor = list(relative_clusters)[0]._classifier.cluster_center
-                else:
-                    logging.warning(f"NSRT {op.name} has multiple relative cluster attractors for {dict_key}, using first one")
-                    relative_cluster_attractor = list(relative_clusters)[0]._classifier.cluster_center
+            if CFG.use_cluster_center_as_attractor:
+                if dict_key in CFG.dict_contact_predicate_to_rel_pose_predicates:
+                    relative_clusters = CFG.dict_contact_predicate_to_rel_pose_predicates[dict_key]
+                    if len(relative_clusters) == 1:
+                        relative_cluster_attractor = list(relative_clusters)[0]._classifier.cluster_center
+                    else:
+                        logging.warning(f"NSRT {op.name} has multiple relative cluster attractors for {dict_key}, using first one")
+                        relative_cluster_attractor = list(relative_clusters)[0]._classifier.cluster_center
+            else:
+                # Calculate average of end points from all trajectories
+                end_points_pos = np.array([traj[-1] for traj in x])
+                relative_cluster_attractor_pos = np.mean(end_points_pos, axis=0)
+                end_points_quat = np.array([quat[-1] for quat in quat])
+                relative_cluster_attractor_quat = R.from_quat(end_points_quat).mean().as_quat()
+                relative_cluster_attractor = np.concatenate([relative_cluster_attractor_pos, relative_cluster_attractor_quat])
+
 
             plot_DSPolicy_input_data(
                 x, x_dot, quat, omega, 

@@ -24,6 +24,8 @@ class GlobalSettings:
     use_learnt_goal_predicates = True
     use_negated_goal_predicates = False
 
+    use_cluster_center_as_attractor = False
+
     init_pose = np.array([0.24844874, 0.00726439, 0.59251043, 0.98900046, 0.05834797, 0.13247817, -0.0303833])
 
     learn_option_between_gripper_obj = True # if False, then the option is between the ooi and the handled object, turns out to be much work since non-prehencial
@@ -42,7 +44,7 @@ class GlobalSettings:
     clustering_se3_trans_weight = 10  # 0.05 m # 10 times differnece
     clustering_se3_rot_weight = 0.0  # 30 deg = 0.5236 rad
     clustering_feature_constancy_percentile = 10  # of total number of data points = 13782
-    clustering_se3_epsilon = 0.3  # 0.707
+    clustering_se3_epsilon = 3.0 # made very big since we are only keeping 1 cluster!!!
     clustering_visualization_frame_axis_length = 0.05
     # clustering_translation_constancy_tol = 0.01/10 # 10 hz 0.01 m
     # clustering_quaternion_constancy_tol = 0.01 # 10 hz 0.01 rad
@@ -64,7 +66,7 @@ class GlobalSettings:
 
     clustering_algorithm = "agglomerative"  # "hdbscan" or "agglomerative"
     clustering_min_ratio_of_data = 0.1  # 10% of the contact points 2068 * 0.1 = 206
-    clustering_max_clusters = 3
+    clustering_max_clusters = 1
     clustering_search_beam_width = 15
     clustering_search_alpha = 0.4
     clustering_search_max_iterations = 30
