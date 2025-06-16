@@ -96,7 +96,7 @@ class GlobalSettings:
         visualizer = None
     option_to_init_pose: Dict[str, List[np.ndarray]] = {}
     option_to_policy = {}
-    use_teleop = None # None for WBC, True for Keyboard, False for no motion
+    use_teleop = False # None for WBC, True for Keyboard, False for no base motion
 
     """Unchanging settings."""
     # global parameters

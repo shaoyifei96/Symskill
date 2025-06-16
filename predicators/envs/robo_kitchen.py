@@ -682,39 +682,43 @@ class RoboKitchenEnv(BaseEnv):
         # - Next 1D: torso (no movement)
         # - Last 1D: extra dimension (not used)
         env_action = np.zeros(12, dtype=np.float32)
-        arm_ratio = 0.5
-        arm_pos = np.array([arm_ratio * pos_delta[0], arm_ratio * pos_delta[1], pos_delta[2]])
-        base_pos = (1.0 - arm_ratio) * pos_delta[0:2]
-
-
-        env_action[0:3] = arm_pos  # position control
-        env_action[3:6] = rot_delta  # rotation control
-        env_action[6] = gripper_cmd  # gripper control
-        if CFG.use_teleop:
-            env_action[7:10] = input_ac_dict["base"]
-        elif CFG.use_teleop is None:
+        if CFG.use_teleop is None: # none for WBC
+            arm_ratio = 0.5
+            arm_pos = np.array([arm_ratio * pos_delta[0], arm_ratio * pos_delta[1], pos_delta[2]])
+            base_pos = (1.0 - arm_ratio) * pos_delta[0:2]
+            env_action[0:3] = arm_pos  # position control
+            env_action[3:6] = rot_delta  # rotation control
+            env_action[6] = gripper_cmd  # gripper control
             env_action[7:9] = base_pos
-        gripper_obj = self._current_state.get_objects(self.gripper_type)[0]
-        base_obj = self._current_state.get_objects(self.base_type)[0]
-        gripper_pos, gripper_quat = get_gripper_in_base_frame(self._current_state, gripper_obj, base_obj)
-        # # convert gripper_quat to euler angles
-        # # euler_angles = R.from_quat(gripper_quat).as_euler("xyz", degrees=False)
-        # # print(f"euler_angles: {euler_angles}")
-        # find delta pos and quat to control the base
-        delta_pos = gripper_pos[0:2] - init_delta_gripper_base[0:2]
-        distance = np.linalg.norm(gripper_pos)
-        # get angle between robot and gripper with atan2
-        angle = np.arctan2(gripper_pos[1], gripper_pos[0])
-        # print(f"angle: {angle}, {distance}")
-        # print(f"gripper_pos: {gripper_pos}")
-        # print(f"delta_pos: {delta_pos}")
-        # set deadzone to 0.01
+            gripper_obj = self._current_state.get_objects(self.gripper_type)[0]
+            base_obj = self._current_state.get_objects(self.base_type)[0]
+            gripper_pos, gripper_quat = get_gripper_in_base_frame(self._current_state, gripper_obj, base_obj)
+            # # convert gripper_quat to euler angles
+            # # euler_angles = R.from_quat(gripper_quat).as_euler("xyz", degrees=False)
+            # # print(f"euler_angles: {euler_angles}")
+            # find delta pos and quat to control the base
+            delta_pos = gripper_pos[0:2] - init_delta_gripper_base[0:2]
+            distance = np.linalg.norm(gripper_pos)
+            # get angle between robot and gripper with atan2
+            angle = np.arctan2(gripper_pos[1], gripper_pos[0])
+            # print(f"angle: {angle}, {distance}")
+            # print(f"gripper_pos: {gripper_pos}")
+            # print(f"delta_pos: {delta_pos}")
+            # set deadzone to 0.01
+            
+            if delta_pos[0] > -0.01 and delta_pos[0] < 0.25:
+                delta_pos[0] = 0.0
+            if np.linalg.norm(delta_pos[1]) < 0.2:
+                delta_pos[1] = 0.0
+            env_action[8] = env_action[8] + delta_pos[1] * 0.3
+        else: # either teleop or no teleop
+            env_action[0:3] = pos_delta  # position control
+            env_action[3:6] = rot_delta  # rotation control
+            env_action[6] = gripper_cmd  # gripper control
         
-        if delta_pos[0] > -0.01 and delta_pos[0] < 0.25:
-            delta_pos[0] = 0.0
-        if np.linalg.norm(delta_pos[1]) < 0.2:
-            delta_pos[1] = 0.0
-        env_action[8] = env_action[8] + delta_pos[1] * 0.3
+        if CFG.use_teleop: # keyboard teleop populate other fields 
+            env_action[7:10] = input_ac_dict["base"]
+
         # # if np.linalg.norm(angle) < 0.1:
         # #     angle = 0.0
         # env_action[9] = angle *0.3
