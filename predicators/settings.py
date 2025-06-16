@@ -39,7 +39,7 @@ class GlobalSettings:
     clustering_inv_cov_reg = 1e-3
     clustering_change_only = False
     
-    resample_in_cluster = False
+    resample_in_cluster = True
 
     clustering_moving_average_window = 5
     clustering_debug = True
@@ -101,7 +101,7 @@ class GlobalSettings:
         visualizer = None
     option_to_init_pose: Dict[str, List[np.ndarray]] = {}
     option_to_policy = {}
-    use_teleop = False # None for WBC, True for Keyboard, False for no base motion
+    use_teleop = None # None for WBC, True for Keyboard, False for no base motion
 
     """Unchanging settings."""
     # global parameters

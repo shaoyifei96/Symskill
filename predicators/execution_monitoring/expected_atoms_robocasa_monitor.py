@@ -23,6 +23,7 @@ class ExpectedAtomsRobocasaExecutionMonitor(BaseExecutionMonitor):
         # Track the current executing option and its start time
         self._running_option_name: str = None
         self._last_option_name: str = None
+        self._last_option_name_presistent: str = None
         self._option_start_timestep: int = 0
         self._max_option_exe_timesteps: int = 1000  # Maximum timesteps before considering option failed
         self._current_nsrt_step = 0
@@ -73,7 +74,7 @@ class ExpectedAtomsRobocasaExecutionMonitor(BaseExecutionMonitor):
         unsat_maintain_effects = self._check_maintain_effects(state, current_maintain_effects)
         if unsat_maintain_effects:
             failure_reason = self._format_failure_reason("Maintain", unsat_maintain_effects)
-            self._record_failure(self._running_option_name, state, failure_reason)
+            self._record_failure(self._last_option_name_presistent, state, failure_reason) # so resampler resamples the goal of previous option, more likely a grasp
             return True
 
         # if new option, check new predicates are satisfied
@@ -138,6 +139,7 @@ class ExpectedAtomsRobocasaExecutionMonitor(BaseExecutionMonitor):
                 if self._last_option_name is not None:
                     new_option_bool = True
                     last_option_name = self._last_option_name
+                    self._last_option_name_presistent = self._last_option_name
                 self._last_option_name = self._running_option_name
                 self._option_start_timestep = self._curr_plan_timestep
                 logging.info(f"Starting new option: {self._running_option_name}")
