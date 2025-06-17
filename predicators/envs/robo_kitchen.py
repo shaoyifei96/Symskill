@@ -583,9 +583,26 @@ class RoboKitchenEnv(BaseEnv):
                     obj = self.object_name_to_object(obj_name)
                     contacts.add((robot_body_obj, obj))
 
-        gripper_contact = self._env.get_contacts(self._env.robots[0].robot_model.models[1])  # gripper
+        # Get all contacts and filter for gripper-related ones
+        gripper_contact = []
+        for i in range(self._env_raw.sim.data.ncon):
+            contact = self._env_raw.sim.data.contact[i]
+            g1 = self._env_raw.sim.model.geom_id2name(contact.geom1)
+            g2 = self._env_raw.sim.model.geom_id2name(contact.geom2)
+            # Check if either geom belongs to gripper/finger
+            if any(name in g1 for name in ["gripper", "finger", "finger1", "finger2", "fingertip", "fingerpad"]):
+                # Add the non-gripper geom (g2)
+                gripper_contact.append(g2)
+            elif any(name in g2 for name in ["gripper", "finger", "finger1", "finger2", "fingertip", "fingerpad"]):
+                # Add the non-gripper geom (g1)
+                gripper_contact.append(g1)
+
+        # Process gripper contacts to create contact pairs
         gripper_obj = self.object_name_to_object("gripper")
-        for contact in gripper_contact:
+        # Remove duplicates by converting to set
+        unique_gripper_contacts = set(gripper_contact)
+        
+        for contact in unique_gripper_contacts:
             for obj_name in object_names:
                 for contact_name in contact_name_to_object:
                     if contact_name in contact:
