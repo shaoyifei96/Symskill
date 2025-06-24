@@ -393,6 +393,18 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
             memory["waypoints"] = waypoints
             memory["current_waypoint"] = 0
 
+            gripper, base = objects
+            gripper_pos = state.get(gripper, "translation")
+            gripper_quat = state.get(gripper, "quaternion")
+            base_pos = state.get(base, "translation")
+            base_quat = state.get(base, "quaternion")
+            gripper_pos_in_base, gripper_rot_in_base = frame_transform(gripper_pos, gripper_quat, base_pos, R.from_quat(base_quat).as_matrix())
+            gripper_quat_in_base = R.from_matrix(gripper_rot_in_base).as_quat()
+            if not np.linalg.norm(gripper_pos_in_base - np.array([-0.03077441,  0.25941396,  0.86963758])) < 0.2:
+                #remove all waypoints except the last one
+                memory["waypoints"] = [memory["waypoints"][-1]]
+                memory["num_waypoints"] = 1
+
             return True
 
         def _move_to_init_pose_option_terminal(state: State, memory: Dict, objects: Sequence[Object], params: Array) -> bool:
@@ -400,9 +412,15 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
             Note: objects contains gripper and base (in this order)
             """
             gripper, base = objects
+            gripper_pos = state.get(gripper, "translation")
+            gripper_quat = state.get(gripper, "quaternion")
+            base_pos = state.get(base, "translation")
+            base_quat = state.get(base, "quaternion")
+            gripper_pos_in_base, gripper_rot_in_base = frame_transform(gripper_pos, gripper_quat, base_pos, R.from_quat(base_quat).as_matrix())
+            gripper_quat_in_base = R.from_matrix(gripper_rot_in_base).as_quat()
 
-            in_origin = RoboKitchenEnv._InOrigin_holds(state, [gripper, base])
-            return in_origin
+            return np.linalg.norm(np.concatenate([gripper_pos_in_base, gripper_quat_in_base], axis=0) - memory["waypoints"][-1]) < 0.1
+            # in_origin = RoboKitchenEnv._InOrigin_holds(state, [gripper, base])
 
         def move_to_init_pose_policy(state: State, memory: Dict, objects: Sequence[Object], params: Array) -> Action:
             """

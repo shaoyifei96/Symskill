@@ -26,7 +26,7 @@ class GlobalSettings:
 
     use_cluster_center_as_attractor = False
 
-    init_pose = np.array([0.24844874, 0.00726439, 0.59251043, 0.98900046, 0.05834797, 0.13247817, -0.0303833])
+    init_pose = np.array([0.24844874, 0.00726439, 0.59251043, 0.98814909,  0.04089472, -0.14543901,  0.02713826])
 
     learn_option_between_gripper_obj = True # if False, then the option is between the ooi and the handled object, turns out to be much work since non-prehencial
 
@@ -101,7 +101,7 @@ class GlobalSettings:
         visualizer = None
     option_to_init_pose: Dict[str, List[np.ndarray]] = {}
     option_to_policy = {}
-    use_teleop = None # None for WBC, True for Keyboard, False for no base motion
+    use_teleop = False # None for WBC, True for Keyboard, False for no base motion
 
     """Unchanging settings."""
     # global parameters
