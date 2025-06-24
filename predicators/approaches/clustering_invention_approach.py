@@ -83,7 +83,90 @@ class _NegationClassifier(_ProgrammaticClassifier):
             # was not found on _NegationClassifier or its body's classifier.
             raise AttributeError(f"'{type(self).__name__}' object and its body's classifier " f"have no attribute '{name}'") from e
 
+@dataclass(frozen=True, eq=False, repr=False)
+class _RelativeFeatureCovClusterClassifierTransRot(_BinaryClassifier):
+    """Classifies based on the Mahalanobis distance of a relative feature vector
+    (including 7D pose) between two objects to a target cluster center and covariance.
 
+    Uses the provided covariance matrix to define the cluster boundary.
+    Classification is True if the Mahalanobis distance squared is less than or
+    equal to a threshold derived from the Chi-squared distribution.
+
+    The inverse covariance and threshold must be pre-calculated and passed in.
+    """
+    object1_type: Type
+    object2_type: Type
+    feature_name: str # Will be "pose" for SE(3) clusters
+    cluster_id: int
+    trans_center: np.ndarray # Can be 7D for pose
+    rot_center: R
+    inv_covariance_matrix_trans: np.ndarray # MUST be provided
+    inv_covariance_matrix_rot: np.ndarray # MUST be provided
+    mahalanobis_threshold_trans: float     # MUST be provided
+    mahalanobis_threshold_rot: float     # MUST be provided
+
+    # Feature name constants for convenience
+    _pose_feat_name: str = field(default="pose", init=False)
+    _trans_feat_name: str = field(default="translation", init=False)
+    _quat_feat_name: str = field(default="quaternion", init=False)
+
+    # __post_init__ is removed
+
+    def _classify_object(self, s: State, obj1: Object, obj2: Object) -> bool:
+        """Classify based on Mahalanobis distance using pre-calculated covariance."""
+        assert obj1.is_instance(self.object1_type)
+        assert obj2.is_instance(self.object2_type)
+        assert self.feature_name == self._pose_feat_name
+        relative_pose = utils.calculate_relative_pose(s, obj1, obj2,
+                                                    self._trans_feat_name,
+                                                    self._quat_feat_name)
+        if relative_pose is None:
+            logging.debug(f"Could not compute relative pose for classification between {obj1}, {obj2}. Returning False.")
+            return False # Cannot classify if pose cannot be computed
+
+        # Ensure feature is numpy array for Mahalanobis calculation
+        relative_pose = np.array(relative_pose, dtype=self.trans_center.dtype)
+        relative_trans = relative_pose[:3] # Use only translation part for Mahalanobis
+        relative_rot = R.from_quat(relative_pose[3:])
+
+        # Calculate Mahalanobis distance squared
+        diff_trans = relative_trans - self.trans_center
+        diff_rot = (self.rot_center.inv() * relative_rot).as_rotvec()
+        # Perform calculation: diff.T @ inv_cov @ diff
+        mahalanobis_dist_sq_trans = diff_trans.T @ self.inv_covariance_matrix_trans @ diff_trans
+        mahalanobis_dist_sq_rot = diff_rot.T @ self.inv_covariance_matrix_rot @ diff_rot
+        
+        # If result is a 1x1 matrix, extract the scalar value
+        if isinstance(mahalanobis_dist_sq_trans, np.ndarray) and mahalanobis_dist_sq_trans.size == 1:
+            mahalanobis_dist_sq_trans = mahalanobis_dist_sq_trans.item()
+        if isinstance(mahalanobis_dist_sq_rot, np.ndarray) and mahalanobis_dist_sq_rot.size == 1:
+            mahalanobis_dist_sq_rot = mahalanobis_dist_sq_rot.item()
+
+        # Use the pre-calculated threshold
+        return mahalanobis_dist_sq_trans <= self.mahalanobis_threshold_trans and mahalanobis_dist_sq_rot <= self.mahalanobis_threshold_rot
+
+    def __str__(self) -> str:
+        # Indicate covariance-based cluster in the name
+        return (f"RelCovCluster-{CFG.robo_kitchen_task}-{self.object2_type.name}-in-{self.object1_type.name}-frame-"
+                f"{self.feature_name}-ID{self.cluster_id}")
+
+    def pretty_str(self) -> Tuple[str, str]:
+        # Provide a human-readable description referencing Mahalanobis distance
+        name1 = CFG.grammar_search_classifier_pretty_str_names[0]
+        name2 = CFG.grammar_search_classifier_pretty_str_names[1]
+        vars_str = f"{name1}:{self.object1_type.name}, {name2}:{self.object2_type.name}"
+
+        # Adapt feature description based on name
+        if self.feature_name == self._pose_feat_name:
+             feat_desc = f"RelPose({name1}, {name2})"
+        else:
+             # Generic diff representation or use feature name directly
+             feat_desc = f"Diff({name1}.{self.feature_name}, {name2}.{self.feature_name})"
+
+        # Use the pre-calculated threshold
+        body_str = (f"MahaDistSq({feat_desc}, Cluster-{self.feature_name}-ID{self.cluster_id}) "
+                    f"<= {self.mahalanobis_threshold:.3f}")
+        return vars_str, body_str
 @dataclass(frozen=True, eq=False, repr=False)
 class _RelativeFeatureCovClusterClassifier(_BinaryClassifier):
     """Classifies based on the Mahalanobis distance of a relative feature vector
@@ -511,7 +594,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             # keep_indices = [6, 23]
             dataset._trajectories = [dataset._trajectories[i] for i in keep_indices if i < len(dataset._trajectories)]
         if CFG.robo_kitchen_task == "TurnOnStove":
-            keep_indices = [0, 1, 2, 3, 4, 6, 7, 8, 9]
+            keep_indices = [0, 9, 10, 11, 12, 20, 33, 37, 38, 39, 42, 44, 46] # all counter-clockwise 
             dataset._trajectories = [dataset._trajectories[i] for i in keep_indices if i < len(dataset._trajectories)]
 
         # logging.info(f"Filtered dataset to trajectories (indices: {keep_indices})")
@@ -755,7 +838,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             for i, (cluster_label, cluster_info) in enumerate(sorted_valid_kept_clusters[:top_k]):
                 # logging.debug(f"Creating predicate for kept cluster {cluster_label} (size {cluster_info['size']}, rank {i+1}/{top_k}).")
                 # Pass inverse covariance and threshold instead of epsilon
-                pred = self._create_predicate_from_relative_cluster(
+                pred = self._create_predicate_from_relative_cluster( # TODO: THIS IS BROKEN NOW
                     type1, type2, feat_name, cluster_info['center'],
                     cluster_info['cluster_radius'],
                     diff_fn, cluster_label) # Use cluster_label for ID
@@ -1523,6 +1606,41 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         types = [type1, type2]
         pred = Predicate(name, types, classifier)
         return pred
+    
+    def _create_predicate_from_relative_cluster_trans_rot(self,
+                                                type1: Type,
+                                                type2: Type,
+                                                feature_name: str,
+                                                trans_center: np.ndarray,
+                                                rot_center: R,
+                                                inv_covariance_matrix_trans: np.ndarray,
+                                                inv_covariance_matrix_rot: np.ndarray,
+                                                mahalanobis_threshold_trans: float,
+                                                mahalanobis_threshold_rot: float,
+                                                cluster_id: int) -> Predicate: 
+                                                
+        """Creates a binary predicate from a relative feature cluster (including pose).
+
+        If cluster_cov, inv_covariance_matrix, and mahalanobis_threshold are provided,
+        uses _RelativeFeatureCovClusterClassifier. Otherwise, uses
+        _RelativeFeatureClusterClassifier based on radius.
+        """
+        if inv_covariance_matrix_trans is not None and inv_covariance_matrix_rot is not None and mahalanobis_threshold_trans is not None and mahalanobis_threshold_rot is not None:
+            # Use the covariance-based classifier, passing pre-calculated values
+            classifier = _RelativeFeatureCovClusterClassifierTransRot(
+                type1, type2, feature_name, cluster_id,
+                trans_center, rot_center,
+                inv_covariance_matrix_trans,
+                inv_covariance_matrix_rot,
+                mahalanobis_threshold_trans,
+                mahalanobis_threshold_rot) # Pass pre-calculated 
+        else:
+            raise ValueError("inv_covariance_matrix_trans, inv_covariance_matrix_rot, mahalanobis_threshold_trans, and mahalanobis_threshold_rot must be provided")
+
+        name = str(classifier)
+        types = [type1, type2]
+        pred = Predicate(name, types, classifier)
+        return pred
 
     def _create_predicate_from_absolute_cluster(self, type1: Type, feature_name: str, cluster_center: np.ndarray, inv_covariance_matrix: np.ndarray, mahalanobis_threshold: float, cluster_id: int) -> Predicate:
         """Creates a unary predicate from an absolute feature cluster."""
@@ -1679,8 +1797,6 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
 
             # Perform clustering
             data_array, labels, unique_labels = self._cluster_feature_dataset(data, epsilon, feat_name)
-            diff_fn = None # Not needed for SE(3) Mahalanobis distance based on translation
-
             if data_array.size == 0: continue # Skip if clustering returned empty
 
             # Adjust min cluster size calculation if needed (e.g., minimum 3 points for covariance)
@@ -1704,54 +1820,63 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                     valid_quats = quaternions
                     rotations = R.from_quat(valid_quats)
                     mean_rotation = rotations.mean()
-                    mean_quaternion = mean_rotation.as_quat()
+                    # mean_quaternion = mean_rotation.as_quat()
                     mean_translation = np.mean(translations, axis=0)
 
-                    cluster_center = np.concatenate((mean_translation, mean_quaternion))
+                    # cluster_center = np.concatenate((mean_translation, mean_quaternion))
 
                     # --- Calculate Covariance, Inverse Covariance, and Threshold ---
                     # Use only the translation part for Mahalanobis distance/covariance
                     cluster_translations = cluster_points[:, :3]
+                    cluster_quaternions = cluster_points[:, 3:]
                     # try:
                     # Calculate covariance of the translation vectors
                     if cluster_translations.shape[0] < 2: # Need at least 2 points for covariance
                         raise ValueError("Not enough points for covariance calculation.")
+
                     # Calculate difference from the mean translation
-                    num_dims = cluster_translations.shape[1] # Should be 3
+                    num_dims_trans = cluster_translations.shape[1] # Should be 3
+                    assert num_dims_trans == 3
                     trans_diff = cluster_translations - mean_translation
-                    reg_term = np.eye(num_dims) * CFG.clustering_inv_cov_reg # Use CFG value
-                    cluster_cov = np.cov(trans_diff, rowvar=False) + reg_term
+                    reg_term_trans = np.eye(num_dims_trans) * CFG.clustering_inv_cov_reg # Use CFG value
+                    cluster_cov_trans = np.cov(trans_diff, rowvar=False) + reg_term_trans
+
+                    num_dims_rot = cluster_quaternions.shape[1] - 1 # Should be 3
+                    assert num_dims_rot == 3
+                    log_deltas = (mean_rotation.inv() * rotations).as_rotvec()
+                    reg_term_rot = np.eye(3) * CFG.clustering_inv_cov_reg_rot # Use CFG value
+                    cluster_cov_rot = np.cov(log_deltas.T) + reg_term_rot
+
 
                     # Calculate inverse covariance with regularization
-                    inv_cov = inv(cluster_cov)
+                    inv_cov_trans = inv(cluster_cov_trans)
+                    inv_cov_rot = inv(cluster_cov_rot)
 
                     # Calculate Mahalanobis threshold
-                    threshold = chi2.ppf(CFG.clustering_mahalanobis_confidence, df=num_dims)
-
-                    # except (ValueError, LinAlgError) as e:
-                    #     logging.warning(f"Error calculating covariance/inverse for cluster {k} ({type1.name}-{type2.name}): {e}. Skipping cluster.")
-                    #     discarded_labels.add(k)
-                    #     continue
+                    threshold_trans = chi2.ppf(CFG.clustering_mahalanobis_confidence, df = num_dims_trans)
+                    threshold_rot = chi2.ppf(CFG.clustering_mahalanobis_confidence, df = num_dims_rot)
 
                     # --- Calculate Radius (Max SE(3) distance) ---
+                    # DO NOT CALCULATE RADIUS, USE INVERSE COVARIANCE AND THRESHOLD INSTEAD
                     # (Optional, can still be calculated for reference or radius-based classifier)
-                    cluster_se3_diffs = np.zeros(len(cluster_points))
-                    for i in range(len(cluster_points)):
-                        diff = utils.calculate_se3_distance(cluster_center, cluster_points[i],
-                                                            CFG.clustering_se3_trans_weight,
-                                                            CFG.clustering_se3_rot_weight)
-                        cluster_se3_diffs[i] = diff
-                    cluster_radius = np.max(cluster_se3_diffs) # Max SE(3) distance
+                    # cluster_se3_diffs = np.zeros(len(cluster_points))
+                    # for i in range(len(cluster_points)):
+                    #     diff = utils.calculate_se3_distance(cluster_center, cluster_points[i],
+                    #                                         CFG.clustering_se3_trans_weight,
+                    #                                         CFG.clustering_se3_rot_weight)
+                    #     cluster_se3_diffs[i] = diff
+                    # cluster_radius = np.max(cluster_se3_diffs) # Max SE(3) distance
 
                     # Store calculated info
                     kept_clusters_info[k] = {
-                        'center': cluster_center,
+                        'trans_center': mean_translation,
+                        'rot_center': mean_rotation,
                         'size': cluster_size,
                         'points': cluster_points, # Keep for visualization if needed
-                        'cluster_cov': cluster_cov,
-                        'inv_covariance_matrix': inv_cov,
-                        'mahalanobis_threshold': threshold,
-                        'cluster_radius': cluster_radius # Store radius too
+                        'inv_covariance_matrix_trans': inv_cov_trans,
+                        'inv_covariance_matrix_rot': inv_cov_rot,
+                        'mahalanobis_threshold_trans': threshold_trans,
+                        'mahalanobis_threshold_rot': threshold_rot,
                     }
                     # logging.info(f"Contact Cluster {k} ({type1.name}-{type2.name}) kept (size {cluster_size}). Radius: {cluster_radius:.4f}, Thresh: {threshold:.4f}") # Reduced logging
 
@@ -1783,15 +1908,15 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             for i, (cluster_label, cluster_info) in enumerate(sorted_valid_kept_clusters[:top_k]):
                 # Create predicate using the specific relative cluster method
                 # Pass the pre-calculated inv_cov and threshold
-                pred_generated = self._create_predicate_from_relative_cluster(
+                pred_generated = self._create_predicate_from_relative_cluster_trans_rot(
                     type1, type2, feat_name,
-                    cluster_info['center'],
-                    cluster_info['cluster_radius'], # Pass radius (for potential use or consistency)
-                    diff_fn, # Pass diff_fn (is None here)
+                    cluster_info['trans_center'],
+                    cluster_info['rot_center'],
+                    cluster_info['inv_covariance_matrix_trans'],
+                    cluster_info['inv_covariance_matrix_rot'],
+                    cluster_info['mahalanobis_threshold_trans'],
+                    cluster_info['mahalanobis_threshold_rot'],
                     cluster_label, 
-                    cluster_cov=cluster_info['cluster_cov'], # Pass cov
-                    inv_covariance_matrix=cluster_info['inv_covariance_matrix'], # Pass inv_cov
-                    mahalanobis_threshold=cluster_info['mahalanobis_threshold'] # Pass threshold
                 )
                 # Add predicate to candidates with cost (e.g., based on arity)
                 candidate_cluster_preds[pred_generated] = float(pred_generated.arity) # Example cost

@@ -37,6 +37,7 @@ class GlobalSettings:
     predicate_candidates_method = "motion_analysis_contact"  # "low_speed" or "contact_clustering" or "motion_analysis_contact"
     motion_analysis_contact_threshold = 0.04
     clustering_inv_cov_reg = 1e-3
+    clustering_inv_cov_reg_rot = 1e-3
     clustering_change_only = False
     
     resample_in_cluster = True
@@ -44,8 +45,8 @@ class GlobalSettings:
     clustering_moving_average_window = 5
     clustering_debug = True
     enable_meshcat = False
-    clustering_se3_trans_weight = 10  # 0.05 m # 10 times differnece
-    clustering_se3_rot_weight = 0.0  # 30 deg = 0.5236 rad
+    clustering_se3_trans_weight = 10.0  # 0.05 m # 10 times differnece
+    clustering_se3_rot_weight = 5.0  # 30 deg = 0.5236 rad
     clustering_feature_constancy_percentile = 10  # of total number of data points = 13782
     clustering_se3_epsilon = 3.0 # made very big since we are only keeping 1 cluster!!!
     clustering_visualization_frame_axis_length = 0.05
@@ -105,7 +106,7 @@ class GlobalSettings:
 
     """Unchanging settings."""
     # global parameters
-    num_train_tasks = 50 if robo_kitchen_task == "PnPCounterToCab" else 10  # in robocasa, either the max demo number or num_train_tasks will be used
+    num_train_tasks = 50 if robo_kitchen_task == "PnPCounterToCab" or robo_kitchen_task == "TurnOnStove" else 10  # in robocasa, either the max demo number or num_train_tasks will be used
     num_test_tasks = 1
     # Perform online learning for this many cycles or until this many
     # transitions have been collected, whichever happens first.

@@ -475,10 +475,8 @@ class RoboKitchenEnv(BaseEnv):
                     "env_name": task_name,
                     "robots": robot_type,
                     "controller_configs": controller_config,
-                    "layout_ids": 3,
-                    "style_ids": 0,
                     "layout_ids": [3],
-                    "style_ids": None,
+                    "style_ids": [6], # this combination of layout and style makes sure the stove is stovetop, so similar to demos for turn on stove
                     "translucent_robot": True,
                 }
 
@@ -840,18 +838,17 @@ class RoboKitchenEnv(BaseEnv):
                             break
                     if ref_frame is None:
                         continue
-                    cluster_cov = cluster_predicate._classifier.cluster_cov
-                    mahalanobis_threshold = cluster_predicate._classifier.mahalanobis_threshold
-                    pos, quat = cluster_predicate._classifier.cluster_center[:3], cluster_predicate._classifier.cluster_center[3:]
-                    trans_cov = cluster_cov[:3, :3]
-                    eigvals, eigvecs = np.linalg.eigh(trans_cov)
+                    cluster_cov = np.linalg.inv(cluster_predicate._classifier.inv_covariance_matrix_trans)
+                    mahalanobis_threshold = cluster_predicate._classifier.mahalanobis_threshold_trans
+                    pos, quat = cluster_predicate._classifier.trans_center[:3], cluster_predicate._classifier.rot_center.as_quat()
+                    eigvals, eigvecs = np.linalg.eigh(cluster_cov)
                     eigvals = np.abs(eigvals)
                     a, b, c = np.sqrt(mahalanobis_threshold * eigvals)
 
                     if i == 0:
-                        self.mjshowellipse(pos, quat, size=(a, b, c), name=name, base_pos=ref_frame[:3], base_quat=ref_frame[3:], alpha=alpha, color=color)
+                        self.mjshowellipse(pos, quat, size=(a, b, c), name=name, base_pos=ref_frame[:3], base_quat=ref_frame[3:7], alpha=alpha, color=color)
                     else:
-                        self.mjshowellipse(pos, quat, size=(a, b, c), base_pos=ref_frame[:3], base_quat=ref_frame[3:], alpha=alpha, color=color)
+                        self.mjshowellipse(pos, quat, size=(a, b, c), base_pos=ref_frame[:3], base_quat=ref_frame[3:7], alpha=alpha, color=color)
 
         if hasattr(curr_option, "parent") and hasattr(curr_option.parent, "operator"):
             preconditions = curr_option.parent.operator.preconditions
