@@ -1327,6 +1327,8 @@ def run_task_plan_once(
                 logging.debug(f"\033[93mTime Step {i}: {', '.join(atom._str for atom in atoms)}\033[0m")
                 if i < len(plans[best_idx]):
                     logging.debug(f"NSRT {i}: {plans[best_idx][i]}")
+            if len(plans[best_idx]) == 0:
+                raise PlanningFailure("Goal Predicate is Achieved, nothing to do!")
 
             plan = plans[best_idx]
             atoms_seq = atoms_seqs[best_idx]

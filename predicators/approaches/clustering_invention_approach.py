@@ -581,22 +581,24 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             # keep_indices = [0, 2, 5, 6, 7] # all cab
             # keep_indices = [0]
             dataset._trajectories = [dataset._trajectories[i] for i in keep_indices if i < len(dataset._trajectories)]
-        if CFG.robo_kitchen_task == "CloseSingleDoor":
+        elif CFG.robo_kitchen_task == "CloseSingleDoor":
             # keep_indices = [0, 1, 2, 3, 4, 6, 7, 8, 9] # all left close
             # keep_indices = [0, 2, 4, 8, 9] # all microwave
             keep_indices = [1, 3, 6, 7] # all left cab
             # keep_indices = [1]
             # keep_indices = [0, 2, 8, 9] # better microwaves
             dataset._trajectories = [dataset._trajectories[i] for i in keep_indices if i < len(dataset._trajectories)]
-        if CFG.robo_kitchen_task == "PnPCounterToCab":
+        elif CFG.robo_kitchen_task == "PnPCounterToCab":
             # keep_indices = [4, 6, 7, 12, 23, 33, 39, 44, 45, 46, 48]  # all left cab
             keep_indices = [6, 7, 23, 44, 45, 46]  # all left cab
             # keep_indices = [6, 23]
             dataset._trajectories = [dataset._trajectories[i] for i in keep_indices if i < len(dataset._trajectories)]
-        if CFG.robo_kitchen_task == "TurnOnStove":
+        elif CFG.robo_kitchen_task == "TurnOnStove":
             keep_indices = [0, 9, 10, 11, 12, 20, 33, 37, 38, 39, 42, 44, 46] # all counter-clockwise 
             dataset._trajectories = [dataset._trajectories[i] for i in keep_indices if i < len(dataset._trajectories)]
-
+        elif CFG.robo_kitchen_task == "CloseDrawer":
+            keep_indices = [0, 1, 2, 5, 6] # all left close
+            dataset._trajectories = [dataset._trajectories[i] for i in keep_indices if i < len(dataset._trajectories)]
         # logging.info(f"Filtered dataset to trajectories (indices: {keep_indices})")
         # Clear caches before starting learning
         self._atom_dataset_cache = {}
@@ -917,7 +919,18 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             
             if max_motion_obj is not None:
                 # Find first and last frame of significant motion
-                motion_frames = [t for t, vel in motion_data[i][max_motion_obj] if vel > CFG.motion_analysis_contact_threshold and t > 5]
+                # Compute a dynamic threshold for this object based on its motion statistics
+                velocities = [vel for _, vel in motion_data[i][max_motion_obj]]
+                if velocities:
+                    mean_vel = np.mean(velocities)
+                    std_vel = np.std(velocities)
+                    # Example: dynamic threshold as mean + 0.5*std, or fallback to config if not enough data
+                    dynamic_threshold = mean_vel + 0.5 * std_vel
+                else:
+                    dynamic_threshold = CFG.motion_analysis_contact_threshold
+
+                motion_frames = [t for t, vel in motion_data[i][max_motion_obj]
+                                 if vel > dynamic_threshold and t > 5]
                 # NOTE: we are only looking at motion after 5 steps, since the first few steps are noisy 
                 if motion_frames:
                     first_motion = min(motion_frames)
@@ -1395,32 +1408,9 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                                 color='b', **q_args, label='Centroid Frame Z' if not frames_plotted else None)
                     frames_plotted = True
 
-                    # --- Plot Cluster Radius Sphere ---
-                    if 'cluster_radius' in info:
-                        # Original SE(3) radius
-                        # se3_radius = info['cluster_radius']
-                        # # Calculate equivalent translation radius for visualization
-                        # # Avoid division by zero if weight is somehow zero
-                        # trans_weight = CFG.clustering_se3_trans_weight
-                        # if np.isclose(trans_weight, 0):
-                        #     logging.warning("Translation weight is close to zero, cannot calculate equivalent radius for plot.")
-                        #     radius_for_plot = 0.0 # Or some default / skip plotting
-                        # else:
-                        #     radius_for_plot = np.sqrt(se3_radius*se3_radius / trans_weight) # Equivalent translation radius
-
-                        # sphere_label = 'Equiv. Trans. Radius (Max Dist)' if not boundaries_plotted else "" # Add legend only once
-                        # u_s = np.linspace(0, 2 * np.pi, 50) # Azimuthal angle
-                        # v_s = np.linspace(0, np.pi, 25) # Polar angle
-                        # x_s = centroid_trans[0] + radius_for_plot * np.outer(np.cos(u_s), np.sin(v_s))
-                        # y_s = centroid_trans[1] + radius_for_plot * np.outer(np.sin(u_s), np.sin(v_s))
-                        # z_s = centroid_trans[2] + radius_for_plot * np.outer(np.ones(np.size(u_s)), np.cos(v_s))
-                        # ax.plot_wireframe(x_s, y_s, z_s, color=cluster_color, alpha=0.15, rstride=4, cstride=4, label=sphere_label)
-                        boundaries_plotted = False # Mark that a boundary (sphere) was plotted
-                    # --- End Sphere Plotting ---
-
                     # --- Plot Ellipsoidal Decision Boundary ---
                     # If covariance matrix is available, also plot an ellipsoid representing the Mahalanobis distance boundary
-                    if 'cluster_cov' in info and 'mahalanobis_threshold' in info:
+                    if 'inv_covariance_matrix_trans' in info and 'mahalanobis_threshold_trans' in info:
                         # <<< INSERT START >>>
                         # logging.info(f"--- Ellipsoid Plot Debug (Cluster {label}) ---")
                         # logging.info(f"Cluster Info keys: {info.keys()}")
@@ -1434,80 +1424,77 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                         #     logging.warning(f"Mahalanobis Threshold MISSING in info for cluster {label}")
                         # <<< INSERT END >>>
 
-                        cluster_cov = info['cluster_cov']
-                        mahalanobis_threshold = info['mahalanobis_threshold']
+                        cluster_cov = np.linalg.inv(info['inv_covariance_matrix_trans'])
+                        trans_cov = cluster_cov
+                        mahalanobis_threshold = info['mahalanobis_threshold_trans']
 
                         # Extract translation part of covariance if dealing with pose
-                        if feat_name == "pose" and cluster_cov.shape[0] >= 3:
-                            trans_cov = cluster_cov[:3, :3]  # Translation covariance (3x3)
-                            # <<< INSERT START >>>
-                            logging.info(f"Translation Covariance (trans_cov, shape {trans_cov.shape}):\n{trans_cov}")
-                            # <<< INSERT END >>>
+                        assert feat_name == "pose" and trans_cov.shape[0] == 3
 
                             # Check if covariance is valid for visualization
-                            if np.all(np.isfinite(trans_cov)) and not np.any(np.isnan(trans_cov)):
-                                try:
-                                    # Compute eigenvalues and eigenvectors of the covariance matrix
-                                    eigvals, eigvecs = np.linalg.eigh(trans_cov)
-                                    # <<< INSERT START >>>
-                                    logging.info(f"Eigenvalues (eigvals): {eigvals}")
-                                    logging.info(f"Eigenvectors (eigvecs):\n{eigvecs}")
-                                    # <<< INSERT END >>>
+                        if np.all(np.isfinite(trans_cov)) and not np.any(np.isnan(trans_cov)):
+                            try:
+                                # Compute eigenvalues and eigenvectors of the covariance matrix
+                                eigvals, eigvecs = np.linalg.eigh(trans_cov)
+                                # <<< INSERT START >>>
+                                logging.info(f"Eigenvalues (eigvals): {eigvals}")
+                                logging.info(f"Eigenvectors (eigvecs):\n{eigvecs}")
+                                # <<< INSERT END >>>
 
-                                    # Ensure positive eigenvalues (should be positive definite)
-                                    eigvals = np.abs(eigvals)
+                                # Ensure positive eigenvalues (should be positive definite)
+                                eigvals = np.abs(eigvals)
 
-                                    # Scale eigenvalues by Mahalanobis threshold and take square root
-                                    # as we need standard deviation not variance
-                                    eigvals_scaled = np.sqrt(mahalanobis_threshold * eigvals)
-                                    # <<< INSERT START >>>
-                                    logging.info(f"Scaled Eigenvalues (sqrt(thresh * eigvals)): {eigvals_scaled}")
-                                    # <<< INSERT END >>>
+                                # Scale eigenvalues by Mahalanobis threshold and take square root
+                                # as we need standard deviation not variance
+                                eigvals_scaled = np.sqrt(mahalanobis_threshold * eigvals)
+                                # <<< INSERT START >>>
+                                logging.info(f"Scaled Eigenvalues (sqrt(thresh * eigvals)): {eigvals_scaled}")
+                                # <<< INSERT END >>>
 
-                                    # Create meshgrid of points on a unit sphere
-                                    u = np.linspace(0, 2 * np.pi, 25)
-                                    v = np.linspace(0, np.pi, 25)
-                                    x_unit = np.outer(np.cos(u), np.sin(v))
-                                    y_unit = np.outer(np.sin(u), np.sin(v))
-                                    z_unit = np.outer(np.ones_like(u), np.cos(v))
+                                # Create meshgrid of points on a unit sphere
+                                u = np.linspace(0, 2 * np.pi, 25)
+                                v = np.linspace(0, np.pi, 25)
+                                x_unit = np.outer(np.cos(u), np.sin(v))
+                                y_unit = np.outer(np.sin(u), np.sin(v))
+                                z_unit = np.outer(np.ones_like(u), np.cos(v))
 
-                                    # Reshape unit sphere points to apply transformation
-                                    points = np.stack([x_unit.flatten(), y_unit.flatten(), z_unit.flatten()], axis=1)
+                                # Reshape unit sphere points to apply transformation
+                                points = np.stack([x_unit.flatten(), y_unit.flatten(), z_unit.flatten()], axis=1)
 
-                                    # Apply eigenvalue scaling (multiply each axis by corresponding eigenvalue)
-                                    scaled_points = points * eigvals_scaled
+                                # Apply eigenvalue scaling (multiply each axis by corresponding eigenvalue)
+                                scaled_points = points * eigvals_scaled
 
-                                    # Rotate using eigenvectors to align with covariance principal components
-                                    rotated_points = np.dot(scaled_points, eigvecs.T)
+                                # Rotate using eigenvectors to align with covariance principal components
+                                rotated_points = np.dot(scaled_points, eigvecs.T)
 
-                                    # Translate to centroid position
-                                    ellipsoid_points = rotated_points + centroid_trans
+                                # Translate to centroid position
+                                ellipsoid_points = rotated_points + centroid_trans
 
-                                    # Reshape back to mesh format
-                                    x_ellipsoid = ellipsoid_points[:, 0].reshape(x_unit.shape)
-                                    y_ellipsoid = ellipsoid_points[:, 1].reshape(y_unit.shape)
-                                    z_ellipsoid = ellipsoid_points[:, 2].reshape(z_unit.shape)
+                                # Reshape back to mesh format
+                                x_ellipsoid = ellipsoid_points[:, 0].reshape(x_unit.shape)
+                                y_ellipsoid = ellipsoid_points[:, 1].reshape(y_unit.shape)
+                                z_ellipsoid = ellipsoid_points[:, 2].reshape(z_unit.shape)
 
-                                    # Plot ellipsoid as wireframe
-                                    ellipsoid_label = 'Covariance Ellipsoid (Maha. Thresh.)' if not boundaries_plotted else ""
-                                    ax.plot_wireframe(
-                                        x_ellipsoid, y_ellipsoid, z_ellipsoid,
-                                        color='red', alpha=0.2, rstride=4, cstride=4, 
-                                        label=ellipsoid_label, linestyle='--'
-                                    )
+                                # Plot ellipsoid as wireframe
+                                ellipsoid_label = 'Covariance Ellipsoid (Maha. Thresh.)' if not boundaries_plotted else ""
+                                ax.plot_wireframe(
+                                    x_ellipsoid, y_ellipsoid, z_ellipsoid,
+                                    color='red', alpha=0.2, rstride=4, cstride=4, 
+                                    label=ellipsoid_label, linestyle='--'
+                                )
 
-                                    # Add to legend items
-                                    # if ellipsoid_label:
-                                    #     if 'ellipsoid_plotted' not in locals():
-                                    #         ellipsoid_plotted = True
-                                    #         handles.append(plt.Line2D([0], [0], linestyle='--', color='red', alpha=0.5,
-                                    #                                 label='Covariance Ellipsoid (Maha. Thresh.)'))
+                                # Add to legend items
+                                # if ellipsoid_label:
+                                #     if 'ellipsoid_plotted' not in locals():
+                                #         ellipsoid_plotted = True
+                                #         handles.append(plt.Line2D([0], [0], linestyle='--', color='red', alpha=0.5,
+                                #                                 label='Covariance Ellipsoid (Maha. Thresh.)'))
 
-                                except (np.linalg.LinAlgError, ValueError) as e:
-                                    logging.warning(f"Could not plot ellipsoid for cluster {label}: {e}")
-                            else:
-                                logging.warning(f"Invalid covariance for ellipsoid plot in cluster {label}")
-                        # --- End Ellipsoid Plotting ---
+                            except (np.linalg.LinAlgError, ValueError) as e:
+                                logging.warning(f"Could not plot ellipsoid for cluster {label}: {e}")
+                        else:
+                            logging.warning(f"Invalid covariance for ellipsoid plot in cluster {label}")
+                    # --- End Ellipsoid Plotting ---
 
                 else:
                     logging.debug(f"Skipping boundary/frame plot for cluster {label}: Missing info.")
