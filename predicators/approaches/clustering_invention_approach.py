@@ -434,6 +434,15 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
 
     def _add_additional_remove_effects_operators(self) -> None:
         """Add additional remove effects operators to the loaded operators."""
+        # Get a sample state to check which object types actually exist
+        env = get_or_create_env(CFG.env)
+        ob = env.reset(train_or_test="test", task_idx=0)
+        state = env.state_info_to_state(ob["state_info"])
+        available_object_types = set()
+        for obj in state:
+            available_object_types.add(obj.type.name)
+        logging.info(f"Object types found in sample state: {available_object_types}")
+
         updated_nsrts = set()
         for nsrt in self._nsrts:
             new_delete_effects = nsrt.delete_effects
@@ -445,6 +454,11 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                     # in this case, all other gripper object effects should be added to delete effects
                     for (key1, key2, key3) in CFG.dict_contact_predicate_to_rel_pose_predicates:
                         if key1 == 'InContact' and not key2 == object_in_contact:
+                            # Check if this object type actually exists in the current state
+                            if key2 not in available_object_types:
+                                logging.debug(f"Skipping object type {key2} as it doesn't exist in the current state")
+                                continue
+                            
                             # this is a gripper object effect that is not the one in contact
                             # we need to add it to the delete effects
                             eff_to_delete = CFG.dict_contact_predicate_to_rel_pose_predicates[key1, key2, key3]
@@ -495,6 +509,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 self._nsrts.update(loaded_nsrts)
         from predicators.ground_truth_models import get_gt_nsrts
         gt_nsrts = get_gt_nsrts(CFG.env, self._initial_predicates, self._initial_options)
+        
         self._nsrts = set(gt_nsrts).union(self._nsrts)
 
         for file in contact2rel_files:
@@ -2002,14 +2017,17 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 omega.append(omega_traj)
             # Check if start and end poses are almost the same (indicating no meaningful motion)
             if len(x) > 0 and len(x[0]) > 1:
-                start_poses = np.array([traj[0] for traj in x])
-                end_poses = np.array([traj[-1] for traj in x])
+                start_pos = np.array([traj[0] for traj in x])
+                end_pos = np.array([traj[-1] for traj in x])
+                start_quat = np.array([traj[0] for traj in quat])
+                end_quat = np.array([traj[-1] for traj in quat])
                 
                 # Calculate average distance between start and end poses
-                avg_distance = np.mean([np.linalg.norm(end - start) for start, end in zip(start_poses, end_poses)])
+                avg_distance = np.mean([np.linalg.norm(end - start) for start, end in zip(start_pos, end_pos)])
+                avg_quat_distance = np.mean([np.linalg.norm((R.from_quat(end) * R.from_quat(start).inv()).as_rotvec()) for start, end in zip(start_quat, end_quat)])
                 
                 # If average distance is very small, blacklist this object
-                if avg_distance < 0.01:  # 1cm threshold
+                if avg_distance < 0.01 and avg_quat_distance < 0.1:  
                     black_list.append(obj)
                     logging.info(f"Blacklisting {obj.name} due to minimal motion (avg distance: {avg_distance:.4f})")
                     # continue
@@ -2033,7 +2051,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             if reconstruction_error < min_reconstruction_error and obj not in black_list:
                 min_reconstruction_error = reconstruction_error
                 obj_of_reference_best = obj
-        
+        assert obj_of_reference_best is not None, "No object of reference found"
         return obj_of_reference_best, min_reconstruction_error, list_of_reconstruction_errors
 
     def _extract_relative_pose_data(self, ground_atom_dataset: List[GroundAtomTrajectory], all_objs: List[Object], gripper_type: Type, in_contact_pred: Predicate, in_origin_pred: Predicate) -> Tuple[Dict[Tuple[Predicate, Type, Type, str], List[np.ndarray]], Dict[Object, List[List[np.ndarray]]], List[State]]:
