@@ -853,8 +853,9 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
 
     def _update_incontact_predicate_using_motion_analysis(self, dataset: Dataset, in_contact_pred: Predicate, gripper_type: Type) -> Dict[Tuple[Type, Type, str], List[np.ndarray]]:
         """Update incontact predicates using motion analysis.
-        Incontact seems like a previledged predicate, we can remove it by just looking at which 
-        object is in motion to determine if it is in contact with the gripper.
+        Incontact seems like a previledged predicate, this function removes it
+        and replaces it with a more general predicate that is based on motion analysis.
+        It looks at which object is in motion to determine if it is in contact with the gripper.
         """
 
 
@@ -932,18 +933,18 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 motion_frames = [t for t, vel in motion_data[i][max_motion_obj]
                                  if vel > dynamic_threshold and t > 5]
                 # NOTE: we are only looking at motion after 5 steps, since the first few steps are noisy 
-                if motion_frames:
-                    first_motion = min(motion_frames)
-                    last_motion = max(motion_frames)
+                assert len(motion_frames) > 0, "No motion frames found for object"
+                first_motion = min(motion_frames)
+                last_motion = max(motion_frames)
                     
-                    # Mark the object as in contact during the motion period
-                    for t in range(first_motion, last_motion + 1):
-                        if t < len(traj.states):
-                            
-                            dataset.trajectories[i].states[t].items_in_contact = {(gripper_obj, max_motion_obj)}
-                            # Update the state to mark the object as in contact
-                            # This assumes you have a way to mark objects as in contact
-                            # You might need to modify this based on your state representation
+                # Mark the object as in contact during the motion period
+                for t in range(first_motion, last_motion + 1):
+                    if t < len(traj.states):
+                        
+                        dataset.trajectories[i].states[t].items_in_contact = {(gripper_obj, max_motion_obj)}
+                        # Update the state to mark the object as in contact
+                        # This assumes you have a way to mark objects as in contact
+                        # You might need to modify this based on your state representation
 
     def _generate_relative_low_speed_feature_datasets(self, dataset: Dataset) -> Dict[Tuple[Type, Type, str], List[np.ndarray]]:
         """Extracts relative features constant between consecutive states.
@@ -1978,9 +1979,13 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
     def _select_reference_object(self, 
                                 contact_period_rel_trajs: Dict[Object, List[List[np.ndarray]]], 
                                 ) -> Object:
+        """
+        Select the object of reference by learning a DS policy for each object and selecting the one with the lowest reconstruction error.
+        """
         obj_of_reference_best = None
         min_reconstruction_error = float('inf')
         list_of_reconstruction_errors = []
+        black_list = []
         for obj, rel_pose_trajs in contact_period_rel_trajs.items():
             if len(rel_pose_trajs) == 0: continue
             x = []
@@ -1995,6 +2000,19 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 quat.append(quat_traj)
                 x_dot.append(x_dot_traj)
                 omega.append(omega_traj)
+            # Check if start and end poses are almost the same (indicating no meaningful motion)
+            if len(x) > 0 and len(x[0]) > 1:
+                start_poses = np.array([traj[0] for traj in x])
+                end_poses = np.array([traj[-1] for traj in x])
+                
+                # Calculate average distance between start and end poses
+                avg_distance = np.mean([np.linalg.norm(end - start) for start, end in zip(start_poses, end_poses)])
+                
+                # If average distance is very small, blacklist this object
+                if avg_distance < 0.01:  # 1cm threshold
+                    black_list.append(obj)
+                    logging.info(f"Blacklisting {obj.name} due to minimal motion (avg distance: {avg_distance:.4f})")
+                    # continue
             unified_config = UnifiedModelConfig(
                 mode="se3_lpvds",
                 K_candidates=[1]
@@ -2009,8 +2027,10 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 dt=1/60
             )
             _, reconstruction_error = ds_policy.compute_reconstruction_error()
+            # TODO: Add some basic requirements for the object of reference, so blacklist need more 
+            # 1. start pose and end pose of all trajs should be almost the same, otherwise it is not a good reference object
             list_of_reconstruction_errors.append(reconstruction_error)
-            if reconstruction_error < min_reconstruction_error:
+            if reconstruction_error < min_reconstruction_error and obj not in black_list:
                 min_reconstruction_error = reconstruction_error
                 obj_of_reference_best = obj
         
