@@ -106,7 +106,12 @@ class GlobalSettings:
 
     """Unchanging settings."""
     # global parameters
-    num_train_tasks = 50 if robo_kitchen_task == "PnPCounterToCab" or robo_kitchen_task == "TurnOnStove" else 10  # in robocasa, either the max demo number or num_train_tasks will be used
+    if robo_kitchen_task == "PnPCounterToCab" or robo_kitchen_task == "TurnOnStove":
+        num_train_tasks = 50
+    elif robo_kitchen_task == "OpenDrawer":
+        num_train_tasks = 25
+    else:
+        num_train_tasks = 10
     num_test_tasks = 1
     # Perform online learning for this many cycles or until this many
     # transitions have been collected, whichever happens first.

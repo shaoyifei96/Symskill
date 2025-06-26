@@ -614,6 +614,9 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         elif CFG.robo_kitchen_task == "CloseDrawer":
             keep_indices = [0, 1, 2, 5, 6] # all left close
             dataset._trajectories = [dataset._trajectories[i] for i in keep_indices if i < len(dataset._trajectories)]
+        elif CFG.robo_kitchen_task == "OpenDrawer":
+            keep_indices = [1, 3, 5, 8, 11, 13, 15, 17, 20, 21, 22, 24]
+            dataset._trajectories = [dataset._trajectories[i] for i in keep_indices if i < len(dataset._trajectories)]
         # logging.info(f"Filtered dataset to trajectories (indices: {keep_indices})")
         # Clear caches before starting learning
         self._atom_dataset_cache = {}
@@ -1752,6 +1755,8 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             goal_pred = list(env.goal_predicates)[0]
             pred_key = tuple([goal_pred.name] + [t.name for t in goal_pred.types])
             CFG.dict_gt_goal_predicate_to_dummy_goal_predicates[pred_key] = set([DummyPredicate(f"{CFG.robo_kitchen_task}-goal", [obj_of_reference_best.type, obj_contact_with_gripper.type])])
+        else:
+            raise NotImplementedError("Environment goal predicates not found, did you forget to define it for the task?")
         for pred in predicates_to_monitor:
             pass # the following three lines seems to make dr-unreachable error more likely but don't know why
             # if isinstance(pred, DummyPredicate): # goal predicate

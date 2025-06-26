@@ -24,6 +24,7 @@ class RoboKitchenPerceiver(BasePerceiver):
         DoorOpen = pred_name_to_pred["DoorOpen"]
         DoorClosed = pred_name_to_pred["DoorClosed"]
         DrawerClosed = pred_name_to_pred["DrawerClosed"]
+        DrawerOpen = pred_name_to_pred["DrawerOpen"]
         OnSurface = pred_name_to_pred["OnSurface"]
         KnobTurnedOn = pred_name_to_pred["KnobTurnedOn"]
         MicrowaveOn = pred_name_to_pred["MicrowaveOn"]
@@ -91,6 +92,14 @@ class RoboKitchenPerceiver(BasePerceiver):
         elif goal_desc == 'CloseDrawer':
             goal = {
                 GroundAtom(DrawerClosed, [drawer_inner_box, drawer]),
+            }
+        elif goal_desc == 'PnPCounterToStove':
+            goal = {# TODO: this is incorrect!!!!!
+                GroundAtom(OnSurface, [obj, bottom]),
+            }
+        elif goal_desc == 'OpenDrawer':
+            goal = {
+                GroundAtom(DrawerOpen, [drawer_inner_box, drawer]),
             }
         else:
             raise NotImplementedError(f"Unrecognized goal: {goal_desc}")

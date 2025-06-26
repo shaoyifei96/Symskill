@@ -302,7 +302,13 @@ class RoboKitchenEnv(BaseEnv):
         elif task_name == "TurnOnMicrowave":
             return [self.object_name_to_object("microwave_start_button")]
         elif task_name == "CloseDrawer":
-            return [self.object_name_to_object("drawer_inner_box")]
+            return [self.object_name_to_object("drawer_inner_box"), self.object_name_to_object("drawer")]
+        elif task_name == "PnPCounterToStove":
+            return [self.object_name_to_object("obj"), self.object_name_to_object("bottom")]
+        elif task_name == "OpenDrawer":
+            return [self.object_name_to_object("drawer_inner_box"), self.object_name_to_object("drawer")]
+        elif task_name == "PreSoakPan":
+            return [self.object_name_to_object("obj"), self.object_name_to_object("bottom")]
         else:
             raise ValueError(f"Task {task_name} not supported")
 
@@ -458,6 +464,11 @@ class RoboKitchenEnv(BaseEnv):
             drawer_cabinet = self.object_name_to_object("drawer")
             if self._DrawerClosed_holds(state, [drawer_inner_box, drawer_cabinet]):
                 return True
+        elif goal_desc == "OpenDrawer":
+            drawer_inner_box = self.object_name_to_object("drawer_inner_box")
+            drawer_cabinet = self.object_name_to_object("drawer")
+            if self._DrawerOpen_holds(state, [drawer_inner_box, drawer_cabinet]):
+                return True
         else:
             raise ValueError(f"Goal description {goal_desc} not supported")
 
@@ -470,12 +481,16 @@ class RoboKitchenEnv(BaseEnv):
             if complex_config:
                 robot_type = "PandaOmron"
                 controller_config = load_composite_controller_config(robot=robot_type)
+                if CFG.robo_kitchen_task == "OpenDrawer":
+                    layout_ids = [0]
+                else:
+                    layout_ids = [3]
 
                 config = {
                     "env_name": task_name,
                     "robots": robot_type,
                     "controller_configs": controller_config,
-                    "layout_ids": [3],
+                    "layout_ids": layout_ids,
                     "style_ids": [6], # this combination of layout and style makes sure the stove is stovetop, so similar to demos for turn on stove
                     "translucent_robot": True,
                 }
@@ -638,6 +653,7 @@ class RoboKitchenEnv(BaseEnv):
             Predicate("DoorOpen", [cls.door_type, cls.cabinet_type], cls._DoorOpen_holds),
             Predicate("DoorClosed", [cls.door_type, cls.cabinet_type], cls._DoorClosed_holds),
             Predicate("DrawerClosed", [cls.drawer_type, cls.cabinet_type], cls._DrawerClosed_holds),
+            Predicate("DrawerOpen", [cls.drawer_type, cls.cabinet_type], cls._DrawerOpen_holds),
             Predicate("InContact", [cls.object_type, cls.object_type], cls._InContact_holds),
             Predicate("OnSurface", [cls.thing_type, cls.surface_type], cls._OnSurface_holds),
             Predicate("DoorHalfOpen", [cls.handle_type, cls.cabinet_type], cls._DoorHalfOpen_holds),
@@ -895,6 +911,8 @@ class RoboKitchenEnv(BaseEnv):
             goal_preds = {self._pred_name_to_pred["StoveOn"]}
         elif goal_desc == "CloseDrawer":
             goal_preds = {self._pred_name_to_pred["DrawerClosed"]}
+        elif goal_desc == "OpenDrawer":
+            goal_preds = {self._pred_name_to_pred["DrawerOpen"]}
         return goal_preds
 
     @property
@@ -1239,6 +1257,30 @@ class RoboKitchenEnv(BaseEnv):
         drawer_close_thresh = 0.05  # meters - threshold for considering drawer closed
         
         return abs(rel_pos[1]) < drawer_close_thresh
+    
+    @classmethod
+    def _DrawerOpen_holds(cls, state: State, objects: Sequence[Object]) -> bool:
+        """Check if drawer is open by checking the slide joint position.
+        
+        For drawers, open means the slide joint position is close to 1.
+        Unlike doors which rotate, drawers slide linearly.
+        """
+        drawer, cabinet = objects
+        
+        # For now, we'll use the same position-based approach as doors
+        # but interpret it differently for drawers
+        drawer_pos = state.get(drawer, "translation")
+        cabinet_pos = state.get(cabinet, "translation")
+
+        # Calculate relative position - for an open drawer, it should be
+        # very close to the cabinet's position in the Y dimension (slide axis)
+        rel_pos = drawer_pos - cabinet_pos
+        
+        # For an open drawer, the Y displacement should be significant
+        # (drawers slide along Y-axis according to the XML)
+        drawer_open_thresh = 0.2  # meters - threshold for considering drawer open
+        
+        return abs(rel_pos[1]) > drawer_open_thresh
 
     def close(self) -> None:
         """Close the Robosuite environment."""
