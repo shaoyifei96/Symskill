@@ -49,6 +49,7 @@ from matplotlib.patches import Ellipse # For 2D ellipses
 import numpy.linalg # For eigh
 import matplotlib.cm as cm # Import cm for colormaps
 import matplotlib.colors as mcolors # Import colors for normalization
+import ruptures as rpt
 
 from ds_policy import DSPolicy, compute_vel_traj, UnifiedModelConfig
 ################################################################################
@@ -611,6 +612,9 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         elif CFG.robo_kitchen_task == "TurnOnStove":
             keep_indices = [0, 9, 10, 11, 12, 20, 33, 37, 38, 39, 42, 44, 46] # all counter-clockwise 
             dataset._trajectories = [dataset._trajectories[i] for i in keep_indices if i < len(dataset._trajectories)]
+        elif CFG.robo_kitchen_task == "TurnOffStove":
+            keep_indices = [3, 9, 15, 19, 20, 23, 24, 28, 29, 34, 35, 36, 39, 47, 49] #turn off by rotating clockwise
+            dataset._trajectories = [dataset._trajectories[i] for i in keep_indices if i < len(dataset._trajectories)]
         elif CFG.robo_kitchen_task == "CloseDrawer":
             keep_indices = [0, 1, 2, 5, 6] # all left close
             dataset._trajectories = [dataset._trajectories[i] for i in keep_indices if i < len(dataset._trajectories)]
@@ -920,7 +924,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                         q2 = R.from_quat(rot_t1)
                         q_diff = q2 * q1.inv()
                         delta2 = q_diff.magnitude()
-                        motion_data[i][obj].append((t, delta1+10*delta2)) # NOTE: adjust weight here
+                        motion_data[i][obj].append((t, delta1 + 15.0 * delta2)) # NOTE: adjust weight here
             
             
             # clear in contact set for each state !!!! This makes our method not previledged, good!
@@ -941,10 +945,16 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 # Compute a dynamic threshold for this object based on its motion statistics
                 velocities = [vel for _, vel in motion_data[i][max_motion_obj]]
                 if velocities:
-                    mean_vel = np.mean(velocities)
-                    std_vel = np.std(velocities)
-                    # Example: dynamic threshold as mean + 0.5*std, or fallback to config if not enough data
-                    dynamic_threshold = mean_vel + 0.5 * std_vel
+                    velocities = np.array(velocities)
+                    # data is 10 hz, so min size being 1 sec, jump being 0.3 sec
+                    algo = rpt.Dynp(model="l1", min_size=10, jump=3).fit(velocities)
+                    my_bkps = algo.predict(n_bkps=1)
+                    # dynamic_threshold = np.mean(velocities[my_bkps])
+                    rpt.show.display(velocities, my_bkps, my_bkps, figsize=(10, 6))
+                    # save the figure
+                    dynamic_threshold = velocities[my_bkps[0] - 10] + np.std(velocities[0:my_bkps[0] - 10]) # hopefully the signal has 2 change point, and the velocities above the first one are the ones we want
+                    # plt.savefig(f"motion_analysis_traj{i}_obj_{max_motion_obj.name}.png")
+                    # plt.close()
                 else:
                     dynamic_threshold = CFG.motion_analysis_contact_threshold
 

@@ -299,6 +299,8 @@ class RoboKitchenEnv(BaseEnv):
             return [self.object_name_to_object("door"), self.object_name_to_object("obj")]
         elif task_name == "TurnOnStove":
             return [self.object_name_to_object("knob"), self.object_name_to_object("stovetop")]
+        elif task_name == "TurnOffStove":
+            return [self.object_name_to_object("knob"), self.object_name_to_object("stovetop")]
         elif task_name == "TurnOnMicrowave":
             return [self.object_name_to_object("microwave_start_button")]
         elif task_name == "CloseDrawer":
@@ -307,8 +309,6 @@ class RoboKitchenEnv(BaseEnv):
             return [self.object_name_to_object("obj"), self.object_name_to_object("bottom")]
         elif task_name == "OpenDrawer":
             return [self.object_name_to_object("drawer_inner_box"), self.object_name_to_object("drawer")]
-        elif task_name == "PreSoakPan":
-            return [self.object_name_to_object("obj"), self.object_name_to_object("bottom")]
         else:
             raise ValueError(f"Task {task_name} not supported")
 
@@ -468,6 +468,10 @@ class RoboKitchenEnv(BaseEnv):
             drawer_inner_box = self.object_name_to_object("drawer_inner_box")
             drawer_cabinet = self.object_name_to_object("drawer")
             if self._DrawerOpen_holds(state, [drawer_inner_box, drawer_cabinet]):
+                return True
+        elif goal_desc == "TurnOffStove":
+            stove = self.object_name_to_object("stovetop")
+            if stove is not None and self._StoveOff_holds(state, [stove]):
                 return True
         else:
             raise ValueError(f"Goal description {goal_desc} not supported")
@@ -661,6 +665,7 @@ class RoboKitchenEnv(BaseEnv):
             Predicate("InOrigin", [cls.gripper_type, cls.base_type], cls._InOrigin_holds),
             Predicate("MicrowaveOn", [cls.microwave_type], cls._MicrowaveOn_holds),
             Predicate("StoveOn", [cls.stove_type], cls._StoveOn_holds),
+            Predicate("StoveOff", [cls.stove_type], cls._StoveOff_holds),
         }
 
         return {p.name: p for p in preds}
@@ -909,6 +914,8 @@ class RoboKitchenEnv(BaseEnv):
             goal_preds = {self._pred_name_to_pred["MicrowaveOn"]}
         elif goal_desc == "TurnOnStove":
             goal_preds = {self._pred_name_to_pred["StoveOn"]}
+        elif goal_desc == "TurnOffStove":
+            goal_preds = {self._pred_name_to_pred["StoveOff"]}
         elif goal_desc == "CloseDrawer":
             goal_preds = {self._pred_name_to_pred["DrawerClosed"]}
         elif goal_desc == "OpenDrawer":
@@ -1233,6 +1240,12 @@ class RoboKitchenEnv(BaseEnv):
         """Check if the stove is on."""
         stove, = objects
         return state.get(stove, "on")[0] > 0.5
+    
+    @classmethod
+    def _StoveOff_holds(cls, state: State, objects: Sequence[Object]) -> bool:
+        """Check if the stove is off."""
+        stove, = objects
+        return state.get(stove, "on")[0] < 0.5
 
     @classmethod
     def _DrawerClosed_holds(cls, state: State, objects: Sequence[Object]) -> bool:

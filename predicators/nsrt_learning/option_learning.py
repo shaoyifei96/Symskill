@@ -809,7 +809,7 @@ class _DSOptionLearner(_OptionLearnerBase):
             # Create a ParameterizedOption that uses DSPolicy
             name = f"{op.name}DSOption"
             parameterized_option = _LearnedDSParameterizedOption(
-                name, op, ds_policy, OOI_type_name, gripper_or_obj_type_name, gripper_action=1.0 if np.mean(option_gripper_action) > -0.5 else -1.0, is_parameterized=self._is_parameterized
+                name, op, ds_policy, OOI_type_name, gripper_or_obj_type_name, gripper_action=1.0 if np.mean(option_gripper_action) > 0.0 else -1.0, is_parameterized=self._is_parameterized
             )
 
             option_specs.append((parameterized_option, list(op.parameters)))
@@ -888,7 +888,7 @@ def find_two_objects(op: STRIPSOperator, segment: Segment, var_to_obj: VarToObjS
     # Iterate through states to check contacts
     for state in segment.states:
         if not state.items_in_contact:
-            logging.warning(f"NSRT {op.name}: state.items_in_contact is empty. Cannot analyze contacts for this state.")
+            logging.warning(f"NSRT {op.name}: one state in segment has state.items_in_contact is empty. skipping contacts analysis for this state.")
             continue  # Skip this state if contact info is missing
 
         for objA, objB in state.items_in_contact:
