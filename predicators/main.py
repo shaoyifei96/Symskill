@@ -154,7 +154,7 @@ def main() -> None:
         approach_name = f"{CFG.approach_wrapper}[{approach_name}]"
     approach = create_approach(approach_name, preds, options, env.types,
                                env.action_space, approach_train_tasks)
-    if approach.is_learning_based:
+    if approach.is_learning_based and not CFG.load_approach:
         # Create the offline dataset. Note that this needs to be done using
         # the non-stripped train tasks because dataset generation may need
         # to use the oracle predicates (e.g. demo data generation).
@@ -180,9 +180,11 @@ def _run_pipeline(env: BaseEnv,
     # offline dataset, and then proceed with the online learning loop. Test
     # after each learning call. If agent is not learning-based, just test once.
     if cogman.is_learning_based:
-        assert offline_dataset is not None, "Missing offline dataset"
-        num_offline_transitions = sum(
-            len(traj.actions) for traj in offline_dataset.trajectories)
+        if not CFG.load_approach:
+            assert offline_dataset is not None, "Missing offline dataset"
+            num_offline_transitions = sum(len(traj.actions) for traj in offline_dataset.trajectories)
+        else:
+            num_offline_transitions = 0
         num_online_transitions = 0
         total_query_cost = 0.0
         if CFG.load_approach:

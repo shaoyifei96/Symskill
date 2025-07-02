@@ -314,6 +314,8 @@ class RoboKitchenEnv(BaseEnv):
 
     def _generate_train_tasks(self) -> List[EnvironmentTask]:
         """Create tasks for training."""
+        if CFG.load_approach:
+            return []
         using_recorded_data = True
         if using_recorded_data:
             tasks = []
