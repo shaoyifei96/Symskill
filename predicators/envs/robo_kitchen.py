@@ -109,6 +109,9 @@ class RoboKitchenEnv(BaseEnv):
         "microwave_start_button": microwave_button_type,
         "drawer": cabinet_type,  # The drawer fixture (stationary cabinet structure)
         "drawer_inner_box": drawer_type,  # The movable sliding part
+        "plate": surface_type,
+        "tomato": thing_type,
+        "cheese": thing_type,
     }
 
     tasks_extended = [
@@ -255,6 +258,7 @@ class RoboKitchenEnv(BaseEnv):
         "TurnOffStove",
         "StoreFruit",
         "StoreFruitFull",
+        "CookCheeseAndTomatoes",
     ]
 
     def __init__(self, use_gui: bool = True) -> None:
@@ -309,6 +313,10 @@ class RoboKitchenEnv(BaseEnv):
             return [self.object_name_to_object("obj"), self.object_name_to_object("bottom")]
         elif task_name == "OpenDrawer":
             return [self.object_name_to_object("drawer_inner_box"), self.object_name_to_object("drawer")]
+        elif task_name == "CookCheeseAndTomatoes":
+            return [self.object_name_to_object("tomato"),
+                    self.object_name_to_object("cheese"),
+                    self.object_name_to_object("plate")]
         else:
             raise ValueError(f"Task {task_name} not supported")
 
@@ -474,6 +482,12 @@ class RoboKitchenEnv(BaseEnv):
         elif goal_desc == "TurnOffStove":
             stove = self.object_name_to_object("stovetop")
             if stove is not None and self._StoveOff_holds(state, [stove]):
+                return True
+        elif goal_desc == "CookCheeseAndTomatoes":
+            tomato = self.object_name_to_object("tomato")
+            cheese = self.object_name_to_object("cheese")
+            plate = self.object_name_to_object("plate")
+            if self._OnSurface_holds(state, [tomato, plate]) and self._OnSurface_holds(state, [cheese, plate]):
                 return True
         else:
             raise ValueError(f"Goal description {goal_desc} not supported")

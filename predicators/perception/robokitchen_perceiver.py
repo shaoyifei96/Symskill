@@ -106,6 +106,14 @@ class RoboKitchenPerceiver(BasePerceiver):
             goal = {
                 GroundAtom(StoveOff, [stove]),
             }
+        elif goal_desc == 'CookCheeseAndTomatoes':
+            tomato = RoboKitchenEnv.object_name_to_object("tomato")
+            cheese = RoboKitchenEnv.object_name_to_object("cheese")
+            plate = RoboKitchenEnv.object_name_to_object("plate")
+            goal = {
+                GroundAtom(OnSurface, [tomato, plate]),
+                GroundAtom(OnSurface, [cheese, plate]),
+            }
         else:
             raise NotImplementedError(f"Unrecognized goal: {goal_desc}")
 

@@ -85,11 +85,12 @@ class GlobalSettings:
     # robo_kitchen_task = "CloseDrawer"
     # robo_kitchen_task = "OpenDrawer"
     # robo_kitchen_task = "TurnOnStove"
-    robo_kitchen_task = "TurnOffStove"
+    # robo_kitchen_task = "TurnOffStove"
     # robo_kitchen_task = "PnPCounterToStove"
     # composite tasks (leaning needs to be done in sequence, see README)
     # robo_kitchen_task = "StoreFruit" # New task
     # robo_kitchen_task = "StoreFruitFull" # New task
+    robo_kitchen_task = "CookCheeseAndTomatoes" # New task
     # tasks that won't work with current approach
     # robo_kitchen_task = "TurnOnMicrowave" # this is not working, nothing is in motion in the dataset button just clicks
     # robo_kitchen_viz_debug = False # i think the use_gui flag covers this
