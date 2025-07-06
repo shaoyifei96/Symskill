@@ -19,16 +19,20 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Run Symskill
+      - name: Install Symskill
         run: |
-          python3 -m pip install -e . && cd ..
+          python3 -m pip install -e .
+      - name: download datasets
+        run: |
+          git clone https://github.com/shaoyifei96/predicators_robocasa_files.git && \
+          cp predicators_robocasa_files/* .
 
       - name: Set PYTHONHASHSEED
         run: echo "PYTHONHASHSEED=0" >> $GITHUB_ENV
       
       - name: Run pytest
         run: |
-          pytest predicators_robocasa/tests/test_sym_skill.py 
+          pytest tests/test_sym_skill.py 
 
       # - name: Upload test results
       #   if: failure()
