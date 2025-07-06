@@ -21,7 +21,7 @@ jobs:
 
       - name: Run Symskill
         run: |
-          python3 -m pip install -e predicators_robocasa
+          python3 -m pip install -e . && cd ..
 
       - name: Set PYTHONHASHSEED
         run: echo "PYTHONHASHSEED=0" >> $GITHUB_ENV
