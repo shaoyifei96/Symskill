@@ -117,7 +117,7 @@ class GlobalSettings:
         num_train_tasks = 25
     else:
         num_train_tasks = 10
-    num_test_tasks = 1
+    num_test_tasks = 3
     # Perform online learning for this many cycles or until this many
     # transitions have been collected, whichever happens first.
     num_online_learning_cycles = 10
