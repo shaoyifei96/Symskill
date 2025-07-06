@@ -50,7 +50,7 @@ import numpy.linalg # For eigh
 import matplotlib.cm as cm # Import cm for colormaps
 import matplotlib.colors as mcolors # Import colors for normalization
 import ruptures as rpt
-
+import os
 from ds_policy import DSPolicy, compute_vel_traj, UnifiedModelConfig
 ################################################################################
 #                          Programmatic classifiers                            #
@@ -954,6 +954,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                     max_motion = total_motion
                     max_motion_obj = obj
             
+            os.makedirs("feature_data", exist_ok=True)
             if max_motion_obj is not None:
                 # Find first and last frame of significant motion
                 # Compute a dynamic threshold for this object based on its motion statistics
