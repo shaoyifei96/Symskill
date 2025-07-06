@@ -25,14 +25,16 @@ jobs:
       - name: download datasets
         run: |
           git clone https://github.com/shaoyifei96/predicators_robocasa_files.git && \
-          cp predicators_robocasa_files/* .
+          cp predicators_robocasa_files/* . && \
+          cp predicators_robocasa_files/mosek.lic /github/home/mosek/mosek.lic 
 
       - name: Set PYTHONHASHSEED
         run: echo "PYTHONHASHSEED=0" >> $GITHUB_ENV
-      
+
       - name: Run pytest
         run: |
           pytest tests/test_sym_skill.py 
+        
 
       # - name: Upload test results
       #   if: failure()
