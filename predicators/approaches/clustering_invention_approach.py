@@ -906,6 +906,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         else:
             # or CFG.robo_kitchen_task == "PnPCounterToStove":
             # or CFG.robo_kitchen_task == "PnPCounterToCab" \
+            # or CFG.robo_kitchen_task == "PnPStoveToCounter" \
             n_bkps = 2
 
         for i, traj in enumerate(dataset.trajectories):
@@ -2148,7 +2149,6 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             skip_var =max(int(len(atom_seq) / 50),1)
             logging.debug(f"Processing trajectory {i+1}/{len(ground_atom_dataset)} with {len(atom_seq)} atoms, skipping every {skip_var} atoms.")
             achieved_goal = False 
-            skip_var = 1 # NOTE: should be removed. To test TurnOnMicrowave
             for t in range(skip_var, len(atom_seq), skip_var): # Start from 1 to compare with t-1, skip every 4, for efficiency
                 state_t = ll_traj.states[t]
                 atoms_t = atom_seq[t]

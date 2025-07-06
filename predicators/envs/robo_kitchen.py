@@ -113,6 +113,8 @@ class RoboKitchenEnv(BaseEnv):
         "plate": surface_type,
         "tomato": thing_type,
         "cheese": thing_type,
+        "container": surface_type,
+        "obj_container": surface_type,
     }
 
     tasks_extended = [
@@ -297,6 +299,8 @@ class RoboKitchenEnv(BaseEnv):
             return [self.object_name_to_object("leftdoor"), self.object_name_to_object("rightdoor")]
         elif task_name == "PnPCounterToCab":
             return [self.object_name_to_object("obj")]
+        elif task_name == "PnPStoveToCounter":
+            return [self.object_name_to_object("obj")]
         elif task_name == "StoreFruit":
             # return [self.object_name_to_object("handle"), self.object_name_to_object("obj")]
             return [self.object_name_to_object("door"), self.object_name_to_object("obj")]
@@ -310,8 +314,6 @@ class RoboKitchenEnv(BaseEnv):
             return [self.object_name_to_object("microwave_start_button")]
         elif task_name == "CloseDrawer":
             return [self.object_name_to_object("drawer_inner_box"), self.object_name_to_object("drawer")]
-        elif task_name == "PnPCounterToStove":
-            return [self.object_name_to_object("obj"), self.object_name_to_object("bottom")]
         elif task_name == "OpenDrawer":
             return [self.object_name_to_object("drawer_inner_box"), self.object_name_to_object("drawer")]
         elif task_name == "CookCheeseAndTomatoes":
@@ -447,6 +449,11 @@ class RoboKitchenEnv(BaseEnv):
             obj = self.object_name_to_object("obj")
             bottom = self.object_name_to_object("bottom")
             if self._OnSurface_holds(state, [obj, bottom]):
+                return True
+        elif goal_desc == "PnPStoveToCounter":
+            obj = self.object_name_to_object("obj")
+            container = self.object_name_to_object("obj_container")
+            if self._OnSurface_holds(state, [obj, container]):
                 return True
         elif goal_desc == "TurnOnStove":
             stove = self.object_name_to_object("stovetop")
@@ -919,6 +926,8 @@ class RoboKitchenEnv(BaseEnv):
         if goal_desc == "OpenSingleDoor":
             goal_preds = {self._pred_name_to_pred["DoorOpen"]}
         elif goal_desc == "PnPCounterToCab":
+            goal_preds = {self._pred_name_to_pred["OnSurface"]}
+        elif goal_desc == "PnPStoveToCounter":
             goal_preds = {self._pred_name_to_pred["OnSurface"]}
         elif goal_desc == "CloseSingleDoor":
             goal_preds = {self._pred_name_to_pred["DoorClosed"]}

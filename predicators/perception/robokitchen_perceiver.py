@@ -94,7 +94,7 @@ class RoboKitchenPerceiver(BasePerceiver):
             goal = {
                 GroundAtom(DrawerClosed, [drawer_inner_box, drawer]),
             }
-        elif goal_desc == 'PnPCounterToStove':
+        elif goal_desc == 'PnPStoveToCounter':
             goal = {# TODO: this is incorrect!!!!!
                 GroundAtom(OnSurface, [obj, bottom]),
             }
