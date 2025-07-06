@@ -1,0 +1,38 @@
+name: Symskill test in custom docker image
+
+on:
+  workflow_dispatch: # Allows manual triggering
+  push:
+    branches: [felix_new_tasks]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/shaoyifei96/predicator_robocasa_env:latest
+      # docker has all the dependencies and datasets
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Run Symskill
+        run: |
+          python3 -m pip install -e predicators_robocasa
+
+      - name: Set PYTHONHASHSEED
+        run: echo "PYTHONHASHSEED=0" >> $GITHUB_ENV
+      
+      - name: Run pytest
+        run: |
+          pytest predicators_robocasa/tests/test_sym_skill.py 
+
+      - name: Upload test results
+        if: failure()
+        uses: actions/upload-artifact@v3
+        with:
+          name: pytest-log
+          path: pytest.log
