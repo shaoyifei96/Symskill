@@ -34,8 +34,9 @@ jobs:
 
       - name: install osmesa
         run: |
-          apt-get install -y libosmesa6-dev && \
-          export MUJOCO_GL=osmesa 
+          apt-get update && \
+          apt-get install -y libosmesa6-dev freeglut3-dev libglfw3-dev libgles2-mesa-dev libosmesa6 && \
+          echo "MUJOCO_GL=osmesa" >> $GITHUB_ENV
 
       - name: Run pytest
         run: |
