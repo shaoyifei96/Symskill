@@ -30,9 +30,9 @@ jobs:
         run: |
           pytest predicators_robocasa/tests/test_sym_skill.py 
 
-      - name: Upload test results
-        if: failure()
-        uses: actions/upload-artifact@v3
-        with:
-          name: pytest-log
-          path: pytest.log
+      # - name: Upload test results
+      #   if: failure()
+      #   uses: actions/upload-artifact@v4
+      #   with:
+      #     name: pytest-log
+      #     path: pytest.log
