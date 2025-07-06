@@ -32,6 +32,11 @@ jobs:
       - name: Set PYTHONHASHSEED
         run: echo "PYTHONHASHSEED=0" >> $GITHUB_ENV
 
+      - name: install osmesa
+        run: |
+          apt-get install -y libosmesa6-dev && \
+          export MUJOCO_GL=osmesa 
+
       - name: Run pytest
         run: |
           pytest tests/test_sym_skill.py 
