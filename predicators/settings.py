@@ -37,7 +37,7 @@ class GlobalSettings:
     predicate_candidates_method = "motion_analysis_contact"  # "low_speed" or "contact_clustering" or "motion_analysis_contact"
     motion_analysis_contact_threshold = 0.04
     clustering_inv_cov_reg = 1e-3
-    clustering_inv_cov_reg_rot = 1e-3
+    clustering_inv_cov_reg_rot = 1e-1 # approximately 10 deg in each axis
     clustering_change_only = False
     
     resample_in_cluster = True
@@ -61,7 +61,7 @@ class GlobalSettings:
     test_noise_level = 0.05  # Noise standard deviation for clusters
     test_cluster_separation = 0.1  # Distance between cluster centers
 
-    clustering_mahalanobis_confidence = 0.9
+    clustering_mahalanobis_confidence = 0.96
     clustering_translation_epsilon = 0.3  # set dbscane to be different
     clustering_quaternion_epsilon = 0.7
     clustering_dbscan_ratio = 0.1  # dbscan is 10 times smaller than this

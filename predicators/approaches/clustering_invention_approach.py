@@ -894,6 +894,20 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             break
         assert gripper_obj is not None, "No gripper object found in the dataset"
         
+        # hack here, since some task the motion stops at the end, so we need 2 change points
+        # others achieve the goal and the episode ends, so we need 1 change point detections
+        if CFG.robo_kitchen_task == "OpenSingleDoor" \
+            or CFG.robo_kitchen_task == "CloseSingleDoor" \
+            or CFG.robo_kitchen_task == "CloseDrawer" \
+            or CFG.robo_kitchen_task == "OpenDrawer" \
+            or CFG.robo_kitchen_task == "TurnOnStove" \
+            or CFG.robo_kitchen_task == "TurnOffStove":
+            n_bkps = 1
+        else:
+            # or CFG.robo_kitchen_task == "PnPCounterToStove":
+            # or CFG.robo_kitchen_task == "PnPCounterToCab" \
+            n_bkps = 2
+
         for i, traj in enumerate(dataset.trajectories):
             logging.debug(f"Processing trajectory {i+1}/{len(dataset.trajectories)} for motion analysis")
             
@@ -924,7 +938,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                         q2 = R.from_quat(rot_t1)
                         q_diff = q2 * q1.inv()
                         delta2 = q_diff.magnitude()
-                        motion_data[i][obj].append((t, delta1 + 15.0 * delta2)) # NOTE: adjust weight here
+                        motion_data[i][obj].append((t, delta1, delta2)) # NOTE: adjust weight here
             
             
             # clear in contact set for each state !!!! This makes our method not previledged, good!
@@ -935,7 +949,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             max_motion_obj = None
             max_motion = 0
             for obj, motion_list in motion_data[i].items():
-                total_motion = sum(vel for _, vel in motion_list)
+                total_motion = sum(vel for _, vel, _ in motion_list)
                 if total_motion > max_motion:
                     max_motion = total_motion
                     max_motion_obj = obj
@@ -943,23 +957,36 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             if max_motion_obj is not None:
                 # Find first and last frame of significant motion
                 # Compute a dynamic threshold for this object based on its motion statistics
-                velocities = [vel for _, vel in motion_data[i][max_motion_obj]]
-                if velocities:
-                    velocities = np.array(velocities)
+                velocities = [(vel, rot_vel) for _, vel, rot_vel in motion_data[i][max_motion_obj]]
+                lin_vel = np.array([vel for vel, _ in velocities])
+                rot_vel = np.array([rot_vel for _, rot_vel in velocities])
+                if len(lin_vel) > 0:
+                    lin_vel = np.array(lin_vel)
                     # data is 10 hz, so min size being 1 sec, jump being 0.3 sec
-                    algo = rpt.Dynp(model="l1", min_size=10, jump=3).fit(velocities)
-                    my_bkps = algo.predict(n_bkps=1)
+                    algo = rpt.Dynp(model="l1", min_size=10, jump=3).fit(lin_vel)
+                    my_bkps = algo.predict(n_bkps=n_bkps)
                     # dynamic_threshold = np.mean(velocities[my_bkps])
-                    rpt.show.display(velocities, my_bkps, my_bkps, figsize=(10, 6))
-                    # save the figure
-                    dynamic_threshold = velocities[my_bkps[0] - 10] + np.std(velocities[0:my_bkps[0] - 10]) # hopefully the signal has 2 change point, and the velocities above the first one are the ones we want
-                    # plt.savefig(f"motion_analysis_traj{i}_obj_{max_motion_obj.name}.png")
-                    # plt.close()
-                else:
-                    dynamic_threshold = CFG.motion_analysis_contact_threshold
+                    rpt.show.display(lin_vel, my_bkps, my_bkps, figsize=(10, 6))
 
-                motion_frames = [t for t, vel in motion_data[i][max_motion_obj]
-                                 if vel > dynamic_threshold and t > 5]
+                    # save the figure
+                    # hopefully the signal has 2 change point, and the velocities above the first one are the ones we want
+                    # plot yline of the dynamic threshold
+                    plt.savefig(f"feature_data/motion_analysis_traj{i}_obj_lin_{max_motion_obj.name}.png")
+                    plt.close()
+                if len(rot_vel) > 0:
+                    algo = rpt.Dynp(model="l1", min_size=10, jump=3).fit(rot_vel)
+                    my_bkps = algo.predict(n_bkps=n_bkps)
+                    rpt.show.display(rot_vel, my_bkps, my_bkps, figsize=(10, 6))
+                    plt.savefig(f"feature_data/motion_analysis_traj{i}_obj_rot_{max_motion_obj.name}.png")
+                    plt.close()
+                if n_bkps == 1:
+                    motion_frames = range(my_bkps[0]-10, len(lin_vel)) # -10 is a hack , 1 sec of contact
+                else:
+                    motion_frames = range(my_bkps[0]-10, my_bkps[1]) 
+                    # dynamic_threshold = CFG.motion_analysis_contact_threshold
+
+                # motion_frames = [t for t, vel, _ in motion_data[i][max_motion_obj]
+                #                  if vel > dynamic_threshold and t > 5]
                 # NOTE: we are only looking at motion after 5 steps, since the first few steps are noisy 
                 assert len(motion_frames) > 0, "No motion frames found for object"
                 first_motion = min(motion_frames)
@@ -1864,7 +1891,15 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                     log_deltas = (mean_rotation.inv() * rotations).as_rotvec()
                     reg_term_rot = np.eye(3) * CFG.clustering_inv_cov_reg_rot # Use CFG value
                     cluster_cov_rot = np.cov(log_deltas.T) + reg_term_rot
-
+                    
+                    # Convert covariance to degree variation for rotation
+                    # Calculate standard deviation in degrees for each rotation axis
+                    rot_std_degrees = np.sqrt(np.diag(cluster_cov_rot)) * (180.0 / np.pi)
+                    # Calculate the average degree variation across all rotation axes
+                    avg_degree_variation = np.mean(rot_std_degrees)
+                    # Log the degree variation information
+                    logging.debug(f"Cluster {k} rotation degree variations: X={rot_std_degrees[0]:.2f}°, Y={rot_std_degrees[1]:.2f}°, Z={rot_std_degrees[2]:.2f}°, Avg={avg_degree_variation:.2f}°")
+                    # Store degree variation info in the cluster info
 
                     # Calculate inverse covariance with regularization
                     inv_cov_trans = inv(cluster_cov_trans)
