@@ -1,0 +1,51 @@
+name: Symskill test in custom docker image
+
+on:
+  workflow_dispatch: # Allows manual triggering
+  push:
+    branches: [felix_new_tasks]
+
+jobs:
+  test:
+    runs-on: self-hosted
+    container:
+      image: ghcr.io/shaoyifei96/my-image:latest
+      # docker has all the dependencies and datasets
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Install Symskill
+        run: |
+          python3 -m pip install -e .
+      - name: download datasets
+        run: |
+          git clone https://github.com/shaoyifei96/predicators_robocasa_files.git && \
+          cp predicators_robocasa_files/* . && \
+          mkdir -p /github/home/mosek && \
+          cp predicators_robocasa_files/mosek.lic /github/home/mosek/mosek.lic 
+
+      - name: Set PYTHONHASHSEED
+        run: echo "PYTHONHASHSEED=0" >> $GITHUB_ENV
+
+      - name: install osmesa
+        run: |
+          apt-get update && \
+          apt-get install -y libosmesa6-dev freeglut3-dev libglfw3-dev libgles2-mesa-dev libosmesa6 && \
+          echo "MUJOCO_GL=osmesa" >> $GITHUB_ENV
+
+      - name: Run pytest
+        run: |
+          pytest tests/test_sym_skill.py 
+        
+
+      # - name: Upload test results
+      #   if: failure()
+      #   uses: actions/upload-artifact@v4
+      #   with:
+      #     name: pytest-log
+      #     path: pytest.log

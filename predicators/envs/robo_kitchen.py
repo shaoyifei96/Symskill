@@ -27,7 +27,8 @@ import time
 import logging
 from scipy.spatial.transform import Rotation as R
 
-from robosuite.devices import Keyboard
+if CFG.use_teleop:
+    from robosuite.devices import Keyboard
 
 
 # Disable JAX debug messages
@@ -807,17 +808,17 @@ class RoboKitchenEnv(BaseEnv):
 
     def mjprint(self, text, auto_clean=False):
         """Print text in the viewer."""
-        if self._env_raw is not None:
+        if self._env_raw is not None and hasattr(self._env_raw, "viewer") and self._env_raw.viewer is not None:
             self._env_raw.viewer.mjprint(text, auto_clean=auto_clean)
 
     def mjshowframe(self, xyz, quat=(1, 0, 0, 0), size=0.1, name=None, keep=False):
         """Show frame in the viewer."""
-        if self._env_raw is not None:
+        if self._env_raw is not None and hasattr(self._env_raw, "viewer") and self._env_raw.viewer is not None:
             self._env_raw.viewer.mjshowframe(xyz, quat=quat, size=size, name=name, keep=keep)
 
     def mjshowellipse(self, xyz, quat=(1,0,0,0), size=(0.1, 0.1, 0.1), color=(1, 0, 0), alpha=0.5, name=None, base_pos=None, base_quat=None):
         """Show ellipse in the viewer."""
-        if self._env_raw is not None:
+        if self._env_raw is not None and hasattr(self._env_raw, "viewer") and self._env_raw.viewer is not None:
             if base_pos is not None and base_quat is not None:
                 # base_quat and quat are xyzw
 
