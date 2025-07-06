@@ -40,6 +40,7 @@ setup(
         "tenacity",
         "httpx==0.27.0",
         "ruptures",
+        "meshcat",
     ],
     include_package_data=True,
     extras_require={
