@@ -111,13 +111,10 @@ class GlobalSettings:
 
     """Unchanging settings."""
     # global parameters
-    if robo_kitchen_task == "PnPCounterToCab" or robo_kitchen_task == "TurnOnStove" or robo_kitchen_task == "TurnOffStove":
-        num_train_tasks = 50
-    elif robo_kitchen_task == "OpenDrawer":
-        num_train_tasks = 25
-    else:
-        num_train_tasks = 10
-    num_test_tasks = 3
+    # Note: num_train_tasks will be set dynamically based on robo_kitchen_task
+    # This is handled in the get_arg_specific_settings method below
+    num_train_tasks = 10  # Default value, will be overridden by get_arg_specific_settings
+    num_test_tasks = 5
     # Perform online learning for this many cycles or until this many
     # transitions have been collected, whichever happens first.
     num_online_learning_cycles = 10
@@ -827,7 +824,19 @@ class GlobalSettings:
         """A workaround for global settings that are derived from the
         experiment-specific args."""
 
+        # Get the current robo_kitchen_task value (either from args or default)
+        robo_kitchen_task = args.get("robo_kitchen_task", cls.robo_kitchen_task)
+        
+        # Calculate num_train_tasks based on the task
+        if robo_kitchen_task == "PnPCounterToCab" or robo_kitchen_task == "TurnOnStove" or robo_kitchen_task == "TurnOffStove":
+            num_train_tasks = 50
+        elif robo_kitchen_task == "OpenDrawer":
+            num_train_tasks = 25
+        else:
+            num_train_tasks = 10
+
         return dict(
+            num_train_tasks=num_train_tasks,
             # The method used for perception: now only "trivial" or "sokoban".
             perceiver=defaultdict(
                 lambda: "trivial",
