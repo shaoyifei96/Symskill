@@ -26,6 +26,7 @@ jobs:
         run: |
           git clone https://github.com/shaoyifei96/predicators_robocasa_files.git && \
           cp predicators_robocasa_files/* . && \
+          mkdir -p /github/home/mosek && \
           cp predicators_robocasa_files/mosek.lic /github/home/mosek/mosek.lic 
 
       - name: Set PYTHONHASHSEED
