@@ -12,7 +12,7 @@ online_learning_cycle = None
 BASE_SIMULATED_ARGV = [
     'predicators/main.py',  # The first element of sys.argv is the script name
     "--env", "robo_kitchen",
-    "--use_gui",
+    # "--use_gui", # github action does not support gui
     "--approach", "clustering_invention",
     "--seed", "0",
     "--bilevel_plan_without_sim", "True",

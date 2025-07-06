@@ -27,7 +27,8 @@ import time
 import logging
 from scipy.spatial.transform import Rotation as R
 
-from robosuite.devices import Keyboard
+if CFG.use_teleop:
+    from robosuite.devices import Keyboard
 
 
 # Disable JAX debug messages
