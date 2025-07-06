@@ -9,7 +9,7 @@ jobs:
   test:
     runs-on: ubuntu-latest
     container:
-      image: ghcr.io/shaoyifei96/predicator_robocasa_env:latest
+      image: ghcr.io/shaoyifei96/my-image:latest
       # docker has all the dependencies and datasets
       credentials:
         username: ${{ github.actor }}
