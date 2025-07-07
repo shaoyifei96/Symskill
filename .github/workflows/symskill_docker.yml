@@ -16,13 +16,13 @@ jobs:
         password: ${{ secrets.GITHUB_TOKEN }}
     
     steps:
-      - name: install robocasa # this is part of the docker, but since code is updated, need to install it again
-        run: |
-          git clone https://github.com/shaoyifei96/robocasa.git && \
-          cd robocasa && \
-          pip install -e .
       - name: Checkout code
         uses: actions/checkout@v3
+      
+      - name: install robocasa # this is part of the docker, but since code is updated, need to install it again
+        run: |
+          git clone https://github.com/shaoyifei96/robocasa.git /tmp/robocasa && \
+          pip install -e /tmp/robocasa
 
       - name: Install Symskill
         run: |
@@ -53,12 +53,3 @@ jobs:
         with:
           name: feature_data
           path: feature_data
-        
-        
-
-      # - name: Upload test results
-      #   if: failure()
-      #   uses: actions/upload-artifact@v4
-      #   with:
-      #     name: pytest-log
-      #     path: pytest.log
