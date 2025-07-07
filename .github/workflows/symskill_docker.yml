@@ -18,11 +18,21 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
-      
+
+      - name: install robosuite # this is part of the docker, but since code is updated, need to install it again
+        run: | # already installed with pip install -e robosuite
+          cd /root/robosuite && \
+          git pull 
+
       - name: install robocasa # this is part of the docker, but since code is updated, need to install it again
-        run: |
-          git clone https://github.com/shaoyifei96/robocasa.git /tmp/robocasa && \
-          pip install -e /tmp/robocasa
+        run: | # already installed with pip install -e robocasa
+          cd /root/robocasa && \
+          git pull 
+
+      - name: install ds_policy # this is part of the docker, but since code is updated, need to install it again
+        run: | # already installed with pip install -e robocasa
+          cd /root/ds_policy && \
+          git pull 
 
       - name: Install Symskill
         run: |
