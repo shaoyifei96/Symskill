@@ -35,7 +35,7 @@ class GlobalSettings:
 
     # clustering_invention approach parameters
     predicate_candidates_method = "motion_analysis_contact"  # "low_speed" or "contact_clustering" or "motion_analysis_contact"
-    motion_analysis_contact_threshold = 0.04
+    motion_analysis_lin_vel_rot_vel_threshold = 0.001
     clustering_inv_cov_reg = 1e-3
     clustering_inv_cov_reg_rot = 1e-1 # approximately 10 deg in each axis
     clustering_inv_cov_reg_rot_low = 1e-3 # approximately 10 deg in each axis
