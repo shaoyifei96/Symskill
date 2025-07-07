@@ -38,6 +38,7 @@ class GlobalSettings:
     motion_analysis_contact_threshold = 0.04
     clustering_inv_cov_reg = 1e-3
     clustering_inv_cov_reg_rot = 1e-1 # approximately 10 deg in each axis
+    clustering_inv_cov_reg_rot_low = 1e-3 # approximately 10 deg in each axis
     clustering_change_only = False
     
     resample_in_cluster = True

@@ -884,7 +884,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         # Filter types so things other than gripper and are useful are kept!!!
         # types = {obj.type for traj in dataset.trajectories for obj in traj.states[0]}
         # Example filter (adjust as needed):
-        disallowed_type_names = {"gripper_type", "left_finger_type", "right_finger_type"} # Added door_type based on usage
+        disallowed_type_names = {"gripper_type", "left_finger_type", "right_finger_type", "base_type"} # Added door_type based on usage
         # Dictionary to store motion data for each object in each trajectory
         motion_data = defaultdict(lambda: defaultdict(list))
 
@@ -961,10 +961,10 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 velocities = [(vel, rot_vel) for _, vel, rot_vel in motion_data[i][max_motion_obj]]
                 lin_vel = np.array([vel for vel, _ in velocities])
                 rot_vel = np.array([rot_vel for _, rot_vel in velocities])
-                if len(lin_vel) > 0:
-                    lin_vel = np.array(lin_vel)
+                algo = rpt.Dynp(model="l1", min_size=10, jump=3).fit(lin_vel)
+                if np.max(lin_vel) > 0.1: # if there is lin motion, use lin vel to find change points
+                    logging.warning(f"Using LINEAR velocity to find change points for {max_motion_obj.name}")
                     # data is 10 hz, so min size being 1 sec, jump being 0.3 sec
-                    algo = rpt.Dynp(model="l1", min_size=10, jump=3).fit(lin_vel)
                     my_bkps = algo.predict(n_bkps=n_bkps)
                     # dynamic_threshold = np.mean(velocities[my_bkps])
                     rpt.show.display(lin_vel, my_bkps, my_bkps, figsize=(10, 6))
@@ -974,14 +974,15 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                     # plot yline of the dynamic threshold
                     plt.savefig(f"feature_data/motion_analysis_traj{i}_obj_lin_{max_motion_obj.name}.png")
                     plt.close()
-                if len(rot_vel) > 0:
+                else:
+                    logging.warning(f"Using ROTATIONAL velocity to find change points for {max_motion_obj.name}")
                     algo = rpt.Dynp(model="l1", min_size=10, jump=3).fit(rot_vel)
                     my_bkps = algo.predict(n_bkps=n_bkps)
                     rpt.show.display(rot_vel, my_bkps, my_bkps, figsize=(10, 6))
                     plt.savefig(f"feature_data/motion_analysis_traj{i}_obj_rot_{max_motion_obj.name}.png")
                     plt.close()
                 if n_bkps == 1:
-                    motion_frames = range(my_bkps[0]-10, len(lin_vel)) # -10 is a hack , 1 sec of contact
+                    motion_frames = range(my_bkps[0]-10, len(lin_vel)) # -10 is a hack , assume 1 sec of contact before the motion
                 else:
                     motion_frames = range(my_bkps[0]-10, my_bkps[1]) 
                     # dynamic_threshold = CFG.motion_analysis_contact_threshold
@@ -1890,7 +1891,12 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                     num_dims_rot = cluster_quaternions.shape[1] - 1 # Should be 3
                     assert num_dims_rot == 3
                     log_deltas = (mean_rotation.inv() * rotations).as_rotvec()
-                    reg_term_rot = np.eye(3) * CFG.clustering_inv_cov_reg_rot # Use CFG value
+                    if type1.name == "gripper_type" or type2.name == "gripper_type":
+                    # allow extra space for relative rotation bw gripper and obj so it doesnt always replan
+                        reg = CFG.clustering_inv_cov_reg_rot
+                    else: 
+                        reg = CFG.clustering_inv_cov_reg_rot_low
+                    reg_term_rot = np.eye(3) * reg # Use CFG value
                     cluster_cov_rot = np.cov(log_deltas.T) + reg_term_rot
                     
                     # Convert covariance to degree variation for rotation

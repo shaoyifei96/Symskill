@@ -41,6 +41,13 @@ jobs:
       - name: Run pytest
         run: |
           pytest tests/test_sym_skill.py 
+      
+      - name: upload feature data
+        uses: actions/upload-artifact@v4
+        with:
+          name: feature_data
+          path: feature_data
+        
         
 
       # - name: Upload test results
