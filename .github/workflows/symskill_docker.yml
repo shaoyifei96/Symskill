@@ -55,7 +55,7 @@ jobs:
 
       - name: Run pytest
         run: |
-          pytest tests/test_sym_skill.py 
+          pytest --tb=short -rA tests/test_sym_skill.py
       
       - name: upload feature data
         if: always()
@@ -63,3 +63,10 @@ jobs:
         with:
           name: feature_data
           path: feature_data
+
+      - name: upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: results
+          path: results
