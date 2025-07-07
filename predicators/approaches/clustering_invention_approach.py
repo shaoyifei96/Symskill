@@ -962,7 +962,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 lin_vel = np.array([vel for vel, _ in velocities])
                 rot_vel = np.array([rot_vel for _, rot_vel in velocities])
                 algo = rpt.Dynp(model="l1", min_size=10, jump=3).fit(lin_vel)
-                if np.max(lin_vel) > 0.1: # if there is lin motion, use lin vel to find change points
+                if np.max(lin_vel) > CFG.motion_analysis_lin_vel_rot_vel_threshold: # if there is lin motion, use lin vel to find change points
                     logging.warning(f"Using LINEAR velocity to find change points for {max_motion_obj.name}")
                     # data is 10 hz, so min size being 1 sec, jump being 0.3 sec
                     my_bkps = algo.predict(n_bkps=n_bkps)
