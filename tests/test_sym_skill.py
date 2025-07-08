@@ -35,7 +35,9 @@ ROBO_KITCHEN_TASK_NAMES = [
     "CloseDrawer",
     "OpenDrawer",
     "TurnOnStove",
-    "TurnOffStove"
+    "TurnOffStove",
+    "TurnOnSinkFaucet",
+    "TurnOffSinkFaucet"
 ]
 
 
