@@ -38,7 +38,7 @@ class GlobalSettings:
     motion_analysis_lin_vel_rot_vel_threshold = 0.001
     clustering_inv_cov_reg = 1e-3
     clustering_inv_cov_reg_rot = 1e-1 # approximately 10 deg in each axis
-    clustering_inv_cov_reg_rot_low = 1e-3 # approximately 10 deg in each axis
+    clustering_inv_cov_reg_rot_low = 1e-4 
     clustering_change_only = False
     
     resample_in_cluster = True
@@ -80,7 +80,7 @@ class GlobalSettings:
 
     # robo_kitchen env parameters
     robo_kitchen_randomize_init_state = True  # not used
-    robo_kitchen_task = "OpenSingleDoor"
+    # robo_kitchen_task = "OpenSingleDoor"
     # robo_kitchen_task = "PnPCounterToCab"
     # robo_kitchen_task = "CloseSingleDoor"
     # robo_kitchen_task = "OpenSingleDoor"
@@ -88,6 +88,8 @@ class GlobalSettings:
     # robo_kitchen_task = "OpenDrawer"
     # robo_kitchen_task = "TurnOnStove"
     # robo_kitchen_task = "TurnOffStove"
+    # robo_kitchen_task = "TurnOnSinkFaucet"
+    robo_kitchen_task = "TurnOffSinkFaucet"
     # robo_kitchen_task = "PnPCounterToStove" #not yet done
     # composite tasks (leaning needs to be done in sequence, see README)
     # robo_kitchen_task = "StoreFruit" # New task
@@ -114,7 +116,7 @@ class GlobalSettings:
     # global parameters
     # Note: num_train_tasks will be set dynamically based on robo_kitchen_task
     # This is handled in the get_arg_specific_settings method below
-    num_train_tasks = 10  # Default value, will be overridden by get_arg_specific_settings
+    # num_train_tasks = 10  # setting up later, this no longer used
     num_test_tasks = 5
     # Perform online learning for this many cycles or until this many
     # transitions have been collected, whichever happens first.
@@ -829,9 +831,13 @@ class GlobalSettings:
         robo_kitchen_task = args.get("robo_kitchen_task", cls.robo_kitchen_task)
         
         # Calculate num_train_tasks based on the task
-        if robo_kitchen_task == "PnPCounterToCab" or robo_kitchen_task == "TurnOnStove" or robo_kitchen_task == "TurnOffStove":
+        if robo_kitchen_task == "PnPCounterToCab" or \
+            robo_kitchen_task == "TurnOnStove" or \
+            robo_kitchen_task == "TurnOffStove":
             num_train_tasks = 50
-        elif robo_kitchen_task == "OpenDrawer":
+        elif robo_kitchen_task == "OpenDrawer" or \
+            robo_kitchen_task == "TurnOnSinkFaucet" or \
+            robo_kitchen_task == "TurnOffSinkFaucet":
             num_train_tasks = 25
         else:
             num_train_tasks = 10

@@ -89,6 +89,8 @@ class RoboKitchenEnv(BaseEnv):
     microwave_type = Type("microwave_type", ["translation", "quaternion", "on"], parent=object_type)
     microwave_button_type = Type("microwave_button_type", ["translation", "quaternion"], parent=grab_type)
     drawer_type = Type("drawer_type", ["translation", "quaternion"], parent=object_type)
+    sink_faucet_handle_type = Type("sink_faucet_handle_type", ["translation", "quaternion", "on"], parent=object_type)
+    sink_type = Type("sink_type", ["translation", "quaternion"], parent=object_type)
 
     obj_name_to_type = {
         # "handle": handle_type,
@@ -110,6 +112,8 @@ class RoboKitchenEnv(BaseEnv):
         "microwave_start_button": microwave_button_type,
         "drawer": cabinet_type,  # The drawer fixture (stationary cabinet structure)
         "drawer_inner_box": drawer_type,  # The movable sliding part
+        "sink_faucet_handle": sink_faucet_handle_type,  # The sink faucet object
+        "sink": sink_type,  # The sink object
     }
 
     tasks_extended = [
@@ -310,6 +314,10 @@ class RoboKitchenEnv(BaseEnv):
             return [self.object_name_to_object("obj"), self.object_name_to_object("bottom")]
         elif task_name == "OpenDrawer":
             return [self.object_name_to_object("drawer_inner_box"), self.object_name_to_object("drawer")]
+        elif task_name == "TurnOnSinkFaucet":
+            return [self.object_name_to_object("sink_faucet_handle"), self.object_name_to_object("sink")]
+        elif task_name == "TurnOffSinkFaucet":
+            return [self.object_name_to_object("sink_faucet_handle"), self.object_name_to_object("sink")]
         else:
             raise ValueError(f"Task {task_name} not supported")
 
@@ -475,6 +483,14 @@ class RoboKitchenEnv(BaseEnv):
         elif goal_desc == "TurnOffStove":
             stove = self.object_name_to_object("stovetop")
             if stove is not None and self._StoveOff_holds(state, [stove]):
+                return True
+        elif goal_desc == "TurnOnSinkFaucet":
+            sink_faucet_handle = self.object_name_to_object("sink_faucet_handle")
+            if sink_faucet_handle is not None and self._SinkFaucetOn_holds(state, [sink_faucet_handle]):
+                return True
+        elif goal_desc == "TurnOffSinkFaucet":
+            sink_faucet_handle = self.object_name_to_object("sink_faucet_handle")
+            if sink_faucet_handle is not None and self._SinkFaucetOff_holds(state, [sink_faucet_handle]):
                 return True
         else:
             raise ValueError(f"Goal description {goal_desc} not supported")
@@ -669,6 +685,8 @@ class RoboKitchenEnv(BaseEnv):
             Predicate("MicrowaveOn", [cls.microwave_type], cls._MicrowaveOn_holds),
             Predicate("StoveOn", [cls.stove_type], cls._StoveOn_holds),
             Predicate("StoveOff", [cls.stove_type], cls._StoveOff_holds),
+            Predicate("SinkFaucetOn", [cls.sink_faucet_handle_type], cls._SinkFaucetOn_holds),
+            Predicate("SinkFaucetOff", [cls.sink_faucet_handle_type], cls._SinkFaucetOff_holds),
         }
 
         return {p.name: p for p in preds}
@@ -923,6 +941,10 @@ class RoboKitchenEnv(BaseEnv):
             goal_preds = {self._pred_name_to_pred["DrawerClosed"]}
         elif goal_desc == "OpenDrawer":
             goal_preds = {self._pred_name_to_pred["DrawerOpen"]}
+        elif goal_desc == "TurnOnSinkFaucet":
+            goal_preds = {self._pred_name_to_pred["SinkFaucetOn"]}
+        elif goal_desc == "TurnOffSinkFaucet":
+            goal_preds = {self._pred_name_to_pred["SinkFaucetOff"]}
         return goal_preds
 
     @property
@@ -956,6 +978,8 @@ class RoboKitchenEnv(BaseEnv):
             self.stove_type,
             self.microwave_type,
             self.microwave_button_type,
+            self.sink_faucet_handle_type,
+            self.sink_type,
         }
 
     def get_observation(self) -> Observation:
@@ -1014,6 +1038,12 @@ class RoboKitchenEnv(BaseEnv):
             stove_obj = cls.object_name_to_object("stovetop")
             if stove_obj is not None and stove_obj in state_dict:
                 state_dict[stove_obj]["on"] = np.array([state_info["stove_on"]])
+
+        # Add the 'on' feature to the sink faucet object
+        if "sink_faucet_on" in state_info:
+            sink_faucet_obj = cls.object_name_to_object("sink_faucet_handle")
+            if sink_faucet_obj is not None and sink_faucet_obj in state_dict:
+                state_dict[sink_faucet_obj]["on"] = np.array([state_info["sink_faucet_on"]])
 
         state = utils.create_state_from_dict(state_dict)
         state.simulator_state = {}
@@ -1249,6 +1279,18 @@ class RoboKitchenEnv(BaseEnv):
         """Check if the stove is off."""
         stove, = objects
         return state.get(stove, "on")[0] < 0.5
+    
+    @classmethod
+    def _SinkFaucetOn_holds(cls, state: State, objects: Sequence[Object]) -> bool:
+        """Check if the sink faucet is on."""
+        sink_faucet_handle, = objects
+        return state.get(sink_faucet_handle, "on")[0] > 0.5
+    
+    @classmethod
+    def _SinkFaucetOff_holds(cls, state: State, objects: Sequence[Object]) -> bool:
+        """Check if the sink faucet is off."""
+        sink_faucet_handle, = objects
+        return state.get(sink_faucet_handle, "on")[0] < 0.5
 
     @classmethod
     def _DrawerClosed_holds(cls, state: State, objects: Sequence[Object]) -> bool:

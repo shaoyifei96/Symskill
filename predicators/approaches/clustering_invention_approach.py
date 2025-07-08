@@ -621,7 +621,13 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         elif CFG.robo_kitchen_task == "OpenDrawer":
             keep_indices = [1, 3, 5, 8, 11, 13, 15, 17, 20, 21, 22, 24]
             dataset._trajectories = [dataset._trajectories[i] for i in keep_indices if i < len(dataset._trajectories)]
+        elif CFG.robo_kitchen_task == "TurnOnSinkFaucet":
+            keep_indices = [0, 1, 4, 5, 9, 18, 21, 23, 24]
+            dataset._trajectories = [dataset._trajectories[i] for i in keep_indices if i < len(dataset._trajectories)]
         # logging.info(f"Filtered dataset to trajectories (indices: {keep_indices})")
+        elif CFG.robo_kitchen_task == "TurnOffSinkFaucet":
+            keep_indices = [ 5, 7, 11, 17, 19, 21]
+            dataset._trajectories = [dataset._trajectories[i] for i in keep_indices if i < len(dataset._trajectories)]
         # Clear caches before starting learning
         self._atom_dataset_cache = {}
         self._operator_complexity_cache = {}
@@ -901,7 +907,9 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             or CFG.robo_kitchen_task == "CloseDrawer" \
             or CFG.robo_kitchen_task == "OpenDrawer" \
             or CFG.robo_kitchen_task == "TurnOnStove" \
-            or CFG.robo_kitchen_task == "TurnOffStove":
+            or CFG.robo_kitchen_task == "TurnOffStove" \
+            or CFG.robo_kitchen_task == "TurnOnSinkFaucet" \
+            or CFG.robo_kitchen_task == "TurnOffSinkFaucet":
             n_bkps = 1
         else:
             # or CFG.robo_kitchen_task == "PnPCounterToStove":
@@ -2265,6 +2273,8 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         all_objs = list(all_objs)  # Convert back to list for further processing
         all_objs = [o for o in all_objs if "finger" not in o.name.lower() and "base" not in o.name.lower()]
         logging.info(f"After filtering, {len(all_objs)} objects remain") 
+        if len(all_objs) <= 2:
+            raise ValueError(f"Only {len(all_objs)} objects remain, which is less than 3. Not enough for finding a reference object.")
         return all_objs
     
     def _create_gnd_atom_datasets(self, dataset: Dataset, in_contact_pred: Predicate, in_origin_pred: Predicate, learnt_goal_predicates: Set[Predicate]) -> Tuple[Set[Predicate], List[GroundAtomTrajectory]]:

@@ -30,6 +30,8 @@ class RoboKitchenPerceiver(BasePerceiver):
         MicrowaveOn = pred_name_to_pred["MicrowaveOn"]
         StoveOn = pred_name_to_pred["StoveOn"]
         StoveOff = pred_name_to_pred["StoveOff"]
+        SinkFaucetOn = pred_name_to_pred["SinkFaucetOn"]
+        SinkFaucetOff = pred_name_to_pred["SinkFaucetOff"]
 
         # handle = RoboKitchenEnv.object_name_to_object("handle")
         # left_handle = RoboKitchenEnv.object_name_to_object("left_door_handle")
@@ -45,6 +47,8 @@ class RoboKitchenPerceiver(BasePerceiver):
         microwave = RoboKitchenEnv.object_name_to_object("microwave")
         drawer = RoboKitchenEnv.object_name_to_object("drawer")
         drawer_inner_box = RoboKitchenEnv.object_name_to_object("drawer_inner_box")
+        sink_faucet_handle = RoboKitchenEnv.object_name_to_object("sink_faucet_handle")
+        sink = RoboKitchenEnv.object_name_to_object("sink")
 
         goal_desc = env_task.goal_description
         if goal_desc == 'OpenSingleDoor':
@@ -105,6 +109,14 @@ class RoboKitchenPerceiver(BasePerceiver):
         elif goal_desc == 'TurnOffStove':
             goal = {
                 GroundAtom(StoveOff, [stove]),
+            }
+        elif goal_desc == 'TurnOnSinkFaucet':
+            goal = {
+                GroundAtom(SinkFaucetOn, [sink_faucet_handle]),
+            }
+        elif goal_desc == 'TurnOffSinkFaucet':
+            goal = {
+                GroundAtom(SinkFaucetOff, [sink_faucet_handle]),
             }
         else:
             raise NotImplementedError(f"Unrecognized goal: {goal_desc}")
