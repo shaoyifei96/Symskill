@@ -508,6 +508,9 @@ class RoboKitchenEnv(BaseEnv):
                     layout_ids = [0]
                 else:
                     layout_ids = [3]
+                
+                # top handle sink requries style traditional 1 (5), traditional 2 (6), transitional 2 (11), mediterranean (9)
+                # for now just keep 6 for all tasks
 
                 config = {
                     "env_name": task_name,
