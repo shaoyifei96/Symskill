@@ -19,6 +19,21 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
+      - name: install robosuite # this is part of the docker, but since code is updated, need to install it again
+        run: | # already installed with pip install -e robosuite
+          cd /root/robosuite && \
+          git pull 
+
+      - name: install robocasa # this is part of the docker, but since code is updated, need to install it again
+        run: | # already installed with pip install -e robocasa
+          cd /root/robocasa && \
+          git pull 
+
+      - name: install ds_policy # this is part of the docker, but since code is updated, need to install it again
+        run: | # already installed with pip install -e robocasa
+          cd /root/ds_policy && \
+          git pull 
+
       - name: Install Symskill
         run: |
           python3 -m pip install -e .
@@ -40,12 +55,18 @@ jobs:
 
       - name: Run pytest
         run: |
-          pytest tests/test_sym_skill.py 
-        
+          pytest --tb=short -rA tests/test_sym_skill.py
+      
+      - name: upload feature data
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: feature_data
+          path: feature_data
 
-      # - name: Upload test results
-      #   if: failure()
-      #   uses: actions/upload-artifact@v4
-      #   with:
-      #     name: pytest-log
-      #     path: pytest.log
+      - name: upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: results
+          path: results

@@ -34,11 +34,13 @@ class GlobalSettings:
     dict_gt_goal_predicate_to_dummy_goal_predicates = {}  # key: gt goal predicate, value: set of dummy goal predicates
 
     # clustering_invention approach parameters
-    # predicate_candidates_method = "motion_analysis_contact"  # "low_speed" or "contact_clustering" or "motion_analysis_contact"
-    predicate_candidates_method = "contact_clustering"  # "low_speed" or "contact_clustering" or "motion_analysis_contact"
+    # predicate_candidates_method = "contact_clustering"  # "low_speed" or "contact_clustering" or "motion_analysis_contact"
+    predicate_candidates_method = "motion_analysis_contact"  # "low_speed" or "contact_clustering" or "motion_analysis_contact"
+    motion_analysis_lin_vel_rot_vel_threshold = 0.001
     motion_analysis_contact_threshold = 0.04
     clustering_inv_cov_reg = 1e-3
     clustering_inv_cov_reg_rot = 1e-1 # approximately 10 deg in each axis
+    clustering_inv_cov_reg_rot_low = 1e-3 # approximately 10 deg in each axis
     clustering_change_only = False
     
     resample_in_cluster = True
@@ -830,7 +832,19 @@ class GlobalSettings:
         """A workaround for global settings that are derived from the
         experiment-specific args."""
 
+        # Get the current robo_kitchen_task value (either from args or default)
+        robo_kitchen_task = args.get("robo_kitchen_task", cls.robo_kitchen_task)
+        
+        # Calculate num_train_tasks based on the task
+        if robo_kitchen_task == "PnPCounterToCab" or robo_kitchen_task == "TurnOnStove" or robo_kitchen_task == "TurnOffStove":
+            num_train_tasks = 50
+        elif robo_kitchen_task == "OpenDrawer":
+            num_train_tasks = 25
+        else:
+            num_train_tasks = 10
+
         return dict(
+            num_train_tasks=num_train_tasks,
             # The method used for perception: now only "trivial" or "sokoban".
             perceiver=defaultdict(
                 lambda: "trivial",

@@ -249,6 +249,8 @@ def run_episode_and_get_observations(
                 if replan_triggered:
                     metrics["num_replans"] += 1
                     logging.info("\033[93m[CogMan] Num replans: %d\033[0m", metrics["num_replans"])
+                    if metrics["num_replans"] > 20:
+                        raise ApproachFailure("Too many replans")
                 metrics["policy_call_time"] += time.perf_counter() - start_time
                 if act is None:
                     break

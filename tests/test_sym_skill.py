@@ -64,7 +64,7 @@ def test_main(robo_kitchen_task_name):
         # with open(base_outfile, 'rb') as f:
         #     base_log_data = pickle.load(f)
         # base_results = base_log_data['results']
-        assert results['num_solved'] / results['num_total'] > 0.65 # 3 tasks, 2 tasks solved
+        assert results['num_solved'] / results['num_total'] > 0.9 #
 
         # start comparing results to base_results   
         # assert results['offline_learning_trajs_states_nums'] == base_results['offline_learning_trajs_states_nums']

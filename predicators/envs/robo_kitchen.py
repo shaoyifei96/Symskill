@@ -300,7 +300,7 @@ class RoboKitchenEnv(BaseEnv):
         elif task_name == "PnPCounterToCab":
             return [self.object_name_to_object("obj")]
         elif task_name == "PnPStoveToCounter":
-            return [self.object_name_to_object("obj")]
+            return [self.object_name_to_object("obj"), self.object_name_to_object("obj_container")]
         elif task_name == "StoreFruit":
             # return [self.object_name_to_object("handle"), self.object_name_to_object("obj")]
             return [self.object_name_to_object("door"), self.object_name_to_object("obj")]

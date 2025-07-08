@@ -45,6 +45,8 @@ class RoboKitchenPerceiver(BasePerceiver):
         microwave = RoboKitchenEnv.object_name_to_object("microwave")
         drawer = RoboKitchenEnv.object_name_to_object("drawer")
         drawer_inner_box = RoboKitchenEnv.object_name_to_object("drawer_inner_box")
+        container = RoboKitchenEnv.object_name_to_object("container")
+        obj_container = RoboKitchenEnv.object_name_to_object("obj_container")
 
         goal_desc = env_task.goal_description
         if goal_desc == 'OpenSingleDoor':
@@ -95,8 +97,8 @@ class RoboKitchenPerceiver(BasePerceiver):
                 GroundAtom(DrawerClosed, [drawer_inner_box, drawer]),
             }
         elif goal_desc == 'PnPStoveToCounter':
-            goal = {# TODO: this is incorrect!!!!!
-                GroundAtom(OnSurface, [obj, bottom]),
+            goal = {
+                GroundAtom(OnSurface, [obj, obj_container]),
             }
         elif goal_desc == 'OpenDrawer':
             goal = {
