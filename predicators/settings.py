@@ -103,7 +103,7 @@ class GlobalSettings:
     robo_kitchen_save_traj_by_segment = False
     robo_kitchen_policy_model = "node"  # "simple_ds" or "node"
     make_test_videos = False
-    loglevel = 10
+    loglevel = 30
     if enable_meshcat:
         visualizer = MeshcatVisualizer(mode="traj_follower")
     else:
