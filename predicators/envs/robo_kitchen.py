@@ -300,7 +300,7 @@ class RoboKitchenEnv(BaseEnv):
         elif task_name == "PnPCounterToCab":
             return [self.object_name_to_object("obj")]
         elif task_name == "PnPStoveToCounter":
-            return [self.object_name_to_object("obj"), self.object_name_to_object("obj_container")]
+            return [self.object_name_to_object("obj")]
         elif task_name == "StoreFruit":
             # return [self.object_name_to_object("handle"), self.object_name_to_object("obj")]
             return [self.object_name_to_object("door"), self.object_name_to_object("obj")]
@@ -452,7 +452,7 @@ class RoboKitchenEnv(BaseEnv):
                 return True
         elif goal_desc == "PnPStoveToCounter":
             obj = self.object_name_to_object("obj")
-            container = self.object_name_to_object("obj_container")
+            container = self.object_name_to_object("container")
             if self._OnSurface_holds(state, [obj, container]):
                 return True
         elif goal_desc == "TurnOnStove":

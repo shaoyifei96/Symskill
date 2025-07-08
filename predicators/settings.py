@@ -99,7 +99,7 @@ class GlobalSettings:
     # robo_kitchen_task = "TurnOnMicrowave" # this is not working, nothing is in motion in the dataset button just clicks
     # robo_kitchen_viz_debug = False # i think the use_gui flag covers this
     robo_kitchen_contact_smoothing_window = 21
-    robo_kitchen_load_dataset = True # this has priority, if False, then save flag is considered
+    robo_kitchen_load_dataset = False # this has priority, if False, then save flag is considered
     robo_kitchen_save_dataset = not robo_kitchen_load_dataset
     robo_kitchen_save_traj_by_segment = False
     robo_kitchen_policy_model = "node"  # "simple_ds" or "node"
@@ -115,7 +115,7 @@ class GlobalSettings:
 
     """Unchanging settings."""
     # global parameters
-    if robo_kitchen_task == "PnPCounterToCab" or robo_kitchen_task == "TurnOnStove" or robo_kitchen_task == "TurnOffStove":
+    if robo_kitchen_task == "PnPCounterToCab" or robo_kitchen_task == "TurnOnStove" or robo_kitchen_task == "TurnOffStove" or robo_kitchen_task == "PnPStoveToCounter":
         num_train_tasks = 50
     elif robo_kitchen_task == "OpenDrawer":
         num_train_tasks = 25
@@ -836,7 +836,7 @@ class GlobalSettings:
         robo_kitchen_task = args.get("robo_kitchen_task", cls.robo_kitchen_task)
         
         # Calculate num_train_tasks based on the task
-        if robo_kitchen_task == "PnPCounterToCab" or robo_kitchen_task == "TurnOnStove" or robo_kitchen_task == "TurnOffStove":
+        if robo_kitchen_task == "PnPCounterToCab" or robo_kitchen_task == "TurnOnStove" or robo_kitchen_task == "TurnOffStove" or robo_kitchen_task == "PnPStoveToCounter":
             num_train_tasks = 50
         elif robo_kitchen_task == "OpenDrawer":
             num_train_tasks = 25

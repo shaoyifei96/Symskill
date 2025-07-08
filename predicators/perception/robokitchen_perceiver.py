@@ -98,7 +98,7 @@ class RoboKitchenPerceiver(BasePerceiver):
             }
         elif goal_desc == 'PnPStoveToCounter':
             goal = {
-                GroundAtom(OnSurface, [obj, obj_container]),
+                GroundAtom(OnSurface, [obj, container]),
             }
         elif goal_desc == 'OpenDrawer':
             goal = {
