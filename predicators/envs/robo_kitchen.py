@@ -281,6 +281,8 @@ class RoboKitchenEnv(BaseEnv):
         print(colored(f"Selected task: {self.task_selected}", "green"))
 
         self.device = None  # control device
+        self._video_frames = []  # For saving video frames when GUI is not enabled
+        self._frame_counter = 0  # To track steps for frame saving
 
     def get_objects_of_interest(self, task_name: str) -> List[Object]:
         """Get the object of interest for the task."""
@@ -799,6 +801,12 @@ class RoboKitchenEnv(BaseEnv):
         observation = {"state_info": obs, "obs_images": [], "contact_set": contact_set}
 
         self._current_observation = observation
+        # Video frame saving logic (only if GUI is not enabled)
+        if not self._using_gui:
+            self._frame_counter += 1
+            # Save a frame from the center camera
+            frame = self._env.sim.render(camera_name="robot0_agentview_center", height=512, width=768)
+            self._video_frames.append(frame)
         return self._copy_observation(self._current_observation)
 
     def reset(self, train_or_test: str, task_idx: int) -> Observation:
@@ -1353,6 +1361,14 @@ class RoboKitchenEnv(BaseEnv):
                 self.device.stop_control()
                 self.device = None
         logging.info("RoboKitchenEnv closed.")
+
+    def save_episode_video(self, filename="episode.mp4"):
+        """Save the collected video frames as a video and clear the buffer."""
+        if not self._using_gui and self._video_frames:
+            from predicators import utils
+            utils.save_video(filename, self._video_frames)
+            self._video_frames = []
+            self._frame_counter = 0
 
 
 def frame_transform(pos_in_init: np.ndarray, quat_in_init: np.ndarray, target_pos: np.ndarray, target_rot: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:

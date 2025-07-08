@@ -70,3 +70,10 @@ jobs:
         with:
           name: results
           path: results
+
+      - name: upload videos
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: videos
+          path: videos

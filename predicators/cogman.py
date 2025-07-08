@@ -297,6 +297,8 @@ def run_episode_and_get_observations(
     cogman.finish_episode(obs)
     traj = (observations, actions)
     solved = env.goal_reached()
+    if not env._using_gui:
+        env.save_episode_video(f"episode_{cogman._episode_num}.mp4")
     return traj, solved, metrics
 
 

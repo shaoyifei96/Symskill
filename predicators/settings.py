@@ -21,7 +21,7 @@ class GlobalSettings:
     reprocess_ground_atom_dataset_using_cluster_predicates = False
     remove_inOrigin_pred = True
 
-    use_learnt_goal_predicates = True
+    use_learnt_goal_predicates = False
     use_negated_goal_predicates = False
 
     use_cluster_center_as_attractor = False

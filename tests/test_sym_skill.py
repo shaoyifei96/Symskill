@@ -5,10 +5,14 @@ import pickle
 
 from predicators.main import main as predicators_main
 from predicators import utils
+import shutil
+import glob 
 
 results_dir = "results"
 base_results_dir = "sym_skill_base_results"
 online_learning_cycle = None
+saved_approaches_dir = "saved_approaches"
+
 BASE_SIMULATED_ARGV = [
     'predicators/main.py',  # The first element of sys.argv is the script name
     "--env", "robo_kitchen",
@@ -67,6 +71,17 @@ def test_main(robo_kitchen_task_name):
         #     base_log_data = pickle.load(f)
         # base_results = base_log_data['results']
         assert results['num_solved'] / results['num_total'] > 0.9 #
+        # Remove all files in the saved_approaches folder after running
+
+        for f in glob.glob(f"{saved_approaches_dir}/*"):
+            try:
+                if os.path.isfile(f) or os.path.islink(f):
+                    os.remove(f)
+                elif os.path.isdir(f):
+                    shutil.rmtree(f)
+            except Exception as e:
+                print(f"Failed to delete {f}. Reason: {e}")
+
 
         # start comparing results to base_results   
         # assert results['offline_learning_trajs_states_nums'] == base_results['offline_learning_trajs_states_nums']
