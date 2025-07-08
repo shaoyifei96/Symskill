@@ -26,6 +26,7 @@ class RoboKitchenPerceiver(BasePerceiver):
         DrawerClosed = pred_name_to_pred["DrawerClosed"]
         DrawerOpen = pred_name_to_pred["DrawerOpen"]
         OnSurface = pred_name_to_pred["OnSurface"]
+        InContainer = pred_name_to_pred["InContainer"]
         KnobTurnedOn = pred_name_to_pred["KnobTurnedOn"]
         MicrowaveOn = pred_name_to_pred["MicrowaveOn"]
         StoveOn = pred_name_to_pred["StoveOn"]
@@ -45,6 +46,11 @@ class RoboKitchenPerceiver(BasePerceiver):
         microwave = RoboKitchenEnv.object_name_to_object("microwave")
         drawer = RoboKitchenEnv.object_name_to_object("drawer")
         drawer_inner_box = RoboKitchenEnv.object_name_to_object("drawer_inner_box")
+        cab1 = RoboKitchenEnv.object_name_to_object("cab1")
+        cab2 = RoboKitchenEnv.object_name_to_object("cab2")
+        tomato = RoboKitchenEnv.object_name_to_object("tomato")
+        cheese = RoboKitchenEnv.object_name_to_object("cheese")
+        plate = RoboKitchenEnv.object_name_to_object("plate")
         container = RoboKitchenEnv.object_name_to_object("container")
         obj_container = RoboKitchenEnv.object_name_to_object("obj_container")
 
@@ -98,7 +104,7 @@ class RoboKitchenPerceiver(BasePerceiver):
             }
         elif goal_desc == 'PnPStoveToCounter':
             goal = {
-                GroundAtom(OnSurface, [obj, container]),
+                GroundAtom(InContainer, [obj, container]),
             }
         elif goal_desc == 'OpenDrawer':
             goal = {
@@ -109,12 +115,9 @@ class RoboKitchenPerceiver(BasePerceiver):
                 GroundAtom(StoveOff, [stove]),
             }
         elif goal_desc == 'CookCheeseAndTomatoes':
-            tomato = RoboKitchenEnv.object_name_to_object("tomato")
-            cheese = RoboKitchenEnv.object_name_to_object("cheese")
-            plate = RoboKitchenEnv.object_name_to_object("plate")
             goal = {
-                GroundAtom(OnSurface, [tomato, plate]),
-                GroundAtom(OnSurface, [cheese, plate]),
+                GroundAtom(InContainer, [tomato, plate]),
+                GroundAtom(InContainer, [cheese, plate]),
             }
         else:
             raise NotImplementedError(f"Unrecognized goal: {goal_desc}")

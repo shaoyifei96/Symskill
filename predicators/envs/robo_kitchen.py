@@ -89,6 +89,7 @@ class RoboKitchenEnv(BaseEnv):
     microwave_type = Type("microwave_type", ["translation", "quaternion", "on"], parent=object_type)
     microwave_button_type = Type("microwave_button_type", ["translation", "quaternion"], parent=grab_type)
     drawer_type = Type("drawer_type", ["translation", "quaternion"], parent=object_type)
+    container_type = Type("container_type", ["translation", "quaternion"], parent=object_type)
 
     obj_name_to_type = {
         # "handle": handle_type,
@@ -110,11 +111,15 @@ class RoboKitchenEnv(BaseEnv):
         "microwave_start_button": microwave_button_type,
         "drawer": cabinet_type,  # The drawer fixture (stationary cabinet structure)
         "drawer_inner_box": drawer_type,  # The movable sliding part
-        "plate": surface_type,
+        # CookCheeseAndTomatoes
+        "cab1": cabinet_type,
+        "cab2": cabinet_type,
+        "plate": container_type,
         "tomato": thing_type,
         "cheese": thing_type,
-        "container": surface_type,
-        "obj_container": surface_type,
+        # PnPStoveToCounter
+        "container": container_type,
+        "obj_container": container_type,
     }
 
     tasks_extended = [
@@ -317,7 +322,9 @@ class RoboKitchenEnv(BaseEnv):
         elif task_name == "OpenDrawer":
             return [self.object_name_to_object("drawer_inner_box"), self.object_name_to_object("drawer")]
         elif task_name == "CookCheeseAndTomatoes":
-            return [self.object_name_to_object("tomato"),
+            return [self.object_name_to_object("cab1"),
+                    self.object_name_to_object("cab2"),
+                    self.object_name_to_object("tomato"),
                     self.object_name_to_object("cheese"),
                     self.object_name_to_object("plate")]
         else:
@@ -453,7 +460,7 @@ class RoboKitchenEnv(BaseEnv):
         elif goal_desc == "PnPStoveToCounter":
             obj = self.object_name_to_object("obj")
             container = self.object_name_to_object("container")
-            if self._OnSurface_holds(state, [obj, container]):
+            if self._InContainer_holds(state, [obj, container]):
                 return True
         elif goal_desc == "TurnOnStove":
             stove = self.object_name_to_object("stovetop")
@@ -495,7 +502,7 @@ class RoboKitchenEnv(BaseEnv):
             tomato = self.object_name_to_object("tomato")
             cheese = self.object_name_to_object("cheese")
             plate = self.object_name_to_object("plate")
-            if self._OnSurface_holds(state, [tomato, plate]) and self._OnSurface_holds(state, [cheese, plate]):
+            if self._InContainer_holds(state, [tomato, plate]) and self._InContainer_holds(state, [cheese, plate]):
                 return True
         else:
             raise ValueError(f"Goal description {goal_desc} not supported")
@@ -690,6 +697,7 @@ class RoboKitchenEnv(BaseEnv):
             Predicate("MicrowaveOn", [cls.microwave_type], cls._MicrowaveOn_holds),
             Predicate("StoveOn", [cls.stove_type], cls._StoveOn_holds),
             Predicate("StoveOff", [cls.stove_type], cls._StoveOff_holds),
+            Predicate("InContainer", [cls.thing_type, cls.container_type], cls._InContainer_holds),
         }
 
         return {p.name: p for p in preds}
@@ -928,7 +936,7 @@ class RoboKitchenEnv(BaseEnv):
         elif goal_desc == "PnPCounterToCab":
             goal_preds = {self._pred_name_to_pred["OnSurface"]}
         elif goal_desc == "PnPStoveToCounter":
-            goal_preds = {self._pred_name_to_pred["OnSurface"]}
+            goal_preds = {self._pred_name_to_pred["InContainer"]}
         elif goal_desc == "CloseSingleDoor":
             goal_preds = {self._pred_name_to_pred["DoorClosed"]}
         elif goal_desc == "StoreFruit":
@@ -1320,6 +1328,20 @@ class RoboKitchenEnv(BaseEnv):
         drawer_open_thresh = 0.2  # meters - threshold for considering drawer open
         
         return abs(rel_pos[1]) > drawer_open_thresh
+    
+    @classmethod
+    def _InContainer_holds(cls, state: State, objects: Sequence[Object]) -> bool:
+        """Check if object is in container."""
+        obj, container = objects
+        obj_pos = state.get(obj, "translation")
+        obj_quat = state.get(obj, "quaternion")
+        container_pos = state.get(container, "translation")
+        container_quat = state.get(container, "quaternion")
+        obj_pos_in_container, _ = frame_transform(obj_pos, obj_quat, container_pos, R.from_quat(container_quat).as_matrix())
+        in_container = 0.0 <= obj_pos_in_container[2] <= cls.place_close_y_thresh
+        in_container_region = abs(obj_pos_in_container[0]) <= 0.13 and abs(obj_pos_in_container[1]) <= 0.13
+        return in_container and in_container_region
+    
 
     def close(self) -> None:
         """Close the Robosuite environment."""

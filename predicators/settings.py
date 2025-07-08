@@ -121,7 +121,7 @@ class GlobalSettings:
         num_train_tasks = 25
     else:
         num_train_tasks = 10
-    # num_train_tasks = 1
+    # num_train_tasks = 10
     num_test_tasks = 1
     # Perform online learning for this many cycles or until this many
     # transitions have been collected, whichever happens first.
@@ -842,6 +842,7 @@ class GlobalSettings:
             num_train_tasks = 25
         else:
             num_train_tasks = 10
+        # num_train_tasks = 10
 
         return dict(
             num_train_tasks=num_train_tasks,
