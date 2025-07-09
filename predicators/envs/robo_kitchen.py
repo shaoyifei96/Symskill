@@ -89,6 +89,8 @@ class RoboKitchenEnv(BaseEnv):
     microwave_type = Type("microwave_type", ["translation", "quaternion", "on"], parent=object_type)
     microwave_button_type = Type("microwave_button_type", ["translation", "quaternion"], parent=grab_type)
     drawer_type = Type("drawer_type", ["translation", "quaternion"], parent=object_type)
+    sink_faucet_handle_type = Type("sink_faucet_handle_type", ["translation", "quaternion", "on"], parent=object_type)
+    sink_type = Type("sink_type", ["translation", "quaternion"], parent=object_type)
     container_type = Type("container_type", ["translation", "quaternion"], parent=object_type)
 
     obj_name_to_type = {
@@ -111,6 +113,8 @@ class RoboKitchenEnv(BaseEnv):
         "microwave_start_button": microwave_button_type,
         "drawer": cabinet_type,  # The drawer fixture (stationary cabinet structure)
         "drawer_inner_box": drawer_type,  # The movable sliding part
+        "sink_faucet_handle": sink_faucet_handle_type,  # The sink faucet object
+        "sink": sink_type,  # The sink object
         # CookCheeseAndTomatoes
         "cab_1": cabinet_type,
         "cab_2": cabinet_type,
@@ -288,6 +292,8 @@ class RoboKitchenEnv(BaseEnv):
         print(colored(f"Selected task: {self.task_selected}", "green"))
 
         self.device = None  # control device
+        self._video_frames = []  # For saving video frames when GUI is not enabled
+        self._frame_counter = 0  # To track steps for frame saving
 
     def get_objects_of_interest(self, task_name: str) -> List[Object]:
         """Get the object of interest for the task. These are objects involved in contact."""
@@ -321,6 +327,10 @@ class RoboKitchenEnv(BaseEnv):
             return [self.object_name_to_object("drawer_inner_box"), self.object_name_to_object("drawer")]
         elif task_name == "OpenDrawer":
             return [self.object_name_to_object("drawer_inner_box"), self.object_name_to_object("drawer")]
+        elif task_name == "TurnOnSinkFaucet":
+            return [self.object_name_to_object("sink_faucet_handle"), self.object_name_to_object("sink")]
+        elif task_name == "TurnOffSinkFaucet":
+            return [self.object_name_to_object("sink_faucet_handle"), self.object_name_to_object("sink")]
         elif task_name == "CookCheeseAndTomatoes":
             return [self.object_name_to_object("tomato"), self.object_name_to_object("cheese")]
         else:
@@ -494,6 +504,14 @@ class RoboKitchenEnv(BaseEnv):
             stove = self.object_name_to_object("stovetop")
             if stove is not None and self._StoveOff_holds(state, [stove]):
                 return True
+        elif goal_desc == "TurnOnSinkFaucet":
+            sink_faucet_handle = self.object_name_to_object("sink_faucet_handle")
+            if sink_faucet_handle is not None and self._SinkFaucetOn_holds(state, [sink_faucet_handle]):
+                return True
+        elif goal_desc == "TurnOffSinkFaucet":
+            sink_faucet_handle = self.object_name_to_object("sink_faucet_handle")
+            if sink_faucet_handle is not None and self._SinkFaucetOff_holds(state, [sink_faucet_handle]):
+                return True
         elif goal_desc == "CookCheeseAndTomatoes":
             tomato = self.object_name_to_object("tomato")
             cheese = self.object_name_to_object("cheese")
@@ -516,6 +534,9 @@ class RoboKitchenEnv(BaseEnv):
                     layout_ids = [0]
                 else:
                     layout_ids = [3]
+                
+                # top handle sink requries style traditional 1 (5), traditional 2 (6), transitional 2 (11), mediterranean (9)
+                # for now just keep 6 for all tasks
 
                 config = {
                     "env_name": task_name,
@@ -693,6 +714,8 @@ class RoboKitchenEnv(BaseEnv):
             Predicate("MicrowaveOn", [cls.microwave_type], cls._MicrowaveOn_holds),
             Predicate("StoveOn", [cls.stove_type], cls._StoveOn_holds),
             Predicate("StoveOff", [cls.stove_type], cls._StoveOff_holds),
+            Predicate("SinkFaucetOn", [cls.sink_faucet_handle_type], cls._SinkFaucetOn_holds),
+            Predicate("SinkFaucetOff", [cls.sink_faucet_handle_type], cls._SinkFaucetOff_holds),
             Predicate("InContainer", [cls.thing_type, cls.container_type], cls._InContainer_holds),
         }
 
@@ -803,6 +826,12 @@ class RoboKitchenEnv(BaseEnv):
         observation = {"state_info": obs, "obs_images": [], "contact_set": contact_set}
 
         self._current_observation = observation
+        # Video frame saving logic (only if GUI is not enabled)
+        if not self._using_gui:
+            self._frame_counter += 1
+            # Save a frame from the center camera
+            frame = self._env.sim.render(camera_name="robot0_agentview_center", height=512, width=768)
+            self._video_frames.append(frame)
         return self._copy_observation(self._current_observation)
 
     def reset(self, train_or_test: str, task_idx: int) -> Observation:
@@ -950,6 +979,10 @@ class RoboKitchenEnv(BaseEnv):
             goal_preds = {self._pred_name_to_pred["DrawerClosed"]}
         elif goal_desc == "OpenDrawer":
             goal_preds = {self._pred_name_to_pred["DrawerOpen"]}
+        elif goal_desc == "TurnOnSinkFaucet":
+            goal_preds = {self._pred_name_to_pred["SinkFaucetOn"]}
+        elif goal_desc == "TurnOffSinkFaucet":
+            goal_preds = {self._pred_name_to_pred["SinkFaucetOff"]}
         return goal_preds
 
     @property
@@ -983,6 +1016,8 @@ class RoboKitchenEnv(BaseEnv):
             self.stove_type,
             self.microwave_type,
             self.microwave_button_type,
+            self.sink_faucet_handle_type,
+            self.sink_type,
         }
 
     def get_observation(self) -> Observation:
@@ -1045,6 +1080,12 @@ class RoboKitchenEnv(BaseEnv):
             stove_obj = cls.object_name_to_object("stovetop")
             if stove_obj is not None and stove_obj in state_dict:
                 state_dict[stove_obj]["on"] = np.array([state_info["stove_on"]])
+
+        # Add the 'on' feature to the sink faucet object
+        if "sink_faucet_on" in state_info:
+            sink_faucet_obj = cls.object_name_to_object("sink_faucet_handle")
+            if sink_faucet_obj is not None and sink_faucet_obj in state_dict:
+                state_dict[sink_faucet_obj]["on"] = np.array([state_info["sink_faucet_on"]])
 
         state = utils.create_state_from_dict(state_dict)
         state.simulator_state = {}
@@ -1280,6 +1321,18 @@ class RoboKitchenEnv(BaseEnv):
         """Check if the stove is off."""
         stove, = objects
         return state.get(stove, "on")[0] < 0.5
+    
+    @classmethod
+    def _SinkFaucetOn_holds(cls, state: State, objects: Sequence[Object]) -> bool:
+        """Check if the sink faucet is on."""
+        sink_faucet_handle, = objects
+        return state.get(sink_faucet_handle, "on")[0] > 0.5
+    
+    @classmethod
+    def _SinkFaucetOff_holds(cls, state: State, objects: Sequence[Object]) -> bool:
+        """Check if the sink faucet is off."""
+        sink_faucet_handle, = objects
+        return state.get(sink_faucet_handle, "on")[0] < 0.5
 
     @classmethod
     def _DrawerClosed_holds(cls, state: State, objects: Sequence[Object]) -> bool:
@@ -1353,6 +1406,14 @@ class RoboKitchenEnv(BaseEnv):
                 self.device.stop_control()
                 self.device = None
         logging.info("RoboKitchenEnv closed.")
+
+    def save_episode_video(self, filename="episode.mp4"):
+        """Save the collected video frames as a video and clear the buffer."""
+        if not self._using_gui and self._video_frames:
+            from predicators import utils
+            utils.save_video(filename, self._video_frames)
+            self._video_frames = []
+            self._frame_counter = 0
 
 
 def frame_transform(pos_in_init: np.ndarray, quat_in_init: np.ndarray, target_pos: np.ndarray, target_rot: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:

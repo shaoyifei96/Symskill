@@ -21,7 +21,7 @@ class GlobalSettings:
     reprocess_ground_atom_dataset_using_cluster_predicates = False
     remove_inOrigin_pred = True
 
-    use_learnt_goal_predicates = True
+    use_learnt_goal_predicates = False
     use_negated_goal_predicates = False
 
     use_cluster_center_as_attractor = False
@@ -40,7 +40,7 @@ class GlobalSettings:
     motion_analysis_contact_threshold = 0.04
     clustering_inv_cov_reg = 1e-3
     clustering_inv_cov_reg_rot = 1e-1 # approximately 10 deg in each axis
-    clustering_inv_cov_reg_rot_low = 1e-3 # approximately 10 deg in each axis
+    clustering_inv_cov_reg_rot_low = 1e-4 
     clustering_change_only = False
     
     resample_in_cluster = True
@@ -91,6 +91,9 @@ class GlobalSettings:
     # robo_kitchen_task = "OpenDrawer"
     # robo_kitchen_task = "TurnOnStove"
     # robo_kitchen_task = "TurnOffStove"
+    # robo_kitchen_task = "TurnOnSinkFaucet"
+    # robo_kitchen_task = "TurnOffSinkFaucet"
+    # robo_kitchen_task = "PnPCounterToStove" #not yet done
     # composite tasks (leaning needs to be done in sequence, see README)
     # robo_kitchen_task = "StoreFruit" # New task
     # robo_kitchen_task = "StoreFruitFull" # New task
@@ -104,7 +107,7 @@ class GlobalSettings:
     robo_kitchen_save_traj_by_segment = False
     robo_kitchen_policy_model = "node"  # "simple_ds" or "node"
     make_test_videos = False
-    loglevel = 10
+    loglevel = 30
     if enable_meshcat:
         visualizer = MeshcatVisualizer(mode="traj_follower")
     else:
@@ -115,14 +118,10 @@ class GlobalSettings:
 
     """Unchanging settings."""
     # global parameters
-    if robo_kitchen_task == "PnPCounterToCab" or robo_kitchen_task == "TurnOnStove" or robo_kitchen_task == "TurnOffStove" or robo_kitchen_task == "PnPStoveToCounter":
-        num_train_tasks = 50
-    elif robo_kitchen_task == "OpenDrawer":
-        num_train_tasks = 25
-    else:
-        num_train_tasks = 10
-    # num_train_tasks = 10
-    num_test_tasks = 1
+    # Note: num_train_tasks will be set dynamically based on robo_kitchen_task
+    # This is handled in the get_arg_specific_settings method below
+    # num_train_tasks = 10  # setting up later, this no longer used
+    num_test_tasks = 5
     # Perform online learning for this many cycles or until this many
     # transitions have been collected, whichever happens first.
     num_online_learning_cycles = 10
@@ -836,9 +835,14 @@ class GlobalSettings:
         robo_kitchen_task = args.get("robo_kitchen_task", cls.robo_kitchen_task)
         
         # Calculate num_train_tasks based on the task
-        if robo_kitchen_task == "PnPCounterToCab" or robo_kitchen_task == "TurnOnStove" or robo_kitchen_task == "TurnOffStove" or robo_kitchen_task == "PnPStoveToCounter":
+        if robo_kitchen_task == "PnPCounterToCab" or \
+            robo_kitchen_task == "TurnOnStove" or \
+            robo_kitchen_task == "TurnOffStove" or \
+            robo_kitchen_task == "PnPStoveToCounter":
             num_train_tasks = 50
-        elif robo_kitchen_task == "OpenDrawer":
+        elif robo_kitchen_task == "OpenDrawer" or \
+            robo_kitchen_task == "TurnOnSinkFaucet" or \
+            robo_kitchen_task == "TurnOffSinkFaucet":
             num_train_tasks = 25
         else:
             num_train_tasks = 10

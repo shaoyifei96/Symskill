@@ -55,7 +55,7 @@ jobs:
 
       - name: Run pytest
         run: |
-          pytest --tb=short -rA tests/test_sym_skill.py
+          pytest --tb=short -rA --show-capture=stderr tests/test_sym_skill.py
       
       - name: upload feature data
         if: always()
@@ -70,3 +70,10 @@ jobs:
         with:
           name: results
           path: results
+
+      - name: upload videos
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: videos
+          path: videos

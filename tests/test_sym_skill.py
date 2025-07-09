@@ -5,10 +5,14 @@ import pickle
 
 from predicators.main import main as predicators_main
 from predicators import utils
+import shutil
+import glob 
 
 results_dir = "results"
 base_results_dir = "sym_skill_base_results"
 online_learning_cycle = None
+saved_approaches_dir = "saved_approaches"
+
 BASE_SIMULATED_ARGV = [
     'predicators/main.py',  # The first element of sys.argv is the script name
     "--env", "robo_kitchen",
@@ -35,7 +39,9 @@ ROBO_KITCHEN_TASK_NAMES = [
     "CloseDrawer",
     "OpenDrawer",
     "TurnOnStove",
-    "TurnOffStove"
+    "TurnOffStove",
+    "TurnOnSinkFaucet",
+    "TurnOffSinkFaucet"
 ]
 
 
@@ -59,12 +65,19 @@ def test_main(robo_kitchen_task_name):
         with open(outfile, 'rb') as f:
             log_data = pickle.load(f)
         results = log_data['results']
-        # base_outfile = f"{base_results_dir}/{utils.get_config_path_str()}__{online_learning_cycle}.pkl"
-        # assert os.path.exists(base_outfile)
-        # with open(base_outfile, 'rb') as f:
-        #     base_log_data = pickle.load(f)
-        # base_results = base_log_data['results']
-        assert results['num_solved'] / results['num_total'] > 0.9 #
+        # Remove all files in the saved_approaches folder after running
+
+        for f in glob.glob(f"{saved_approaches_dir}/*"):
+            try:
+                if os.path.isfile(f) or os.path.islink(f):
+                    os.remove(f)
+                elif os.path.isdir(f):
+                    shutil.rmtree(f)
+            except Exception as e:
+                print(f"Failed to delete {f}. Reason: {e}")
+        assert results['num_solved'] == results['num_total'] #
+
+
 
         # start comparing results to base_results   
         # assert results['offline_learning_trajs_states_nums'] == base_results['offline_learning_trajs_states_nums']
