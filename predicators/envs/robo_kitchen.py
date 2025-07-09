@@ -112,8 +112,8 @@ class RoboKitchenEnv(BaseEnv):
         "drawer": cabinet_type,  # The drawer fixture (stationary cabinet structure)
         "drawer_inner_box": drawer_type,  # The movable sliding part
         # CookCheeseAndTomatoes
-        "cab1": cabinet_type,
-        "cab2": cabinet_type,
+        "cab_1": cabinet_type,
+        "cab_2": cabinet_type,
         "plate": container_type,
         "tomato": thing_type,
         "cheese": thing_type,
@@ -290,7 +290,7 @@ class RoboKitchenEnv(BaseEnv):
         self.device = None  # control device
 
     def get_objects_of_interest(self, task_name: str) -> List[Object]:
-        """Get the object of interest for the task."""
+        """Get the object of interest for the task. These are objects involved in contact."""
         # by default, there are robot and gripper objects
         if task_name == "OpenSingleDoor":
             # return [self.object_name_to_object("handle")]
@@ -322,11 +322,7 @@ class RoboKitchenEnv(BaseEnv):
         elif task_name == "OpenDrawer":
             return [self.object_name_to_object("drawer_inner_box"), self.object_name_to_object("drawer")]
         elif task_name == "CookCheeseAndTomatoes":
-            return [self.object_name_to_object("cab1"),
-                    self.object_name_to_object("cab2"),
-                    self.object_name_to_object("tomato"),
-                    self.object_name_to_object("cheese"),
-                    self.object_name_to_object("plate")]
+            return [self.object_name_to_object("tomato"), self.object_name_to_object("cheese")]
         else:
             raise ValueError(f"Task {task_name} not supported")
 
@@ -1002,11 +998,15 @@ class RoboKitchenEnv(BaseEnv):
     @classmethod
     def object_name_to_object(cls, obj_name: str) -> Object:
         """Made public for perceiver."""
-        if obj_name in cls.obj_name_to_type:
+        for name, obj_type in cls.obj_name_to_type.items():
+            if name in obj_name:
+                return Object(obj_name, obj_type)
+        return None
+        """ if obj_name in cls.obj_name_to_type:
             return Object(obj_name, cls.obj_name_to_type[obj_name])
         else:
             return None
-            raise ValueError(f"Object {obj_name} not found in obj_name_to_type")
+            raise ValueError(f"Object {obj_name} not found in obj_name_to_type") """
 
     @classmethod
     def state_info_to_state(cls, state_info: Dict[str, Any], contact_set: set[Tuple[Object, Object]] = None) -> State:
