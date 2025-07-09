@@ -65,12 +65,6 @@ def test_main(robo_kitchen_task_name):
         with open(outfile, 'rb') as f:
             log_data = pickle.load(f)
         results = log_data['results']
-        # base_outfile = f"{base_results_dir}/{utils.get_config_path_str()}__{online_learning_cycle}.pkl"
-        # assert os.path.exists(base_outfile)
-        # with open(base_outfile, 'rb') as f:
-        #     base_log_data = pickle.load(f)
-        # base_results = base_log_data['results']
-        assert results['num_solved'] / results['num_total'] > 0.9 #
         # Remove all files in the saved_approaches folder after running
 
         for f in glob.glob(f"{saved_approaches_dir}/*"):
@@ -81,6 +75,8 @@ def test_main(robo_kitchen_task_name):
                     shutil.rmtree(f)
             except Exception as e:
                 print(f"Failed to delete {f}. Reason: {e}")
+        assert results['num_solved'] == results['num_total'] #
+
 
 
         # start comparing results to base_results   
