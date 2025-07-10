@@ -21,7 +21,7 @@ class GlobalSettings:
     reprocess_ground_atom_dataset_using_cluster_predicates = False
     remove_inOrigin_pred = True
 
-    use_learnt_goal_predicates = False
+    use_learnt_goal_predicates = True
     use_negated_goal_predicates = False
 
     use_cluster_center_as_attractor = False
@@ -84,7 +84,7 @@ class GlobalSettings:
     robo_kitchen_randomize_init_state = True  # not used
     # robo_kitchen_task = "OpenSingleDoor"
     # robo_kitchen_task = "PnPCounterToCab"
-    # robo_kitchen_task = "PnPStoveToCounter"
+    robo_kitchen_task = "PnPStoveToCounter"
     # robo_kitchen_task = "CloseSingleDoor"
     # robo_kitchen_task = "OpenSingleDoor"
     # robo_kitchen_task = "CloseDrawer"
@@ -97,7 +97,7 @@ class GlobalSettings:
     # composite tasks (leaning needs to be done in sequence, see README)
     # robo_kitchen_task = "StoreFruit" # New task
     # robo_kitchen_task = "StoreFruitFull" # New task
-    robo_kitchen_task = "CookCheeseAndTomatoes" # New task
+    # robo_kitchen_task = "CookCheeseAndTomatoes" # New task
     # tasks that won't work with current approach
     # robo_kitchen_task = "TurnOnMicrowave" # this is not working, nothing is in motion in the dataset button just clicks
     # robo_kitchen_viz_debug = False # i think the use_gui flag covers this
@@ -121,7 +121,7 @@ class GlobalSettings:
     # Note: num_train_tasks will be set dynamically based on robo_kitchen_task
     # This is handled in the get_arg_specific_settings method below
     # num_train_tasks = 10  # setting up later, this no longer used
-    num_test_tasks = 5
+    num_test_tasks = 1
     # Perform online learning for this many cycles or until this many
     # transitions have been collected, whichever happens first.
     num_online_learning_cycles = 10

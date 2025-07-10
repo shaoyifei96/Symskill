@@ -2271,7 +2271,20 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             traj_objs = set(traj.states[0].data.keys())
             all_objs = all_objs.intersection(traj_objs)  # Keep only objects present in all trajectories
         all_objs = list(all_objs)  # Convert back to list for further processing
-        all_objs = [o for o in all_objs if "finger" not in o.name.lower() and "base" not in o.name.lower()]
+
+        # Exclude objects whose *type* is explicitly black-listed.  This helps
+        # ignore background items (e.g., counters) when deciding on a reference
+        # frame.  Extend this set as needed.
+        excluded_type_names = {}
+
+        # First apply the original substring filters, then drop any objects
+        # whose type is in the blacklist above.
+        all_objs = [
+            o for o in all_objs
+            if "finger" not in o.name.lower()
+            and "base"   not in o.name.lower()
+            and o.type.name not in excluded_type_names
+        ]
         logging.info(f"After filtering, {len(all_objs)} objects remain") 
         if len(all_objs) <= 2:
             raise ValueError(f"Only {len(all_objs)} objects remain, which is less than 3. Not enough for finding a reference object.")

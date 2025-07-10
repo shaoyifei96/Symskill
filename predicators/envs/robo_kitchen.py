@@ -107,6 +107,7 @@ class RoboKitchenEnv(BaseEnv):
         "robot0_base": base_type,
         "obj": thing_type,
         "bottom": surface_type,
+        "counter": surface_type,
         "knob": knob_type,
         "stovetop": stove_type,
         "microwave": microwave_type,
