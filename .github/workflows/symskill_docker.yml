@@ -3,7 +3,7 @@ name: Symskill test in custom docker image
 on:
   workflow_dispatch: # Allows manual triggering
   push:
-    branches: [felix_new_tasks]
+    branches: [felix_new_tasks, yifei_force_sensing]
 
 jobs:
   test:
