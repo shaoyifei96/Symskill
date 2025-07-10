@@ -116,8 +116,8 @@ class RoboKitchenEnv(BaseEnv):
         "sink_faucet_handle": sink_faucet_handle_type,  # The sink faucet object
         "sink": sink_type,  # The sink object
         # CookCheeseAndTomatoes
-        "cab_1": cabinet_type,
-        "cab_2": cabinet_type,
+        "cabinet_1": cabinet_type,
+        "cabinet_2": cabinet_type,
         "plate": container_type,
         "tomato": thing_type,
         "cheese": thing_type,
@@ -1033,15 +1033,10 @@ class RoboKitchenEnv(BaseEnv):
     @classmethod
     def object_name_to_object(cls, obj_name: str) -> Object:
         """Made public for perceiver."""
-        for name, obj_type in cls.obj_name_to_type.items():
-            if name in obj_name:
-                return Object(obj_name, obj_type)
-        return None
-        """ if obj_name in cls.obj_name_to_type:
+        if obj_name in cls.obj_name_to_type:
             return Object(obj_name, cls.obj_name_to_type[obj_name])
         else:
             return None
-            raise ValueError(f"Object {obj_name} not found in obj_name_to_type") """
 
     @classmethod
     def state_info_to_state(cls, state_info: Dict[str, Any], contact_set: set[Tuple[Object, Object]] = None) -> State:
