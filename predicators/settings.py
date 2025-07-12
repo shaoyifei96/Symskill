@@ -20,7 +20,7 @@ class GlobalSettings:
     reprocess_ground_atom_dataset_using_cluster_replacement = True
     reprocess_ground_atom_dataset_using_cluster_predicates = False
     remove_inOrigin_pred = True
-    robo_kitchen_obj_names = [] # this stores the actual object names, determined by a mujoco id, such as "cabinet_10" (see how these are constructed in robocasa/kithcen.py)
+    robo_kitchen_obj_names = ["robot0_base", "left_finger", "right_finger"] # this stores the actual object names, determined by a mujoco id, such as "cabinet_10" (see how these are constructed in robocasa/kithcen.py)
 
     use_learnt_goal_predicates = True
     use_negated_goal_predicates = False
