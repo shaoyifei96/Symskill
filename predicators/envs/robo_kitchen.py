@@ -119,9 +119,12 @@ class RoboKitchenEnv(BaseEnv):
         # CookCheeseAndTomatoes
         "cabinet_1": cabinet_type,
         "cabinet_2": cabinet_type,
+        "door_1": door_type,
+        "door_2": door_type,
         "plate": container_type,
         "tomato": thing_type,
         "cheese": thing_type,
+        "pan": container_type,
         # PnPStoveToCounter
         "container": container_type,
         "obj_container": container_type,
@@ -1034,10 +1037,24 @@ class RoboKitchenEnv(BaseEnv):
     @classmethod
     def object_name_to_object(cls, obj_name: str) -> Object:
         """Made public for perceiver."""
-        if obj_name in cls.obj_name_to_type:
-            return Object(obj_name, cls.obj_name_to_type[obj_name])
-        else:
+        found_names = []
+        found_objects = []
+        obj_name_no_num = obj_name
+        if "_" in obj_name and obj_name.split("_")[-1].isdigit():
+            obj_name_no_num = "_".join(obj_name.split("_")[:-1])
+        for obj_instance_name in CFG.robo_kitchen_obj_names:
+            if obj_name in obj_instance_name:
+                found_names.append(obj_instance_name)
+        if obj_name_no_num not in cls.obj_name_to_type:
             return None
+        for found_name in found_names:
+            found_objects.append(Object(found_name, cls.obj_name_to_type[obj_name_no_num]))
+        if len(found_objects) == 0:
+            return None
+        elif len(found_objects) == 1:
+            return found_objects[0]
+        else:
+            return found_objects
 
     @classmethod
     def state_info_to_state(cls, state_info: Dict[str, Any], contact_set: set[Tuple[Object, Object]] = None) -> State:
