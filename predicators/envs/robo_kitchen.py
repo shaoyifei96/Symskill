@@ -436,8 +436,8 @@ class RoboKitchenEnv(BaseEnv):
             # cabinet = self.object_name_to_object("cabinet")
             # if self._DoorOpen_holds(state, [handle, cabinet]):
             #     return True
-            door = self.object_name_to_object("door")
-            cabinet = self.object_name_to_object("cabinet")
+            door = self.object_name_to_object("door", test_time=True)
+            cabinet = self.object_name_to_object("cabinet", test_time=True)
             if self._DoorOpen_holds(state, [door, cabinet]):
                 return True
         elif goal_desc == "OpenDoubleDoor":
@@ -446,80 +446,80 @@ class RoboKitchenEnv(BaseEnv):
             # cabinet = self.object_name_to_object("cabinet")
             # if self._DoorOpen_holds(state, [left_handle, cabinet]) and self._DoorOpen_holds(state, [right_handle, cabinet]):
             #     return True
-            left_door = self.object_name_to_object("leftdoor")
-            right_door = self.object_name_to_object("rightdoor")
-            cabinet = self.object_name_to_object("cabinet")
+            left_door = self.object_name_to_object("leftdoor", test_time=True)
+            right_door = self.object_name_to_object("rightdoor", test_time=True)
+            cabinet = self.object_name_to_object("cabinet", test_time=True)
             if self._DoorOpen_holds(state, [left_door, cabinet]) and self._DoorOpen_holds(state, [right_door, cabinet]):
                 return True
         elif goal_desc == "CloseSingleDoor":
-            door = self.object_name_to_object("door")
-            cabinet = self.object_name_to_object("cabinet")
+            door = self.object_name_to_object("door", test_time=True)
+            cabinet = self.object_name_to_object("cabinet", test_time=True)
             if self._DoorClosed_holds(state, [door, cabinet]):
                 return True
         elif goal_desc == "CloseDoubleDoor":
-            left_door = self.object_name_to_object("leftdoor")
-            right_door = self.object_name_to_object("rightdoor")
-            cabinet = self.object_name_to_object("cabinet")
+            left_door = self.object_name_to_object("leftdoor", test_time=True)
+            right_door = self.object_name_to_object("rightdoor", test_time=True)
+            cabinet = self.object_name_to_object("cabinet", test_time=True)
             if self._DoorClosed_holds(state, [left_door, cabinet]) and self._DoorClosed_holds(state, [right_door, cabinet]):
                 return True
         elif goal_desc == "PnPCounterToCab":
-            obj = self.object_name_to_object("obj")
-            bottom = self.object_name_to_object("bottom")
+            obj = self.object_name_to_object("obj", test_time=True)
+            bottom = self.object_name_to_object("bottom", test_time=True)
             if self._OnSurface_holds(state, [obj, bottom]):
                 return True
         elif goal_desc == "PnPStoveToCounter":
-            obj = self.object_name_to_object("obj")
-            container = self.object_name_to_object("container")
+            obj = self.object_name_to_object("obj", test_time=True)
+            container = self.object_name_to_object("container", test_time=True)
             if self._InContainer_holds(state, [obj, container]):
                 return True
         elif goal_desc == "TurnOnStove":
-            stove = self.object_name_to_object("stovetop")
+            stove = self.object_name_to_object("stovetop", test_time=True)
             if stove is not None and self._StoveOn_holds(state, [stove]):
                 return True
         elif goal_desc == "StoreFruit":
-            door = self.object_name_to_object("door")
-            bottom = self.object_name_to_object("bottom")
-            cabinet = self.object_name_to_object("cabinet")
-            obj = self.object_name_to_object("obj")
+            door = self.object_name_to_object("door", test_time=True)
+            bottom = self.object_name_to_object("bottom", test_time=True)
+            cabinet = self.object_name_to_object("cabinet", test_time=True)
+            obj = self.object_name_to_object("obj", test_time=True)
             if self._DoorOpen_holds(state, [door, cabinet]) and self._OnSurface_holds(state, [obj, bottom]):
                 return True
         elif goal_desc == "StoreFruitFull":
-            door = self.object_name_to_object("door")
-            bottom = self.object_name_to_object("bottom")
-            cabinet = self.object_name_to_object("cabinet")
-            obj = self.object_name_to_object("obj")
+            door = self.object_name_to_object("door", test_time=True)
+            bottom = self.object_name_to_object("bottom", test_time=True)
+            cabinet = self.object_name_to_object("cabinet", test_time=True)
+            obj = self.object_name_to_object("obj", test_time=True)
             if self._DoorClosed_holds(state, [door, cabinet]) and self._OnSurface_holds(state, [obj, bottom]):
                 return True
         elif goal_desc == "TurnOnMicrowave":
-            microwave = self.object_name_to_object("microwave")
+            microwave = self.object_name_to_object("microwave", test_time=True)
             if microwave is not None and self._MicrowaveOn_holds(state, [microwave]):
                 return True
         elif goal_desc == "CloseDrawer":
-            drawer_inner_box = self.object_name_to_object("drawer_inner_box")
-            drawer_cabinet = self.object_name_to_object("drawer")
+            drawer_inner_box = self.object_name_to_object("drawer_inner_box", test_time=True)
+            drawer_cabinet = self.object_name_to_object("drawer", test_time=True)
             if self._DrawerClosed_holds(state, [drawer_inner_box, drawer_cabinet]):
                 return True
         elif goal_desc == "OpenDrawer":
-            drawer_inner_box = self.object_name_to_object("drawer_inner_box")
-            drawer_cabinet = self.object_name_to_object("drawer")
+            drawer_inner_box = self.object_name_to_object("drawer_inner_box", test_time=True)
+            drawer_cabinet = self.object_name_to_object("drawer", test_time=True)
             if self._DrawerOpen_holds(state, [drawer_inner_box, drawer_cabinet]):
                 return True
         elif goal_desc == "TurnOffStove":
-            stove = self.object_name_to_object("stovetop")
+            stove = self.object_name_to_object("stovetop", test_time=True)
             if stove is not None and self._StoveOff_holds(state, [stove]):
                 return True
         elif goal_desc == "TurnOnSinkFaucet":
-            sink_faucet_handle = self.object_name_to_object("sink_faucet_handle")
+            sink_faucet_handle = self.object_name_to_object("sink_faucet_handle", test_time=True)
             if sink_faucet_handle is not None and self._SinkFaucetOn_holds(state, [sink_faucet_handle]):
                 return True
         elif goal_desc == "TurnOffSinkFaucet":
-            sink_faucet_handle = self.object_name_to_object("sink_faucet_handle")
+            sink_faucet_handle = self.object_name_to_object("sink_faucet_handle", test_time=True)
             if sink_faucet_handle is not None and self._SinkFaucetOff_holds(state, [sink_faucet_handle]):
                 return True
         elif goal_desc == "CookCheeseAndTomatoes":
-            tomato = self.object_name_to_object("tomato")
-            cheese = self.object_name_to_object("cheese")
-            plate = self.object_name_to_object("plate")
+            tomato = self.object_name_to_object("tomato", test_time=True)
+            cheese = self.object_name_to_object("cheese", test_time=True)
+            plate = self.object_name_to_object("plate", test_time=True)
             if self._InContainer_holds(state, [tomato, plate]) and self._InContainer_holds(state, [cheese, plate]):
                 return True
         else:
@@ -1035,26 +1035,47 @@ class RoboKitchenEnv(BaseEnv):
         raise NotImplementedError("This env does not use Matplotlib")
 
     @classmethod
-    def object_name_to_object(cls, obj_name: str) -> Object:
-        """Made public for perceiver."""
+    def object_name_to_objects(cls, obj_name: str, test_time: bool = False) -> List[Object]:
+        """
+        Made public for perceiver.
+        If test_time is True, this function searches for object names in CFG.robo_kitchen_obj_names that match obj_name.
+        If test_time is False, this function returns obj_name object, if obj_name is in cls.obj_name_to_type.
+        """
+        if not test_time:
+            if obj_name in cls.obj_name_to_type:
+                return [Object(obj_name, cls.obj_name_to_type[obj_name])]
+            else:
+                return []
         found_names = []
         found_objects = []
         obj_name_no_num = obj_name
         if "_" in obj_name and obj_name.split("_")[-1].isdigit():
             obj_name_no_num = "_".join(obj_name.split("_")[:-1])
-        for obj_instance_name in CFG.robo_kitchen_obj_names:
-            if obj_name in obj_instance_name:
-                found_names.append(obj_instance_name)
         if obj_name_no_num not in cls.obj_name_to_type:
-            return None
+            return []
+        for robo_kitchen_obj_name in CFG.robo_kitchen_obj_names:
+            robo_kitchen_obj_name_no_num = robo_kitchen_obj_name
+            if robo_kitchen_obj_name.endswith("pos_quat"):
+                robo_kitchen_obj_name_no_num = robo_kitchen_obj_name[:-9]
+            if "_" in robo_kitchen_obj_name_no_num and robo_kitchen_obj_name_no_num.split("_")[-1].isdigit():
+                robo_kitchen_obj_name_no_num = "_".join(robo_kitchen_obj_name_no_num.split("_")[:-1])
+            if obj_name_no_num == robo_kitchen_obj_name_no_num:
+                found_names.append(robo_kitchen_obj_name)
         for found_name in found_names:
             found_objects.append(Object(found_name, cls.obj_name_to_type[obj_name_no_num]))
-        if len(found_objects) == 0:
+        return found_objects
+    
+    @classmethod
+    def object_name_to_object(cls, obj_name: str, test_time: bool = False) -> Object:
+        """
+        Made public for perceiver.
+        Use this function at test time only when you are sure obj_name is in CFG.robo_kitchen_obj_names.
+        """
+        objects = cls.object_name_to_objects(obj_name, test_time)
+        if len(objects) == 0:
             return None
-        elif len(found_objects) == 1:
-            return found_objects[0]
-        else:
-            return found_objects
+        assert len(objects) == 1
+        return objects[0]
 
     @classmethod
     def state_info_to_state(cls, state_info: Dict[str, Any], contact_set: set[Tuple[Object, Object]] = None) -> State:
@@ -1069,36 +1090,41 @@ class RoboKitchenEnv(BaseEnv):
         for key, val in state_info.items():
             if key.endswith("_pos_quat"):
                 obj_name = key[:-9]
-                obj = cls.object_name_to_object(obj_name)
+                objs = cls.object_name_to_objects(obj_name, test_time=True)
                 translation = np.array([val[0], val[1], val[2]])
                 quaternion = np.array([val[3], val[4], val[5], val[6]])
-                if obj is not None:
-                    state_dict[obj] = {"translation": translation, "quaternion": quaternion}
+                for obj in objs:
+                    if obj not in state_dict:
+                        state_dict[obj] = {"translation": translation, "quaternion": quaternion}
             elif key.endswith("_quat"):
                 obj_name = key[:-5]  # Remove _pos
                 translation = np.array(state_info[key[:-5] + "_pos"])
                 quaternion = np.array(val)
-                obj = cls.object_name_to_object(obj_name)
-                if obj is not None:
-                    state_dict[obj] = {"translation": translation, "quaternion": quaternion}
+                objs = cls.object_name_to_objects(obj_name, test_time=True)
+                for obj in objs:
+                    if obj not in state_dict:
+                        state_dict[obj] = {"translation": translation, "quaternion": quaternion}
 
         # Add the 'on' feature to the microwave object
         if "microwave_on" in state_info:
-            mic_obj = cls.object_name_to_object("microwave")
-            if mic_obj is not None and mic_obj in state_dict:
-                state_dict[mic_obj]["on"] = np.array([state_info["microwave_on"]])
+            mic_objs = cls.object_name_to_objects("microwave")
+            for mic_obj in mic_objs:
+                if mic_obj in state_dict:
+                    state_dict[mic_obj]["on"] = np.array([state_info["microwave_on"]])
 
         # Add the 'on' feature to the stove object
         if "stove_on" in state_info:
-            stove_obj = cls.object_name_to_object("stovetop")
-            if stove_obj is not None and stove_obj in state_dict:
-                state_dict[stove_obj]["on"] = np.array([state_info["stove_on"]])
+            stove_objs = cls.object_name_to_objects("stovetop")
+            for stove_obj in stove_objs:
+                if stove_obj in state_dict:
+                    state_dict[stove_obj]["on"] = np.array([state_info["stove_on"]])
 
         # Add the 'on' feature to the sink faucet object
         if "sink_faucet_on" in state_info:
-            sink_faucet_obj = cls.object_name_to_object("sink_faucet_handle")
-            if sink_faucet_obj is not None and sink_faucet_obj in state_dict:
-                state_dict[sink_faucet_obj]["on"] = np.array([state_info["sink_faucet_on"]])
+            sink_faucet_objs = cls.object_name_to_objects("sink_faucet_handle")
+            for sink_faucet_obj in sink_faucet_objs:
+                if sink_faucet_obj in state_dict:
+                    state_dict[sink_faucet_obj]["on"] = np.array([state_info["sink_faucet_on"]])
 
         state = utils.create_state_from_dict(state_dict)
         state.simulator_state = {}

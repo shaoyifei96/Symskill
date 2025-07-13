@@ -20,7 +20,7 @@ class GlobalSettings:
     reprocess_ground_atom_dataset_using_cluster_replacement = True
     reprocess_ground_atom_dataset_using_cluster_predicates = False
     remove_inOrigin_pred = True
-    robo_kitchen_obj_names = ["robot0_base", "left_finger", "right_finger"] # this stores the actual object names, determined by a mujoco id, such as "cabinet_10" (see how these are constructed in robocasa/kithcen.py)
+    robo_kitchen_obj_names = ["robot0_base", "gripper", "left_finger", "right_finger"] # this stores the actual object names, determined by a mujoco id, such as "cabinet_10" (see how these are constructed in robocasa/kithcen.py)
 
     use_learnt_goal_predicates = True
     use_negated_goal_predicates = False
@@ -83,7 +83,7 @@ class GlobalSettings:
 
     # robo_kitchen env parameters
     robo_kitchen_randomize_init_state = True  # not used
-    # robo_kitchen_task = "OpenSingleDoor"
+    robo_kitchen_task = "OpenSingleDoor"
     # robo_kitchen_task = "PnPCounterToCab"
     # robo_kitchen_task = "PnPStoveToCounter"
     # robo_kitchen_task = "CloseSingleDoor"
@@ -98,7 +98,7 @@ class GlobalSettings:
     # composite tasks (leaning needs to be done in sequence, see README)
     # robo_kitchen_task = "StoreFruit" # New task
     # robo_kitchen_task = "StoreFruitFull" # New task
-    robo_kitchen_task = "CookCheeseAndTomatoes" # New task
+    # robo_kitchen_task = "CookCheeseAndTomatoes" # New task
     # tasks that won't work with current approach
     # robo_kitchen_task = "TurnOnMicrowave" # this is not working, nothing is in motion in the dataset button just clicks
     # robo_kitchen_viz_debug = False # i think the use_gui flag covers this
