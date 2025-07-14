@@ -3327,6 +3327,26 @@ class _PyperplanTask:
     operators: Collection[_PyperplanOperator]
 
 
+def _validate_pyperplan_task(task: _PyperplanTask) -> None:
+    """Validate that all facts referenced in operators exist in the task."""
+    all_operator_facts = set()
+    for op in task.operators:
+        all_operator_facts.update(op.preconditions)
+        all_operator_facts.update(op.add_effects)
+        all_operator_facts.update(op.del_effects)
+    
+    missing_facts = all_operator_facts - task.facts
+    if missing_facts:
+        raise ValueError(f"Operator facts not in task facts: {missing_facts}")
+    
+    # Additional validation: check for empty operators or facts
+    if not task.operators:
+        print("WARNING: Task has no operators - this may indicate a problem with operator grounding")
+        # Don't raise an error, let the planner handle it
+    if not task.facts:
+        print("WARNING: Task has no facts")
+
+
 @dataclass(frozen=True)
 class _PyperplanHeuristicWrapper(_TaskPlanningHeuristic):
     """A light wrapper around pyperplan's heuristics."""
@@ -3371,6 +3391,7 @@ def _create_pyperplan_task(
     pyperplan_state = _atoms_to_pyperplan_facts(init_atoms - static_atoms)
     pyperplan_goal = _atoms_to_pyperplan_facts(goal - static_atoms)
     pyperplan_operators = set()
+    print(f"DEBUG: Creating pyperplan task with {len(ground_ops)} ground operators")
     for op in ground_ops:
         # Note: the pyperplan operator must include the objects, because hFF
         # uses the operator name in constructing the relaxed plan, and the
@@ -3378,15 +3399,34 @@ def _create_pyperplan_task(
         # be a very nasty bug where two ground operators in the relaxed plan
         # that have different objects are counted as just one.
         name = op.name + "-".join(o.name for o in op.objects)
+        
+        # Debug: Check operator components
+        preconditions = op.preconditions - static_atoms
+        add_effects = op.add_effects
+        delete_effects = op.delete_effects
+        
+        print(f"DEBUG: Operator {name}")
+        print(f"  Preconditions: {len(preconditions)} (after removing static)")
+        print(f"  Add effects: {len(add_effects)}")
+        print(f"  Delete effects: {len(delete_effects)}")
+        
         pyperplan_operator = _PyperplanOperator(
             name,
             # Note: removing static atoms from preconditions.
-            _atoms_to_pyperplan_facts(op.preconditions - static_atoms),
-            _atoms_to_pyperplan_facts(op.add_effects),
-            _atoms_to_pyperplan_facts(op.delete_effects))
+            _atoms_to_pyperplan_facts(preconditions),
+            _atoms_to_pyperplan_facts(add_effects),
+            _atoms_to_pyperplan_facts(delete_effects))
         pyperplan_operators.add(pyperplan_operator)
-    return _PyperplanTask(pyperplan_facts, pyperplan_state, pyperplan_goal,
+    task = _PyperplanTask(pyperplan_facts, pyperplan_state, pyperplan_goal,
                           pyperplan_operators)
+    _validate_pyperplan_task(task)
+    
+    # Debug logging for lm_cut issues
+    print(f"DEBUG: Task has {len(task.facts)} facts, {len(task.operators)} operators")
+    print(f"DEBUG: Initial state has {len(task.initial_state)} facts")
+    print(f"DEBUG: Goal has {len(task.goals)} facts")
+    
+    return task
 
 
 @functools.lru_cache(maxsize=None)

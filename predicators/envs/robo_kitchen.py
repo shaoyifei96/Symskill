@@ -1107,21 +1107,21 @@ class RoboKitchenEnv(BaseEnv):
 
         # Add the 'on' feature to the microwave object
         if "microwave_on" in state_info:
-            mic_objs = cls.object_name_to_objects("microwave")
+            mic_objs = cls.object_name_to_objects("microwave", test_time=True)
             for mic_obj in mic_objs:
                 if mic_obj in state_dict:
                     state_dict[mic_obj]["on"] = np.array([state_info["microwave_on"]])
 
         # Add the 'on' feature to the stove object
         if "stove_on" in state_info:
-            stove_objs = cls.object_name_to_objects("stovetop")
+            stove_objs = cls.object_name_to_objects("stovetop", test_time=True)
             for stove_obj in stove_objs:
                 if stove_obj in state_dict:
                     state_dict[stove_obj]["on"] = np.array([state_info["stove_on"]])
 
         # Add the 'on' feature to the sink faucet object
         if "sink_faucet_on" in state_info:
-            sink_faucet_objs = cls.object_name_to_objects("sink_faucet_handle")
+            sink_faucet_objs = cls.object_name_to_objects("sink_faucet_handle", test_time=True)
             for sink_faucet_obj in sink_faucet_objs:
                 if sink_faucet_obj in state_dict:
                     state_dict[sink_faucet_obj]["on"] = np.array([state_info["sink_faucet_on"]])
