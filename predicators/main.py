@@ -376,8 +376,7 @@ def _run_testing(env: BaseEnv, cogman: CogMan) -> Metrics:
             # from approaches).
             cogman.reset(env_task)
         except (ApproachTimeout, ApproachFailure) as e:
-            logging.warning(f"Task {test_task_idx+1} / {len(test_tasks)}: "
-                         f"Approach failed to solve with error: {e}")
+            print(f"\033[91mTask {test_task_idx+1} / {len(test_tasks)}: Approach failed to solve with error: {e}\033[0m")
             if isinstance(e, ApproachTimeout):
                 total_num_solve_timeouts += 1
             elif isinstance(e, ApproachFailure):

@@ -23,6 +23,7 @@ class GlobalSettings:
 
     use_learnt_goal_predicates = False
     use_negated_goal_predicates = False
+    enable_base_ref_obj_precondition = True
 
     use_cluster_center_as_attractor = False
 
