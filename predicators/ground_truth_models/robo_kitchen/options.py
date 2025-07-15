@@ -65,6 +65,7 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
         right_finger = types["right_finger_type"]
         grab = types["grab_type"]
         surface = types["surface_type"]
+        object_type = types["object_type"]
 
         options: Set[ParameterizedOption] = set()
 
@@ -802,6 +803,151 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
 
         """---------------------------------- DummyOption ends ----------------------------------"""
 
+        """---------------------------------- RepositionBaseOption starts ----------------------------------"""
+
+        # RepositionBase initiable: always returns True.
+        def _RepositionBase_option_initiable(state: State, memory: dict, objects: Sequence[Object], params: Array) -> bool:
+            # Extract target position and orientation from the 7D params
+            # params is [x, y, z, qx, qy, qz, qw]
+            base_target_pos = params[:3]  # 3D position for the base [x, y, z]
+            base_target_quat = params[3:7]  # quaternion [qx, qy, qz, qw]
+            
+            # Store target position and orientation in memory
+            memory["base_target_pos"] = base_target_pos
+            memory["base_target_quat"] = base_target_quat
+            
+            # Store initial state to track progress
+            # ref_obj, base = objects
+            # memory["initial_base_pos"] = state.get(base, "translation")
+            # memory["initial_base_quat"] = state.get(base, "quaternion")
+            
+            return True
+
+        def _RepositionBase_option_policy(state: State, memory: dict, objects: Sequence[Object], params: Array) -> Action:
+            ref_obj, base = objects
+            
+            # Calculate current relative pose using the same method as predicate construction
+            # This gives the pose of the base in the reference object's frame
+            current_rel_pose = calculate_relative_pose(
+                state, ref_obj, base,
+                CFG.trans_feat_name, CFG.quat_feat_name
+            )
+            
+            # Target position and orientation from memory (provided by sampler)
+            target_pos = memory["base_target_pos"]
+            target_quat = memory["base_target_quat"]
+            
+            # Position error in XY plane - this is in reference object's frame
+            pos_error_ref_frame = np.array([target_pos[0] - current_rel_pose[0], 
+                                           target_pos[1] - current_rel_pose[1]])
+            
+            # Convert quaternions to rotation objects for easier manipulation
+            current_rot_ref_frame = R.from_quat(current_rel_pose[3:])  # Rotation of base in ref object frame
+            target_rot = R.from_quat(target_quat)
+            
+            # Get current and target euler angles (xyz)
+            current_euler = current_rot_ref_frame.as_euler("xyz")
+            target_euler = target_rot.as_euler("xyz")
+            
+            # We only care about yaw (rotation around z-axis)
+            yaw_error = target_euler[2] - current_euler[2]
+            
+            # Normalize yaw error to [-pi, pi]
+            while yaw_error > np.pi:
+                yaw_error -= 2 * np.pi
+            while yaw_error < -np.pi:
+                yaw_error += 2 * np.pi
+            
+            # Calculate control velocities with proportional control
+            K_pos = 3.0  # position gain
+            K_rot = 2.0  # rotation gain
+            
+            # Linear velocities in reference object frame
+            vel_x_ref_frame = K_pos * pos_error_ref_frame[0]
+            vel_y_ref_frame = K_pos * pos_error_ref_frame[1]
+            
+            # Angular velocity (about z-axis)
+            base_rot_vel = K_rot * yaw_error
+            
+            # Get base orientation in reference frame to transform velocities
+            base_quat_in_ref_frame = current_rel_pose[3:]
+            base_rot_in_ref_frame = R.from_quat(base_quat_in_ref_frame)
+            
+            # Transform linear velocities from reference frame to base frame
+            # We need the inverse rotation from ref frame to base frame
+            vel_ref_frame = np.array([vel_x_ref_frame, vel_y_ref_frame, 0.0])
+            vel_base_frame = -base_rot_in_ref_frame.apply(vel_ref_frame)
+            
+            # Extract x,y velocities in base frame
+            base_vel_x = vel_base_frame[0]
+            base_vel_y = vel_base_frame[1]
+            
+            # Limit velocities
+            max_vel = 0.5
+            base_vel_x = np.clip(base_vel_x, -max_vel, max_vel)
+            base_vel_y = np.clip(base_vel_y, -max_vel, max_vel)
+            base_rot_vel = np.clip(base_rot_vel, -max_vel, max_vel)
+            
+            # Create action array (3D: [dx, dy, dyaw]) - in robot base frame
+            action = np.array([base_vel_x, base_vel_y, base_rot_vel], dtype=np.float32)
+            
+            # Hack to expand the action to 7D for compatibility with the environment
+            # The first 3 dimensions are the base velocities [dx, dy, dyaw]
+            # The remaining 4 dimensions are zeros (not used for base movement)
+            action_7d = np.zeros(7, dtype=np.float32)
+            action_7d[:3] = action  # Copy the base velocities to the first 3 dimensions
+            
+            return Action(action_7d)
+
+        def _RepositionBase_option_terminal(state: State, memory: dict, objects: Sequence[Object], params: Array) -> bool:
+            ref_obj, base = objects
+            
+            # Get reference object (should be the first object in objects)
+            ref_obj = objects[0]
+            
+            # Calculate current relative pose using the same method as predicate construction
+            current_rel_pose = calculate_relative_pose(
+                state, ref_obj, base,
+                CFG.trans_feat_name, CFG.quat_feat_name
+            )
+            
+            # Target position and orientation from memory
+            target_pos = memory["base_target_pos"]
+            target_quat = memory["base_target_quat"]
+            
+            # Position error in XY plane
+            pos_error = np.array([target_pos[0] - current_rel_pose[0], 
+                                 target_pos[1] - current_rel_pose[1]])
+            
+            # Convert quaternions to rotation objects
+            current_rot = R.from_quat(current_rel_pose[3:])
+            target_rot = R.from_quat(target_quat)
+            
+            # Get current and target euler angles (xyz)
+            current_euler = current_rot.as_euler("xyz")
+            target_euler = target_rot.as_euler("xyz")
+            
+            # Calculate yaw error
+            yaw_error = target_euler[2] - current_euler[2]
+            
+            # Normalize yaw error to [-pi, pi]
+            while yaw_error > np.pi:
+                yaw_error -= 2 * np.pi
+            while yaw_error < -np.pi:
+                yaw_error += 2 * np.pi
+            
+            # Define thresholds for position and orientation errors
+            pos_threshold = 0.05  # meters
+            rot_threshold = 0.1  # radians 6 deg
+            
+            # Check if position and orientation errors are below thresholds
+            pos_close = np.linalg.norm(pos_error) < pos_threshold
+            rot_close = abs(yaw_error) < rot_threshold
+            
+            return pos_close and rot_close
+
+        """---------------------------------- RepositionBaseOption ends ----------------------------------"""
+
         DS_OpenSingleDoor_MoveTowards_option = ParameterizedOption(
             "DS_OpenSingleDoor_MoveTowards_option",
             types=[gripper, grab, base],
@@ -875,5 +1021,15 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
             terminal=_GripperClose_option_terminal,
         )
         options.add(GripperClose_option)
+
+        RepositionBase_option = ParameterizedOption(
+            "RepositionBase_option",
+            types=[object_type, base],
+            params_space=Box(-5, 5, (7,)),  # [x, y, z, qx, qy, qz, qw] for target base position and orientation
+            policy=_RepositionBase_option_policy,
+            initiable=_RepositionBase_option_initiable,
+            terminal=_RepositionBase_option_terminal,
+        )
+        options.add(RepositionBase_option)
 
         return options

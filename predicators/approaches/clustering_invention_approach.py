@@ -17,6 +17,7 @@ from gym.spaces import Box
 # May need `pip install scikit-learn`
 from predicators.envs import get_or_create_env
 from predicators.envs.robo_kitchen import RoboKitchenEnv
+from predicators.ground_truth_models.robo_kitchen.nsrts import RoboKitchenGroundTruthNSRTFactory
 from sklearn.cluster import AgglomerativeClustering, DBSCAN
 # Import HDBSCAN (may need `pip install hdbscan`)
 from hdbscan import HDBSCAN
@@ -38,7 +39,7 @@ from predicators.nsrt_learning.segmentation import segment_trajectory
 from predicators.nsrt_learning.strips_learning import learn_strips_operators
 from predicators.planning import PlanningFailure, PlanningTimeout, run_task_plan_once
 from predicators.settings import CFG
-from predicators.structs import Dataset, GroundAtomTrajectory, NSRT, LiftedAtom, Object, ParameterizedOption, Predicate, Segment, State, Task, Type, STRIPSOperator, GroundAtom, DummyPredicate
+from predicators.structs import Dataset, GroundAtomTrajectory, NSRT, LiftedAtom, Object, ParameterizedOption, Predicate, Segment, State, Task, Type, STRIPSOperator, GroundAtom, DummyPredicate, Variable
 import warnings
 from scipy.stats import chi2
 from scipy.spatial.transform import Rotation as R
@@ -433,8 +434,52 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
     def get_name(cls) -> str:
         return "clustering_invention"
 
+
+    def _add_delete_effects(self, all_entries: Dict[str, Set[Predicate]], entry_to_exclude: str, old_params: List[Variable], new_params: List[Variable], new_delete_effects: Set[LiftedAtom]) -> Tuple[List[Variable], Set[LiftedAtom]]:
+        """
+        Add delete effects for the incontact predicates and robotbase rel pos preds.
+        """
+        mode = "robotbase" if "RobotBaseRelCovCluster" in entry_to_exclude else "incontact"
+        for key, effects_to_delete in all_entries.items():
+            if mode == "robotbase" and "RobotBaseRelPosPred" in key and key.split("-")[1] == entry_to_exclude.split("-")[1]:
+                continue # robot base predicate
+            elif mode == "incontact" and key == entry_to_exclude: # incontact predicate
+                continue  # Skip the object that's currently in contact, because it will be deleted by the incontact predicate
+            for eff in effects_to_delete:
+                # Find the corresponding variables from NSRT parameters
+                obj0_var = None
+                obj1_var = None
+                for var in old_params:
+                    if var.type.name == eff.types[0].name:  # object type
+                        obj0_var = var
+                    elif var.type.name == eff.types[1].name:
+                        obj1_var = var
+
+                if obj0_var is None and obj1_var is None:
+                    # Need to add new parameters for both object types
+                    extra_param_types = [eff.types[0], eff.types[1]]
+                    new_vars_to_add = utils.create_new_variables(extra_param_types, new_params)
+                    obj0_var = new_vars_to_add[0]
+                    obj1_var = new_vars_to_add[1]
+                elif obj0_var is None:
+                    # Need to add a new parameter for this object type
+                    extra_param_type = eff.types[0]
+                    new_vars_to_add = utils.create_new_variables([extra_param_type], new_params)
+                    obj0_var = new_vars_to_add[0]
+                elif obj1_var is None: #ideally this should not happen since for incontact, the gripper is always the second object, for robotbase, it is always object and base type
+                    # Need to add a new parameter for this object type
+                    extra_param_type = eff.types[1]
+                    new_vars_to_add = utils.create_new_variables([extra_param_type], new_params)
+                    obj1_var = new_vars_to_add[0]
+                else: # both are defined
+                    new_vars_to_add = []
+                new_params = new_params + new_vars_to_add
+                lifted_atom = LiftedAtom(eff, [obj0_var, obj1_var])
+                new_delete_effects.add(lifted_atom)
+        return new_params, new_delete_effects
+    
     def _add_additional_remove_effects_operators(self) -> None:
-        """Add additional remove effects operators to the loaded operators."""
+        """Add additional remove/delete effects operators to the loaded operators."""
         # Get a sample state to check which object types actually exist
         env = get_or_create_env(CFG.env)
         ob = env.reset(train_or_test="test", task_idx=0)
@@ -444,57 +489,71 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             available_object_types.add(obj.type.name)
         logging.info(f"Object types found in sample state: {available_object_types}")
 
+        # Pre-process CFG.dict_contact_predicate_to_rel_pose_predicates to filter relevant entries
+        incontact_entries = {}
+        robotbase_entries = {}
+        for (key1, key2, key3), effects in CFG.dict_contact_predicate_to_rel_pose_predicates.items():
+            if key1 == 'InContact' and key2 in available_object_types:
+                incontact_entries[key2] = effects
+            elif "RobotBaseRelPosPred" in key1:
+                robotbase_entries[key1] = effects
+        logging.info(f"Found {len(incontact_entries)} InContact entries for available object types")
+        logging.info(f"Found {len(robotbase_entries)} RobotBaseRelPosPred entries for available object types")
+
         updated_nsrts = set()
         for nsrt in self._nsrts:
             new_delete_effects = nsrt.delete_effects
             new_params = nsrt.parameters
+            
             if len(nsrt.add_effects) == 1:
                 add_eff = list(nsrt.add_effects)[0]
-                if add_eff.entities[1].type.name == "gripper_type":
+                # deal with 2 cases here, if incontact predicate, then we need to delete the other objects that can be in contact with the gripper
+                # if robotbase rel pos pred, then we need to delete both the incontact predicates with all objects, and the robotbase rel pos pred with other names
+
+                if add_eff.entities[1].type.name == "gripper_type": # comes into contact, exclude the predicates that keeps the incontact with the gripper
                     object_in_contact = add_eff.entities[0].type.name
-                    # in this case, all other gripper object effects should be added to delete effects
-                    for (key1, key2, key3) in CFG.dict_contact_predicate_to_rel_pose_predicates:
-                        if key1 == 'InContact' and not key2 == object_in_contact:
-                            # Check if this object type actually exists in the current state
-                            if key2 not in available_object_types:
-                                logging.debug(f"Skipping object type {key2} as it doesn't exist in the current state")
-                                continue
-                            
-                            # this is a gripper object effect that is not the one in contact
-                            # we need to add it to the delete effects
-                            eff_to_delete = CFG.dict_contact_predicate_to_rel_pose_predicates[key1, key2, key3]
-                            for eff in eff_to_delete:
-                                # Find the corresponding variables from NSRT parameters
-                                # The first variable should be the object type, second should be gripper
-                                obj_var = None
-                                gripper_var = None
-                                for var in nsrt.parameters:
-                                    if var.type.name == key2:  # object type
-                                        obj_var = var
-                                    elif var.type.name == "gripper_type":
-                                        gripper_var = var
-                                
-                                if obj_var is not None and gripper_var is not None:
-                                    # Create the LiftedAtom with the correct variables
-                                    lifted_atom = LiftedAtom(eff, [obj_var, gripper_var])
-                                    new_delete_effects.add(lifted_atom)
-                                elif obj_var is None:
-                                    extra_param_type = eff.types[0]
-                                    new_vars_to_add = utils.create_new_variables([extra_param_type], new_params)
-                                    new_params = new_params + new_vars_to_add
-                                    obj_var = new_vars_to_add[0]
-                                    lifted_atom = LiftedAtom(eff, [obj_var, gripper_var])
-                                    new_delete_effects.add(lifted_atom)
-                                else:
-                                    raise ValueError(f"Could not find object or gripper variable for {eff} in {nsrt.parameters}")
+                    new_params, new_delete_effects = self._add_delete_effects(incontact_entries, object_in_contact, nsrt.parameters, new_params, new_delete_effects)
+                elif "RobotBaseRelCovCluster" in str(add_eff): # robot base rel pos pred, exclude the predicates that keeps the incontact with the gripper
+                    # delete the robotbase rel pos pred with other names
+                    new_params, new_delete_effects = self._add_delete_effects(robotbase_entries, str(add_eff), nsrt.parameters, new_params, new_delete_effects)
+                    # delete all incontact predicates if moving the base, using str(add_eff) to enforce mode robotbase
+                    new_params, new_delete_effects = self._add_delete_effects(incontact_entries, str(add_eff), nsrt.parameters, new_params, new_delete_effects)
+                else:
+                    logging.warning(f"NSRT {nsrt.name} is not gripper related or robotbase rel pos pred, directly adding to updated_nsrts")
             else:
-                logging.warning(f"NSRT {nsrt} has {len(nsrt.add_effects)} add effects, directly adding to updated_nsrts")
+                logging.warning(f"NSRT {nsrt.name} has {len(nsrt.add_effects)} add effects, directly adding to updated_nsrts")
+            
             nsrt = nsrt.copy_with(parameters=new_params, delete_effects=new_delete_effects)
             # Add the potentially modified NSRT to the updated set
             updated_nsrts.add(nsrt)
         
         # Update self._nsrts with the modified NSRTs
         self._nsrts = updated_nsrts
+    def _add_base_motion_add_effects(self) -> None:
+        """Add base motion add effects to the loaded operators.
+        delete effects are added in _add_additional_remove_effects_operators """
+        new_nsrts = set()
+        for nsrt in self._nsrts:
+            if nsrt.name == "RepositionBase":
+                # Keep the original RepositionBase NSRT, add a new NSRT for each task
+                for pred, obj1_type, obj2_type in CFG.dict_contact_predicate_to_rel_pose_predicates.keys():
+                    val_pred = CFG.dict_contact_predicate_to_rel_pose_predicates[pred, obj1_type, obj2_type]
+                    assert len(val_pred) == 1
+                    val_pred = list(val_pred)[0]
+                    if "RobotBaseRelPosPred" in pred:
+                        task = pred.split("-")[1]
+                        assert nsrt.parameters[0].type.name == obj1_type
+                        assert nsrt.parameters[1].type.name == obj2_type
+                        logging.info(f"UUUUUsing sampler with trans_rot: {val_pred._classifier.trans_center}, {val_pred._classifier.rot_center.as_quat()}")
+                        nsrt = nsrt.copy_with(
+                            name=f"RepositionBase-{task}",
+                            add_effects={LiftedAtom(val_pred, [nsrt.parameters[0], nsrt.parameters[1]])},
+                            _sampler=RoboKitchenGroundTruthNSRTFactory.create_sampler_with_extra_data(trans_rot=(val_pred._classifier.trans_center, val_pred._classifier.rot_center)),
+                        )
+                        new_nsrts.add(nsrt)
+            else:
+                new_nsrts.add(nsrt)
+        self._nsrts = new_nsrts
 
     def load(self, online_learning_cycle: Optional[int]) -> None:
         # We need to properly load the learned predicates if they exist
@@ -530,6 +589,9 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                         CFG.dict_gt_goal_predicate_to_dummy_goal_predicates[key] = value
                     else:
                         CFG.dict_gt_goal_predicate_to_dummy_goal_predicates[key].update(value)
+
+        # add base relative pose predicates as the base motion add effects
+        self._add_base_motion_add_effects()
 
         self._add_additional_remove_effects_operators()
         
@@ -1671,7 +1733,9 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                                                 inv_covariance_matrix_rot: np.ndarray,
                                                 mahalanobis_threshold_trans: float,
                                                 mahalanobis_threshold_rot: float,
-                                                cluster_id: int) -> Predicate: 
+                                                cluster_id: int,
+                                                name_prefix: str = ""
+                                                ) -> Predicate: 
                                                 
         """Creates a binary predicate from a relative feature cluster (including pose).
 
@@ -1691,7 +1755,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         else:
             raise ValueError("inv_covariance_matrix_trans, inv_covariance_matrix_rot, mahalanobis_threshold_trans, and mahalanobis_threshold_rot must be provided")
 
-        name = str(classifier)
+        name = f"{name_prefix}{str(classifier)}"
         types = [type1, type2]
         pred = Predicate(name, types, classifier)
         return pred
@@ -1735,7 +1799,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         
     def _add_base_ref_obj_precondition(self, ground_atom_dataset: List[GroundAtomTrajectory], relative_pose_dataset_dict: Dict[Tuple[Predicate, Type, Type, str], List[np.ndarray]],  obj_of_reference_best: Object, robot_base_obj: Object):
         # RelPosPred
-        RelPoseBaseRefObjPred = Predicate("RelPosPredRobotBase", [RoboKitchenEnv.object_type, robot_base_obj.type], lambda state, objects: True)
+        RelPoseBaseRefObjPred = Predicate("RobotBaseRelPosPred-" + CFG.robo_kitchen_task, [RoboKitchenEnv.object_type, robot_base_obj.type], lambda state, objects: True)
         # this having a object type since it will need to be used when other tasks load and use the same predicates
         for i, (ll_traj, atom_seq) in enumerate(ground_atom_dataset):
             if not ll_traj.states: continue # Skip empty trajectories
@@ -2017,6 +2081,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                     cluster_info['mahalanobis_threshold_trans'],
                     cluster_info['mahalanobis_threshold_rot'],
                     cluster_label, 
+                    name_prefix = "RobotBase" if  "RobotBaseRelPosPred" in pred.name else ""
                 )
                 # Add predicate to candidates with cost (e.g., based on arity)
                 candidate_cluster_preds[pred_generated] = float(pred_generated.arity) # Example cost

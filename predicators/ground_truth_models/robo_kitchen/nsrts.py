@@ -16,6 +16,21 @@ class RoboKitchenGroundTruthNSRTFactory(GroundTruthNSRTFactory):
     @classmethod
     def get_env_names(cls) -> Set[str]:
         return {"robo_kitchen"}
+    
+    @classmethod
+    def create_sampler_with_extra_data(cls, trans_rot: tuple):
+        def sampler(state: State, memory: dict, objects: Sequence[Object], params: Array) -> Array:
+            # Extract the target translation and rotation
+            trans_center = trans_rot[0]  # 3D translation [x, y, z]
+            rot_center = trans_rot[1]    # scipy Rotation object
+            
+            # Get quaternion from the rotation object
+            quat = rot_center.as_quat()  # [qx, qy, qz, qw]
+            
+            # Combine into a single array [x, y, z, qx, qy, qz, qw]
+            target_params = np.concatenate([trans_center, quat])
+            return target_params
+        return sampler
 
     @staticmethod
     def get_nsrts(env_name: str, types: Dict[str, Type], predicates: Dict[str, Predicate], options: Dict[str, ParameterizedOption]) -> Set[NSRT]:
@@ -327,6 +342,32 @@ class RoboKitchenGroundTruthNSRTFactory(GroundTruthNSRTFactory):
             maintain_effects,   
         )
 
+
+        # RepositionBase
+        parameters = [obj, base]
+        preconditions = set()  # No preconditions, can be called anytime
+        maintain_effects = set()
+        add_effects = set()
+        delete_effects = set()
+        ignore_effects = set()
+        option = options["RepositionBase_option"]
+        option_vars = [obj, base]
+        def dummy_sampler(state: State, memory: dict, objects: Sequence[Object], params: Array) -> Array:
+            return np.array([0], dtype=np.float32)
+        
+        reposition_base_nsrt = NSRT(
+            "RepositionBase",
+            parameters,
+            preconditions,
+            add_effects,
+            delete_effects,
+            ignore_effects,
+            option,
+            option_vars,
+            dummy_sampler,
+            maintain_effects,
+        )
+
         # nsrts.add(open_gripper_nsrt)
         # # nsrts.add(move_to_and_grab_handle_nsrt)  # open_gripper + move_to_handle + grab_handle
         # nsrts.add(grab_obj_nsrt)
@@ -336,5 +377,6 @@ class RoboKitchenGroundTruthNSRTFactory(GroundTruthNSRTFactory):
         # # nsrts.add(reach_behind_and_pull_nsrt)
         # nsrts.add(place_thing_on_surface)
         nsrts.add(to_initial_state_nsrt)
+        nsrts.add(reposition_base_nsrt)
 
         return nsrts

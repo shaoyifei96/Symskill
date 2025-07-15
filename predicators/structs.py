@@ -1188,7 +1188,10 @@ class _GroundNSRT:
         # Note that the sampler takes in ALL self.objects, not just the subset
         # self.option_objs of objects that are passed into the option.
         if CFG.option_learner == "ds_policy":
-            params = np.random.uniform(self.option.params_space.low, self.option.params_space.high)
+            if "RepositionBase" in self.option.name:
+                params = self._sampler(state, goal, rng, self.objects)
+            else:
+                params = np.random.uniform(self.option.params_space.low, self.option.params_space.high)
         else:
             params = self._sampler(state, goal, rng, self.objects)
         # Clip the params into the params_space of self.option, for safety.
