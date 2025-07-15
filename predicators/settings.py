@@ -122,7 +122,7 @@ class GlobalSettings:
     # Note: num_train_tasks will be set dynamically based on robo_kitchen_task
     # This is handled in the get_arg_specific_settings method below
     # num_train_tasks = 10  # setting up later, this no longer used
-    num_test_tasks = 1
+    num_test_tasks = 5
     # Perform online learning for this many cycles or until this many
     # transitions have been collected, whichever happens first.
     num_online_learning_cycles = 10
