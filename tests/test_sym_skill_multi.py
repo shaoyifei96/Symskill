@@ -36,8 +36,30 @@ ROBO_KITCHEN_TASK_NAMES = [
     "OpenSingleDoor",
     "PnPCounterToCab", # learn precondition of door open to pick place
     "CloseSingleDoor", # learn closing door has precondition of door open
-    "OpenSingleDoor", # learn opening door has precondition of door closed
-    "StoreFruit" 
+    "OpenSingleDoor", # learn opening door has precondition of door closed 
+]
+
+COMPOSITE_SIMULATED_ARGV = [
+    'predicators/main.py',  # The first element of sys.argv is the script name
+    "--env", "robo_kitchen",
+    # "--use_gui", # github action does not support gui
+    "--approach", "clustering_invention",
+    "--seed", "0",
+    "--bilevel_plan_without_sim", "True",
+    "--debug",
+    "--excluded_predicates", "all_goal",
+    "--option_learner", "ds_policy",
+    "--execution_monitor", "expected_atoms_robocasa",
+    # some flags to override settings.py to ensure consistency
+    # "--num_train_tasks", "10",
+    # "--num_test_tasks", "1",
+    "--results_dir", results_dir,
+    "--use_learnt_goal_predicates", "True",
+    "--use_teleop", "False", #single stage task does not need motion of the base
+    "--load_approach"
+]
+COMPOSITE_TASK_NAMES = [
+    "StoreFruit",
 ]
 
 
@@ -63,14 +85,46 @@ def test_main(robo_kitchen_task_name):
         results = log_data['results']
         # Remove all files in the saved_approaches folder after running
 
-        for f in glob.glob(f"{saved_approaches_dir}/*"):
-            try:
-                if os.path.isfile(f) or os.path.islink(f):
-                    os.remove(f)
-                elif os.path.isdir(f):
-                    shutil.rmtree(f)
-            except Exception as e:
-                print(f"Failed to delete {f}. Reason: {e}")
+        # for f in glob.glob(f"{saved_approaches_dir}/*"):
+        #     try:
+        #         if os.path.isfile(f) or os.path.islink(f):
+        #             os.remove(f)
+        #         elif os.path.isdir(f):
+        #             shutil.rmtree(f)
+        #     except Exception as e:
+        #         print(f"Failed to delete {f}. Reason: {e}")
+        assert results['num_solved'] == results['num_total'] #
+
+@pytest.mark.parametrize("robo_kitchen_task_name", COMPOSITE_TASK_NAMES)
+def test_composite(robo_kitchen_task_name):
+    """
+    Tests the main() function for various robo_kitchen_task configurations
+    by simulating the command-line arguments.
+    """
+    # Create a copy of the base arguments for this specific test run
+    current_argv = list(COMPOSITE_SIMULATED_ARGV)
+    # Add the current robo_kitchen_task to the arguments
+    current_argv.extend(["--robo_kitchen_task", robo_kitchen_task_name])
+
+    with patch('sys.argv', current_argv):
+        predicators_main()
+
+        # start checking log files
+        outfile = (f"{results_dir}/{utils.get_config_path_str()}__{online_learning_cycle}.pkl")
+        assert os.path.exists(outfile)
+        with open(outfile, 'rb') as f:
+            log_data = pickle.load(f)
+        results = log_data['results']
+        # Remove all files in the saved_approaches folder after running
+
+        # for f in glob.glob(f"{saved_approaches_dir}/*"):
+        #     try:
+        #         if os.path.isfile(f) or os.path.islink(f):
+        #             os.remove(f)
+        #         elif os.path.isdir(f):
+        #             shutil.rmtree(f)
+        #     except Exception as e:
+        #         print(f"Failed to delete {f}. Reason: {e}")
         assert results['num_solved'] == results['num_total'] #
 
 
