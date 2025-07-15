@@ -92,6 +92,7 @@ class RoboKitchenEnv(BaseEnv):
     sink_faucet_handle_type = Type("sink_faucet_handle_type", ["translation", "quaternion", "on"], parent=object_type)
     sink_type = Type("sink_type", ["translation", "quaternion"], parent=object_type)
     container_type = Type("container_type", ["translation", "quaternion"], parent=object_type)
+    counter_type = Type("counter_type", ["translation", "quaternion"], parent=object_type)
 
     obj_name_to_type = {
         # "handle": handle_type,
@@ -107,7 +108,7 @@ class RoboKitchenEnv(BaseEnv):
         "robot0_base": base_type,
         "obj": thing_type,
         "bottom": surface_type,
-        "counter": surface_type,
+        "counter": counter_type,
         "knob": knob_type,
         "stovetop": stove_type,
         "microwave": microwave_type,
@@ -314,6 +315,8 @@ class RoboKitchenEnv(BaseEnv):
             return [self.object_name_to_object("leftdoor"), self.object_name_to_object("rightdoor")]
         elif task_name == "PnPCounterToCab":
             return [self.object_name_to_object("obj")]
+        elif task_name == "PnPCabToCounter":
+            return [self.object_name_to_object("obj")]
         elif task_name == "PnPStoveToCounter":
             return [self.object_name_to_object("obj")]
         elif task_name == "StoreFruit":
@@ -466,6 +469,11 @@ class RoboKitchenEnv(BaseEnv):
             obj = self.object_name_to_object("obj", test_time=True)
             bottom = self.object_name_to_object("bottom", test_time=True)
             if self._OnSurface_holds(state, [obj, bottom]):
+                return True
+        elif goal_desc == "PnPCabToCounter":
+            obj = self.object_name_to_object("obj", test_time=True)
+            counter = self.object_name_to_object("counter", test_time=True)
+            if self._OnCounter_holds(state, [obj, counter]):
                 return True
         elif goal_desc == "PnPStoveToCounter":
             obj = self.object_name_to_object("obj", test_time=True)
@@ -712,6 +720,7 @@ class RoboKitchenEnv(BaseEnv):
             Predicate("DrawerOpen", [cls.drawer_type, cls.cabinet_type], cls._DrawerOpen_holds),
             Predicate("InContact", [cls.object_type, cls.object_type], cls._InContact_holds),
             Predicate("OnSurface", [cls.thing_type, cls.surface_type], cls._OnSurface_holds),
+            Predicate("OnCounter", [cls.thing_type, cls.counter_type], cls._OnCounter_holds),
             Predicate("DoorHalfOpen", [cls.handle_type, cls.cabinet_type], cls._DoorHalfOpen_holds),
             Predicate("KnobTurnedOn", [cls.knob_type, cls.stove_type], cls._KnobTurnedOn_holds),
             Predicate("InOrigin", [cls.gripper_type, cls.base_type], cls._InOrigin_holds),
@@ -966,6 +975,8 @@ class RoboKitchenEnv(BaseEnv):
             goal_preds = {self._pred_name_to_pred["OnSurface"]}
         elif goal_desc == "PnPStoveToCounter":
             goal_preds = {self._pred_name_to_pred["InContainer"]}
+        elif goal_desc == "PnPCabToCounter":
+            goal_preds = {self._pred_name_to_pred["OnCounter"]}
         elif goal_desc == "CloseSingleDoor":
             goal_preds = {self._pred_name_to_pred["DoorClosed"]}
         elif goal_desc == "StoreFruit":
@@ -1315,6 +1326,12 @@ class RoboKitchenEnv(BaseEnv):
         # print(obj_pos_in_surface[0], obj_pos_in_surface[1])
         # print(near_surface, in_surface)
         return on_surface_top and in_surface_region
+    
+    @classmethod
+    def _OnCounter_holds(cls, state: State, objects: Sequence[Object]) -> bool:
+        """Check if object is on counter."""
+        obj, counter = objects
+        return cls._OnSurface_holds(state, [obj, counter])
 
     @classmethod
     def _KnobTurnedOn_holds(cls, state: State, objects: Sequence[Object]) -> bool:
