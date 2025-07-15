@@ -83,9 +83,11 @@ jobs:
       # running second set of tests
       # clear saved_approach folder
       - name: clear saved_approach folder
+        if: always()  
         run: |
           rm -rf saved_approaches
 
       - name: Run multitask chaining test
+        if: always()  
         run: |
           pytest --tb=short -rA --show-capture=stderr tests/test_sym_skill_multi.py
