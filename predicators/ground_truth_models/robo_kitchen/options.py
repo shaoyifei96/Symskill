@@ -904,6 +904,8 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
             # Hack to expand the action to 7D for compatibility with the environment
             # The first 3 dimensions are the base velocities [dx, dy, dyaw]
             # The remaining 4 dimensions are zeros (not used for base movement)
+            # robo_kitchen watches for if last 4 dims, and moves the gripper or base accordingly
+            # TODO: this is a hack, we should not use this
             action_7d = np.zeros(7, dtype=np.float32)
             action_7d[:3] = action  # Copy the base velocities to the first 3 dimensions
             

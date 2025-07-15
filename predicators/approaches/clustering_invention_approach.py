@@ -1992,7 +1992,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                     num_dims_trans = cluster_translations.shape[1] # Should be 3
                     assert num_dims_trans == 3
                     trans_diff = cluster_translations - mean_translation
-                    reg_term_trans = np.eye(num_dims_trans) * CFG.clustering_inv_cov_reg # Use CFG value
+                    reg_term_trans = np.eye(num_dims_trans) * CFG.clustering_inv_cov_reg_trans # Use CFG value
                     cluster_cov_trans = np.cov(trans_diff, rowvar=False) + reg_term_trans
 
                     num_dims_rot = cluster_quaternions.shape[1] - 1 # Should be 3
@@ -2001,6 +2001,8 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                     if type1.name == "gripper_type" or type2.name == "gripper_type":
                     # allow extra space for relative rotation bw gripper and obj so it doesnt always replan
                         reg = CFG.clustering_inv_cov_reg_rot
+                    elif type2.name == "base_type": 
+                        reg = CFG.clustering_inv_cov_reg_rot_base
                     else: 
                         reg = CFG.clustering_inv_cov_reg_rot_low
                     reg_term_rot = np.eye(3) * reg # Use CFG value

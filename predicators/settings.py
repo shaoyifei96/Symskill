@@ -39,8 +39,9 @@ class GlobalSettings:
     predicate_candidates_method = "motion_analysis_contact"  # "low_speed" or "contact_clustering" or "motion_analysis_contact"
     motion_analysis_lin_vel_rot_vel_threshold = 0.001
     motion_analysis_contact_threshold = 0.04
-    clustering_inv_cov_reg = 1e-3
+    clustering_inv_cov_reg_trans = 1e-3
     clustering_inv_cov_reg_rot = 1e-1 # approximately 10 deg in each axis
+    clustering_inv_cov_reg_rot_base = 1e-4 # base rotation is mostly just the same, so make it more accurate
     clustering_inv_cov_reg_rot_low = 1e-2  # much lower for obj obj rotation, stove needs much lower, 1e-4 works, not sure about this task!!!!
     clustering_change_only = False
     
