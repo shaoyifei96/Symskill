@@ -542,12 +542,15 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                     val_pred = list(val_pred)[0]
                     if "RobotBaseRelPosPred" in pred:
                         task = pred.split("-")[1]
-                        assert nsrt.parameters[0].type.name == obj1_type
+                        # assert nsrt.parameters[0].type.name == obj1_type # type of object of ref, default nsrt doesn not know this
                         assert nsrt.parameters[1].type.name == obj2_type
-                        logging.info(f"UUUUUsing sampler with trans_rot: {val_pred._classifier.trans_center}, {val_pred._classifier.rot_center.as_quat()}")
-                        nsrt = nsrt.copy_with(
+                        # replace all parameters with new variables
+                        new_vars_to_add = utils.create_new_variables(val_pred.types)
+                        nsrt = nsrt.copy_with( # only option is kept
                             name=f"RepositionBase-{task}",
-                            add_effects={LiftedAtom(val_pred, [nsrt.parameters[0], nsrt.parameters[1]])},
+                            parameters=new_vars_to_add,
+                            option_vars=new_vars_to_add,
+                            add_effects={LiftedAtom(val_pred, new_vars_to_add)},
                             _sampler=RoboKitchenGroundTruthNSRTFactory.create_sampler_with_extra_data(trans_rot=(val_pred._classifier.trans_center, val_pred._classifier.rot_center)),
                         )
                         new_nsrts.add(nsrt)
@@ -1799,7 +1802,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         
     def _add_base_ref_obj_precondition(self, ground_atom_dataset: List[GroundAtomTrajectory], relative_pose_dataset_dict: Dict[Tuple[Predicate, Type, Type, str], List[np.ndarray]],  obj_of_reference_best: Object, robot_base_obj: Object):
         # RelPosPred
-        RelPoseBaseRefObjPred = Predicate("RobotBaseRelPosPred-" + CFG.robo_kitchen_task, [RoboKitchenEnv.object_type, robot_base_obj.type], lambda state, objects: True)
+        RelPoseBaseRefObjPred = Predicate("RobotBaseRelPosPred-" + CFG.robo_kitchen_task, [obj_of_reference_best.type, robot_base_obj.type], lambda state, objects: True)
         # this having a object type since it will need to be used when other tasks load and use the same predicates
         for i, (ll_traj, atom_seq) in enumerate(ground_atom_dataset):
             if not ll_traj.states: continue # Skip empty trajectories
@@ -1818,7 +1821,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 )
 
                 if rel_pose_at_contact_obj2_in_obj1_frame is not None:
-                    key = (RelPoseBaseRefObjPred, RoboKitchenEnv.object_type, robot_base_obj.type, "2in1")
+                    key = (RelPoseBaseRefObjPred, obj_of_reference_best.type, robot_base_obj.type, "2in1")
                     relative_pose_dataset_dict[key].append(rel_pose_at_contact_obj2_in_obj1_frame)
 
         return ground_atom_dataset, relative_pose_dataset_dict

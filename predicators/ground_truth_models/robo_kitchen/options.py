@@ -815,6 +815,10 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
             # Store target position and orientation in memory
             memory["base_target_pos"] = base_target_pos
             memory["base_target_quat"] = base_target_quat
+
+            # Reset PI controller integrals
+            memory["pos_error_integral"] = np.zeros(2)
+            memory["yaw_error_integral"] = 0.0
             
             # Store initial state to track progress
             # ref_obj, base = objects
@@ -858,16 +862,22 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
             while yaw_error < -np.pi:
                 yaw_error += 2 * np.pi
             
-            # Calculate control velocities with proportional control
-            K_pos = 3.0  # position gain
-            K_rot = 2.0  # rotation gain
+            # Integrate errors (simple sum, assumes fixed dt)
+            memory["pos_error_integral"] += pos_error_ref_frame
+            memory["yaw_error_integral"] += yaw_error
             
-            # Linear velocities in reference object frame
-            vel_x_ref_frame = K_pos * pos_error_ref_frame[0]
-            vel_y_ref_frame = K_pos * pos_error_ref_frame[1]
+            # PI gains
+            Kp_pos = 3.0  # proportional gain for position
+            Ki_pos = 0.2  # integral gain for position
+            Kp_rot = 2.0  # proportional gain for rotation
+            Ki_rot = 0.1  # integral gain for rotation
             
-            # Angular velocity (about z-axis)
-            base_rot_vel = K_rot * yaw_error
+            # Linear velocities in reference object frame (PI control)
+            vel_x_ref_frame = Kp_pos * pos_error_ref_frame[0] + Ki_pos * memory["pos_error_integral"][0]
+            vel_y_ref_frame = Kp_pos * pos_error_ref_frame[1] + Ki_pos * memory["pos_error_integral"][1]
+            
+            # Angular velocity (about z-axis, PI control)
+            base_rot_vel = Kp_rot * yaw_error + Ki_rot * memory["yaw_error_integral"]
             
             # Get base orientation in reference frame to transform velocities
             base_quat_in_ref_frame = current_rel_pose[3:]
@@ -937,8 +947,8 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
                 yaw_error += 2 * np.pi
             
             # Define thresholds for position and orientation errors
-            pos_threshold = 0.05  # meters
-            rot_threshold = 0.1  # radians 6 deg
+            pos_threshold = 0.01  # meters
+            rot_threshold = 0.01  # radians 0.5 deg
             
             # Check if position and orientation errors are below thresholds
             pos_close = np.linalg.norm(pos_error) < pos_threshold

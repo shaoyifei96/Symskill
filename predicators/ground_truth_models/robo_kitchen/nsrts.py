@@ -344,14 +344,14 @@ class RoboKitchenGroundTruthNSRTFactory(GroundTruthNSRTFactory):
 
 
         # RepositionBase
-        parameters = [obj, base]
+        parameters = [obj, base] # type to be replaced during loading
         preconditions = set()  # No preconditions, can be called anytime
         maintain_effects = set()
         add_effects = set()
         delete_effects = set()
         ignore_effects = set()
         option = options["RepositionBase_option"]
-        option_vars = [obj, base]
+        option_vars = [obj, base] # type to be replaced during loading
         def dummy_sampler(state: State, memory: dict, objects: Sequence[Object], params: Array) -> Array:
             return np.array([0], dtype=np.float32)
         
