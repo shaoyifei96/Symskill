@@ -319,6 +319,8 @@ class RoboKitchenEnv(BaseEnv):
             return [self.object_name_to_object("obj")]
         elif task_name == "PnPStoveToCounter":
             return [self.object_name_to_object("obj")]
+        elif task_name == "PnPCounterToStove":
+            return [self.object_name_to_object("obj")]
         elif task_name == "StoreFruit":
             # return [self.object_name_to_object("handle"), self.object_name_to_object("obj")]
             return [self.object_name_to_object("door"), self.object_name_to_object("obj")]
@@ -476,6 +478,11 @@ class RoboKitchenEnv(BaseEnv):
             if self._OnCounter_holds(state, [obj, counter]):
                 return True
         elif goal_desc == "PnPStoveToCounter":
+            obj = self.object_name_to_object("obj", test_time=True)
+            container = self.object_name_to_object("container", test_time=True)
+            if self._InContainer_holds(state, [obj, container]):
+                return True
+        elif goal_desc == "PnPCounterToStove":
             obj = self.object_name_to_object("obj", test_time=True)
             container = self.object_name_to_object("container", test_time=True)
             if self._InContainer_holds(state, [obj, container]):
@@ -977,6 +984,8 @@ class RoboKitchenEnv(BaseEnv):
             goal_preds = {self._pred_name_to_pred["InContainer"]}
         elif goal_desc == "PnPCabToCounter":
             goal_preds = {self._pred_name_to_pred["OnCounter"]}
+        elif goal_desc == "PnPCounterToStove":
+            goal_preds = {self._pred_name_to_pred["InContainer"]}
         elif goal_desc == "CloseSingleDoor":
             goal_preds = {self._pred_name_to_pred["DoorClosed"]}
         elif goal_desc == "StoreFruit":

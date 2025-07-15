@@ -90,6 +90,10 @@ class RoboKitchenPerceiver(BasePerceiver):
             goal = {
                 GroundAtom(OnCounter, [obj, counter]),
             }
+        elif goal_desc == 'PnPCounterToStove':
+            goal = {
+                GroundAtom(InContainer, [obj, container]),
+            }
         elif goal_desc == 'StoreFruit':
             goal = {
                 GroundAtom(OnSurface, [obj, bottom]),
