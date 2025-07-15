@@ -79,3 +79,13 @@ jobs:
         with:
           name: videos
           path: videos
+
+      # running second set of tests
+      # clear saved_approach folder
+      - name: clear saved_approach folder
+        run: |
+          rm -rf saved_approaches
+
+      - name: Run multitask chaining test
+        run: |
+          pytest --tb=short -rA --show-capture=stderr tests/test_sym_skill_multi.py
