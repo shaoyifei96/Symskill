@@ -69,6 +69,7 @@ def test_main(robo_kitchen_task_name):
     Tests the main() function for various robo_kitchen_task configurations
     by simulating the command-line arguments.
     """
+    utils.reset_config()
     # Create a copy of the base arguments for this specific test run
     current_argv = list(BASE_SIMULATED_ARGV)
     # Add the current robo_kitchen_task to the arguments
