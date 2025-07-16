@@ -4,6 +4,7 @@ from unittest.mock import patch
 import pickle
 
 from predicators.main import main as predicators_main
+from predicators.settings import CFG
 from predicators import utils
 import shutil
 import glob 
@@ -52,7 +53,8 @@ def test_main(robo_kitchen_task_name):
     by simulating the command-line arguments.
     """
 
-    utils.reset_config()
+    CFG.dict_contact_predicate_to_rel_pose_predicates = {}
+    CFG.dict_gt_goal_predicate_to_dummy_goal_predicates = {}
     # Create a copy of the base arguments for this specific test run
     current_argv = list(BASE_SIMULATED_ARGV)
     # Add the current robo_kitchen_task to the arguments

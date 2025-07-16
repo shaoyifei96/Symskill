@@ -1,4 +1,5 @@
 import os
+from predicators.settings import CFG
 import pytest
 from unittest.mock import patch
 import pickle
@@ -24,6 +25,8 @@ BASE_SIMULATED_ARGV = [
     "--excluded_predicates", "all_goal",
     "--option_learner", "ds_policy",
     "--execution_monitor", "expected_atoms_robocasa",
+    "--dict_contact_predicate_to_rel_pose_predicates", "{}",
+    "--dict_gt_goal_predicate_to_dummy_goal_predicates", "{}",
     # some flags to override settings.py to ensure consistency
     # "--num_train_tasks", "10",
     # "--num_test_tasks", "1",
@@ -69,7 +72,8 @@ def test_main(robo_kitchen_task_name):
     Tests the main() function for various robo_kitchen_task configurations
     by simulating the command-line arguments.
     """
-    utils.reset_config()
+    CFG.dict_contact_predicate_to_rel_pose_predicates = {}
+    CFG.dict_gt_goal_predicate_to_dummy_goal_predicates = {}
     # Create a copy of the base arguments for this specific test run
     current_argv = list(BASE_SIMULATED_ARGV)
     # Add the current robo_kitchen_task to the arguments
