@@ -25,8 +25,6 @@ BASE_SIMULATED_ARGV = [
     "--excluded_predicates", "all_goal",
     "--option_learner", "ds_policy",
     "--execution_monitor", "expected_atoms_robocasa",
-    "--dict_contact_predicate_to_rel_pose_predicates", "{}",
-    "--dict_gt_goal_predicate_to_dummy_goal_predicates", "{}",
     # some flags to override settings.py to ensure consistency
     # "--num_train_tasks", "10",
     # "--num_test_tasks", "1",
