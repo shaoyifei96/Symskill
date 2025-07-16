@@ -610,8 +610,8 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             # keep_indices = [6, 23]
             dataset._trajectories = [dataset._trajectories[i] for i in keep_indices if i < len(dataset._trajectories)]
         elif CFG.robo_kitchen_task == "PnPCounterToStove":
-            keep_indices = [0, 1, 2, 3, 4, 6, 7, 8, 9, 10]
-            dataset._trajectories = [dataset._trajectories[i] for i in keep_indices if i < len(dataset._trajectories)]
+            remove_indices = [5]
+            dataset._trajectories = [dataset._trajectories[i] for i in range(len(dataset._trajectories)) if i not in remove_indices]
         elif CFG.robo_kitchen_task == "TurnOnStove":
             keep_indices = [0, 9, 10, 11, 12, 20, 33, 37, 38, 39, 42, 44, 46] # all counter-clockwise 
             dataset._trajectories = [dataset._trajectories[i] for i in keep_indices if i < len(dataset._trajectories)]
