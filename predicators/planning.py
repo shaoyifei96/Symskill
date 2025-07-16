@@ -1207,6 +1207,12 @@ def run_task_plan_once(
         ground_nsrts, reachable_atoms = task_plan_grounding(
             init_atoms, objects, nsrts)
         assert task_planning_heuristic is not None
+        print ("DEBUGGGGGGGGGGGG: Init atoms:", init_atoms)
+        print ("DEBUGGGGGGGGGGGG: Goal:", goal)
+        print ("DEBUGGGGGGGGGGGG: Ground nsrts:", ground_nsrts)
+        print ("DEBUGGGGGGGGGGGG: Preds:", preds)
+        print ("DEBUGGGGGGGGGGGG: Objects:", objects)
+        print ("DEBUGGGGGGGGGGGG: Objects types:", types)
         heuristic = utils.create_task_planning_heuristic(
             task_planning_heuristic, init_atoms, goal, ground_nsrts, preds,
             objects)
