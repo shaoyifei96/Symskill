@@ -105,7 +105,7 @@ class GlobalSettings:
     # robo_kitchen_task = "TurnOnMicrowave" # this is not working, nothing is in motion in the dataset button just clicks
     # robo_kitchen_viz_debug = False # i think the use_gui flag covers this
     robo_kitchen_contact_smoothing_window = 21
-    robo_kitchen_load_dataset = True # this has priority, if False, then save flag is considered
+    robo_kitchen_load_dataset = False # this has priority, if False, then save flag is considered
     robo_kitchen_save_dataset = not robo_kitchen_load_dataset
     robo_kitchen_save_traj_by_segment = False
     robo_kitchen_policy_model = "node"  # "simple_ds" or "node"
@@ -845,7 +845,8 @@ class GlobalSettings:
             num_train_tasks = 50
         elif robo_kitchen_task == "OpenDrawer" or \
             robo_kitchen_task == "TurnOnSinkFaucet" or \
-            robo_kitchen_task == "TurnOffSinkFaucet":
+            robo_kitchen_task == "TurnOffSinkFaucet" or \
+            robo_kitchen_task == "PnPCabToCounter":
             num_train_tasks = 25
         else:
             num_train_tasks = 10
