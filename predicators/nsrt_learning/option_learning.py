@@ -1185,19 +1185,11 @@ class _LearnedDSParameterizedOption(ParameterizedOption):
         if CFG.visualizer:
             CFG.visualizer.set_demo_trajs(self._ds_policy.x)
 
-        return True
-        # Check if initiable based on preconditions.
-        grounded_op = self.operator.ground(tuple(objects))
-        return all(pre.holds(state) for pre in grounded_op.preconditions)
+        # # Check if initiable based on preconditions. # operator is checking for preconditions already
+        # grounded_op = self.operator.ground(tuple(objects))
+        # return all(pre.holds(state) for pre in grounded_op.preconditions)
 
 
-
-
-    def _DS_based_policy(self, state: State, memory: Dict, objects: Sequence[Object], params: Array) -> Action:
-        # NOTE: assume objects contains gripper and obj_of_interest. We can find base from state
-        # use the first base in state as base
-        memory["time_step"] += 1
-        
         # === ACCESS FAILURE INFORMATION ===
         # The failure information from execution monitor is already available in memory!
         if CFG.resample_in_cluster:
@@ -1218,6 +1210,15 @@ class _LearnedDSParameterizedOption(ParameterizedOption):
                     failure_memory.pop(idx)
                 
                 logging.info(f"Processed {len(processed_indices)} failures, {len(failure_memory)} failures remaining")
+        
+        return True
+
+
+    def _DS_based_policy(self, state: State, memory: Dict, objects: Sequence[Object], params: Array) -> Action:
+        # NOTE: assume objects contains gripper and obj_of_interest. We can find base from state
+        # use the first base in state as base
+        memory["time_step"] += 1
+        
         
         base = None
         OOI_obj = None
