@@ -40,7 +40,8 @@ jobs:
       - name: download datasets
         run: |
           git clone https://github.com/shaoyifei96/predicators_robocasa_files.git && \
-          cp predicators_robocasa_files/* . && \
+          mkdir -p generated_datasets && \
+          cp predicators_robocasa_files/* ./generated_datasets && \
           mkdir -p /github/home/mosek && \
           cp predicators_robocasa_files/mosek.lic /github/home/mosek/mosek.lic 
 
@@ -77,3 +78,11 @@ jobs:
         with:
           name: videos
           path: videos
+      
+      - name: upload generated datasets
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: generated_datasets
+          path: generated_datasets
+          

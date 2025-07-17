@@ -48,7 +48,7 @@ def create_demo_data(env: BaseEnv, train_tasks: List[Task],
     """
     if robocasa_task is not None:
         if CFG.robo_kitchen_load_dataset:
-            dataset_fname = f"robokitchen__{robocasa_task}__{CFG.num_train_tasks}.pkl"
+            dataset_fname = f"generated_datasets/robokitchen__{robocasa_task}__{CFG.num_train_tasks}.pkl"
             if os.path.exists(dataset_fname):
                 with open(dataset_fname, "rb") as f:
                     dataset = pkl.load(f)
@@ -58,7 +58,7 @@ def create_demo_data(env: BaseEnv, train_tasks: List[Task],
         else:
             dataset = create_demo_data_from_robocasa(env, train_tasks, known_options, robocasa_task)
             if CFG.robo_kitchen_save_dataset:
-                dataset_fname = f"robokitchen__{robocasa_task}__{CFG.num_train_tasks}.pkl"
+                dataset_fname = f"generated_datasets/robokitchen__{robocasa_task}__{CFG.num_train_tasks}.pkl"
                 with open(dataset_fname, "wb") as f:
                     pkl.dump(dataset, f)
             return dataset
