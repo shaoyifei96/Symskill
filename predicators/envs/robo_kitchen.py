@@ -834,6 +834,10 @@ class RoboKitchenEnv(BaseEnv):
         observation = {"state_info": obs, "obs_images": [], "contact_set": contact_set}
 
         self._current_observation = observation
+        
+        # Visualize bounding boxes if enabled
+        if CFG.robo_kitchen_visualize_bboxes:
+            self._visualize_object_bboxes()
         # Video frame saving logic (only if GUI is not enabled)
         if not self._using_gui:
             self._frame_counter += 1
@@ -885,6 +889,144 @@ class RoboKitchenEnv(BaseEnv):
                 xyz = xyz_world
                 quat = quat_world
             self._env_raw.viewer.mjshowellipse(xyz, quat=quat, size=size, color=color, alpha=alpha, name=name)
+
+    def _visualize_object_bboxes(self):
+        """Visualize bounding boxes of all objects and fixtures in the environment."""
+        if not (self._env_raw and hasattr(self._env_raw, "viewer") and self._env_raw.viewer is not None):
+            return
+        
+        # Visualize all objects (graspable items)
+        for obj_name in self._env_raw.obj_body_id:
+            obj_model = self._env_raw.objects.get(obj_name)
+            if obj_model is None:
+                continue
+            
+            # Get object position and orientation
+            obj_pos = self._env_raw.sim.data.body_xpos[self._env_raw.obj_body_id[obj_name]]
+            obj_quat_wxyz = self._env_raw.sim.data.body_xquat[self._env_raw.obj_body_id[obj_name]]
+            # Convert from wxyz to xyzw format
+            obj_quat_xyzw = np.array([obj_quat_wxyz[1], obj_quat_wxyz[2], obj_quat_wxyz[3], obj_quat_wxyz[0]])
+            
+            # Get bounding box points
+            try:
+                bbox_points = obj_model.get_bbox_points(trans=obj_pos, rot=obj_quat_xyzw)
+                
+                # Visualize bounding box as wireframe
+                self._visualize_bbox_wireframe(bbox_points, obj_name)
+            except Exception:
+                # Skip objects that don't have proper bounding box implementation
+                continue
+        
+        # Visualize all fixtures (cabinets, doors, drawers, counters, etc.)
+        # if hasattr(self._env_raw, 'fixtures'):
+        #     for fixture_name, fixture_model in self._env_raw.fixtures.items():
+        #         if not hasattr(fixture_model, 'get_bbox_points'):
+        #             continue
+                
+        #         try:
+        #             # Get fixture position and orientation from its root body
+        #             fixture_body_id = self._env_raw.sim.model.body_name2id(fixture_model.root_body)
+        #             fixture_pos = self._env_raw.sim.data.body_xpos[fixture_body_id]
+        #             fixture_quat_wxyz = self._env_raw.sim.data.body_xquat[fixture_body_id]
+        #             # Convert from wxyz to xyzw format
+        #             fixture_quat_xyzw = np.array([fixture_quat_wxyz[1], fixture_quat_wxyz[2], fixture_quat_wxyz[3], fixture_quat_wxyz[0]])
+                    
+        #             # Get bounding box points
+        #             bbox_points = fixture_model.get_bbox_points(trans=fixture_pos, rot=fixture_quat_xyzw)
+                    
+        #             # Visualize bounding box as wireframe
+        #             self._visualize_bbox_wireframe(bbox_points, f"fixture_{fixture_name}")
+        #         except Exception:
+        #             # Skip fixtures that don't have proper bounding box implementation
+        #             continue
+
+    def _visualize_bbox_wireframe(self, bbox_points, obj_name):
+        """Visualize bounding box as wireframe cube using edges."""
+        if len(bbox_points) != 8:
+            return
+        
+        # Generate unique color for each object using hash-based color generation
+        import hashlib
+        
+        # Create a hash of the object name to get consistent colors
+        hash_object = hashlib.md5(obj_name.encode())
+        hash_hex = hash_object.hexdigest()
+        
+        # Convert first 6 characters of hash to RGB values
+        r = int(hash_hex[0:2], 16) / 255.0
+        g = int(hash_hex[2:4], 16) / 255.0  
+        b = int(hash_hex[4:6], 16) / 255.0
+        
+        # Ensure colors are bright enough to be visible
+        # Scale to range [0.3, 1.0] to avoid very dark colors
+        r = 0.3 + 0.7 * r
+        g = 0.3 + 0.7 * g
+        b = 0.3 + 0.7 * b
+        
+        color = (r, g, b)
+        
+        # Define the 12 edges of a cube (connecting the 8 vertices)
+        # Based on the vertex ordering from get_bbox_points:
+        # 0: [-1, -1, -1], 1: [+1, -1, -1], 2: [-1, +1, -1], 3: [-1, -1, +1]
+        # 4: [+1, +1, +1], 5: [-1, +1, +1], 6: [+1, -1, +1], 7: [+1, +1, -1]
+        edges = [
+            # Bottom face (z = -1): back_left → back_right → front_right → front_left → back_left
+            (0, 1), (1, 7), (7, 2), (2, 0),
+            # Top face (z = +1): back_left → back_right → front_right → front_left → back_left  
+            (3, 6), (6, 4), (4, 5), (5, 3),
+            # Vertical edges: connect corresponding bottom and top vertices
+            (0, 3), (1, 6), (2, 5), (7, 4)
+        ]
+        
+        # Draw each edge as a thin cylinder NOTE: this is commented out since it is not working.
+        # for i, (start_idx, end_idx) in enumerate(edges):
+        #     start_point = np.array(bbox_points[start_idx])
+        #     end_point = np.array(bbox_points[end_idx])
+            
+        #     # Calculate midpoint and direction
+        #     midpoint = (start_point + end_point) / 2
+        #     direction = end_point - start_point
+        #     length = np.linalg.norm(direction)
+            
+        #     if length > 0:
+        #         # Calculate orientation quaternion for the cylinder
+        #         # Default cylinder axis is along z, we want it along the edge direction
+        #         z_axis = np.array([0, 0, 1])
+        #         edge_direction = direction / length
+                
+        #         # Calculate rotation quaternion to align z-axis with edge direction
+        #         if np.allclose(edge_direction, z_axis):
+        #             quat = np.array([1, 0, 0, 0])  # no rotation needed
+        #         elif np.allclose(edge_direction, -z_axis):
+        #             quat = np.array([0, 1, 0, 0])  # 180 degree rotation around x
+        #         else:
+        #             # General case: rotate z-axis to align with edge direction
+        #             cross = np.cross(z_axis, edge_direction)
+        #             dot = np.dot(z_axis, edge_direction)
+        #             quat_w = 1 + dot
+        #             quat = np.array([quat_w, cross[0], cross[1], cross[2]])
+        #             quat = quat / np.linalg.norm(quat)
+                
+        #         # Draw thin cylinder as edge
+        #         self.mjshowellipse(
+        #             xyz=midpoint,
+        #             quat=quat,
+        #             size=(0.003, 0.003, length/2),  # thin cylinder
+        #             color=color,
+        #             alpha=0.8,
+        #             name=None  # No text label
+        #         )
+
+        # Visualize each vertex as a small sphere for clarity
+        for idx, vertex in enumerate(bbox_points):
+            self.mjshowellipse(
+                xyz=np.array(vertex),
+                quat=(1, 0, 0, 0),  # orientation irrelevant for spheres
+                size=(0.05, 0.05, 0.05),  # small sphere radius
+                color=color,
+                alpha=0.9,
+                name=None  # no text label
+            )
 
     def show_option_cluster_predicates(self, curr_option):
         """Show predicates in the viewer."""

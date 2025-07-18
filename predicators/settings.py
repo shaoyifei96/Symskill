@@ -84,7 +84,7 @@ class GlobalSettings:
 
     # robo_kitchen env parameters
     robo_kitchen_randomize_init_state = True  # not used
-    robo_kitchen_task = "OpenSingleDoor"
+    # robo_kitchen_task = "OpenSingleDoor"
     # robo_kitchen_task = "PnPCounterToCab"
     # robo_kitchen_task = "PnPStoveToCounter"
     # robo_kitchen_task = "CloseSingleDoor"
@@ -99,7 +99,7 @@ class GlobalSettings:
     # composite tasks (leaning needs to be done in sequence, see README)
     # robo_kitchen_task = "StoreFruit" # New task
     # robo_kitchen_task = "StoreFruitFull" # New task
-    # robo_kitchen_task = "CookCheeseAndTomatoes" # New task
+    robo_kitchen_task = "CookCheeseAndTomatoes" # New task
     # tasks that won't work with current approach
     # robo_kitchen_task = "TurnOnMicrowave" # this is not working, nothing is in motion in the dataset button just clicks
     # robo_kitchen_viz_debug = False # i think the use_gui flag covers this
@@ -117,6 +117,7 @@ class GlobalSettings:
     option_to_init_pose: Dict[str, List[np.ndarray]] = {}
     option_to_policy = {}
     use_teleop = None # None for WBC, True for Keyboard, False for no base motion
+    robo_kitchen_visualize_bboxes = True  # visualize object bounding boxes at test time
 
     """Unchanging settings."""
     # global parameters
