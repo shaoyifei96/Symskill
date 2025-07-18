@@ -22,7 +22,7 @@ import torch
 from predicators.DS_models.gen_demo_model import DynamicalSystem
 
 from scipy.spatial.transform import Rotation as R
-from predicators.utils import calculate_relative_pose
+from predicators.utils import calculate_relative_pose_from_state
 
 import warnings
 
@@ -451,7 +451,7 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
 
             assert base and left_finger and right_finger
 
-            left_right_finger_dist = calculate_relative_pose(state, left_finger, right_finger, "translation", "quaternion")
+            left_right_finger_dist = calculate_relative_pose_from_state(state, left_finger, right_finger, "translation", "quaternion")
             left_right_finger_dist = np.linalg.norm(left_right_finger_dist[:3])
 
             if np.linalg.norm(np.concatenate([gripper_pos_in_base, gripper_quat_in_base], axis=0) - memory["waypoints"][memory["current_waypoint"]]) < 0.2:
@@ -832,7 +832,7 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
             
             # Calculate current relative pose using the same method as predicate construction
             # This gives the pose of the base in the reference object's frame
-            current_rel_pose = calculate_relative_pose(
+            current_rel_pose = calculate_relative_pose_from_state(
                 state, ref_obj, base,
                 CFG.trans_feat_name, CFG.quat_feat_name
             )
@@ -918,7 +918,7 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
             ref_obj = objects[0]
             
             # Calculate current relative pose using the same method as predicate construction
-            current_rel_pose = calculate_relative_pose(
+            current_rel_pose = calculate_relative_pose_from_state(
                 state, ref_obj, base,
                 CFG.trans_feat_name, CFG.quat_feat_name
             )

@@ -119,7 +119,7 @@ class _RelativeFeatureCovClusterClassifierTransRot(_BinaryClassifier):
         assert obj1.is_instance(self.object1_type)
         assert obj2.is_instance(self.object2_type)
         assert self.feature_name == self._pose_feat_name
-        relative_pose = utils.calculate_relative_pose(s, obj1, obj2,
+        relative_pose = utils.calculate_relative_pose_from_state(s, obj1, obj2,
                                                     self._trans_feat_name,
                                                     self._quat_feat_name)
         if relative_pose is None:
@@ -205,7 +205,7 @@ class _RelativeFeatureCovClusterClassifier(_BinaryClassifier):
         # Calculate the relevant relative feature
         relative_feature = None
         if self.feature_name == self._pose_feat_name:
-            relative_feature = utils.calculate_relative_pose(s, obj1, obj2,
+            relative_feature = utils.calculate_relative_pose_from_state(s, obj1, obj2,
                                                        self._trans_feat_name,
                                                        self._quat_feat_name)
             if relative_feature is None:
@@ -290,7 +290,7 @@ class _RelativeFeatureClusterClassifier(_BinaryClassifier):
         # Calculate the relevant relative feature
         if self.feature_name == self._pose_feat_name:
             # Calculate the 7D relative pose
-            relative_feature = utils.calculate_relative_pose(s, obj1, obj2, 
+            relative_feature = utils.calculate_relative_pose_from_state(s, obj1, obj2, 
                                                        self._trans_feat_name, 
                                                        self._quat_feat_name)
             if relative_feature is None:
@@ -1145,8 +1145,8 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                         # Handle type1 == type2 case
                         obj2_list = objs2 if type1 != type2 else [o for o in objs2 if o != o1]
                         for o2 in obj2_list:
-                            rel_pose_t = utils.calculate_relative_pose(state_t, o1, o2, trans_feat_name, quat_feat_name)
-                            rel_pose_t1 = utils.calculate_relative_pose(state_t1, o1, o2, trans_feat_name, quat_feat_name)
+                            rel_pose_t = utils.calculate_relative_pose_from_state(state_t, o1, o2, trans_feat_name, quat_feat_name)
+                            rel_pose_t1 = utils.calculate_relative_pose_from_state(state_t1, o1, o2, trans_feat_name, quat_feat_name)
 
                             if rel_pose_t is not None and rel_pose_t1 is not None:
                                 # Calculate change in relative pose (using SE(3) distance concept)
@@ -1815,7 +1815,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             for t in range(skip_var, len(atom_seq), skip_var): # Start from 1 to compare with t-1, skip every 4, for efficiency
                 state_t = ll_traj.states[t]
                 
-                rel_pose_at_contact_obj2_in_obj1_frame = utils.calculate_relative_pose(
+                rel_pose_at_contact_obj2_in_obj1_frame = utils.calculate_relative_pose_from_state(
                     state_t, obj_of_reference_best, robot_base_obj,
                     CFG.trans_feat_name, CFG.quat_feat_name
                 )
@@ -2109,7 +2109,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
 
         # add stored states before contact lost to relative_pose_dataset_dict
         for state in goal_reached_states:
-            rel_pose = utils.calculate_relative_pose(state, obj_of_reference_best, obj_contact_with_gripper, CFG.trans_feat_name, CFG.quat_feat_name)
+            rel_pose = utils.calculate_relative_pose_from_state(state, obj_of_reference_best, obj_contact_with_gripper, CFG.trans_feat_name, CFG.quat_feat_name)
             key = (DummyPredicate(f"{CFG.robo_kitchen_task}-goal"), obj_of_reference_best.type, obj_contact_with_gripper.type, "2in1")
             relative_pose_dataset_dict[key].append(rel_pose)
         return ground_atom_dataset, relative_pose_dataset_dict
@@ -2325,7 +2325,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                         for obj in all_objs: # go through all object to get obj-obj relative pose
                             if obj.type == gripper_type or obj == obj_contact_with_gripper:
                                 continue
-                            relative_pose = utils.calculate_relative_pose(state_t, obj, obj_contact_with_gripper, CFG.trans_feat_name, CFG.quat_feat_name)
+                            relative_pose = utils.calculate_relative_pose_from_state(state_t, obj, obj_contact_with_gripper, CFG.trans_feat_name, CFG.quat_feat_name)
                             if obj not in contact_period_rel_trajs:
                                 contact_period_rel_trajs[obj] = []
                             if not consistent_contact: # start of contact
@@ -2336,7 +2336,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                         # -------------------------------------------------------------------------------------------- #
                         # these are used to compute rel pose between GRIPPER and OBJECT for finding end points of DS
                         # Calculate relative pose at the moment of contact (state t)
-                        rel_pose_at_contact_obj2_in_obj1_frame = utils.calculate_relative_pose(
+                        rel_pose_at_contact_obj2_in_obj1_frame = utils.calculate_relative_pose_from_state(
                             state_t, obj1, obj2,
                             CFG.trans_feat_name, CFG.quat_feat_name
                         )
@@ -2345,7 +2345,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                             key = (atom.predicate, obj1.type, obj2.type, "2in1")
                             relative_pose_dataset_dict[key].append(rel_pose_at_contact_obj2_in_obj1_frame)
 
-                        rel_pose_at_contact_obj1_in_obj2_frame = utils.calculate_relative_pose(
+                        rel_pose_at_contact_obj1_in_obj2_frame = utils.calculate_relative_pose_from_state(
                             state_t, obj2, obj1,
                             CFG.trans_feat_name, CFG.quat_feat_name
                         )
@@ -2801,7 +2801,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
 
             for state in traj.states:
                 # Calculate relative pose in each state
-                rel_pose = utils.calculate_relative_pose(state, obj1, obj2, 
+                rel_pose = utils.calculate_relative_pose_from_state(state, obj1, obj2, 
                                                        trans_feat_name, 
                                                        quat_feat_name)
                 if rel_pose is not None:

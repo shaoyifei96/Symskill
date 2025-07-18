@@ -132,7 +132,7 @@ def calculate_se3_distance(pose_vec1: np.ndarray, pose_vec2: np.ndarray,
                             CFG.clustering_se3_rot_weight * rot_dist_sq)
     return weighted_dist
 
-def calculate_relative_pose(state: State, o1: Object, o2: Object, trans_feat_name: str, quat_feat_name: str) -> Optional[np.ndarray]:
+def calculate_relative_pose_from_state(state: State, o1: Object, o2: Object, trans_feat_name: str, quat_feat_name: str) -> Optional[np.ndarray]:
     """Calculates the relative pose of o2 with respect to o1's frame.
     
     Returns a 7D vector [tx, ty, tz, qx, qy, qz, qw] or None if features missing.
@@ -147,20 +147,26 @@ def calculate_relative_pose(state: State, o1: Object, o2: Object, trans_feat_nam
         # if o2.type.name == "thing_type":
         #     quat_o2 = np.array([0.0, 0.0, 0.0, 1.0], dtype=np.float32)
 
-        rot_o1 = Rotation.from_quat(quat_o1)
-        rot_o2 = Rotation.from_quat(quat_o2)
-
-        relative_trans_world = np.subtract(trans_o2, trans_o1)
-        relative_trans_local = rot_o1.inv().apply(relative_trans_world)
-
-        relative_rot = rot_o1.inv() * rot_o2
-        relative_quat = relative_rot.as_quat()
-
-        pose_vec = np.concatenate([relative_trans_local, relative_quat])
-        return pose_vec # 7D vector
+        return calculate_relative_pose(trans_o1, quat_o1, trans_o2, quat_o2)
     except KeyError as e:
         logging.debug(f"Missing feature {e} for relative pose between {o1} and {o2}. Skipping.")
         return None
+    
+def calculate_relative_pose(pos_o1: np.ndarray, quat_o1: np.ndarray, pos_o2: np.ndarray, quat_o2: np.ndarray) -> Optional[np.ndarray]:
+    """
+    Calculates the relative pose of o2 with respect to o1's frame.
+    """
+    rot_o1 = Rotation.from_quat(quat_o1)
+    rot_o2 = Rotation.from_quat(quat_o2)
+
+    relative_trans_world = np.subtract(pos_o2, pos_o1)
+    relative_trans_local = rot_o1.inv().apply(relative_trans_world)
+
+    relative_rot = rot_o1.inv() * rot_o2
+    relative_quat = relative_rot.as_quat()
+
+    pose_vec = np.concatenate([relative_trans_local, relative_quat])
+    return pose_vec # 7D vector
 
 def combinations_no_self_pairs(iterable, r):
     return [

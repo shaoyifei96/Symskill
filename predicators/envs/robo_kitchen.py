@@ -836,7 +836,8 @@ class RoboKitchenEnv(BaseEnv):
         self._current_observation = observation
         
         # Visualize bounding boxes if enabled
-        if CFG.robo_kitchen_visualize_bboxes:
+        if CFG.robo_kitchen_modulation_mode is not None:
+            CFG.robo_kitchen_obstacles = {}
             self._visualize_object_bboxes()
         # Video frame saving logic (only if GUI is not enabled)
         if not self._using_gui:
@@ -913,6 +914,8 @@ class RoboKitchenEnv(BaseEnv):
                 
                 # Visualize bounding box as wireframe
                 self._visualize_bbox_wireframe(bbox_points, obj_name)
+                # Visualize analytical minimal ellipsoid that encloses the bbox
+                self._visualize_bbox_ellipsoid(bbox_points, obj_name)
             except Exception:
                 # Skip objects that don't have proper bounding box implementation
                 continue
@@ -945,25 +948,8 @@ class RoboKitchenEnv(BaseEnv):
         if len(bbox_points) != 8:
             return
         
-        # Generate unique color for each object using hash-based color generation
-        import hashlib
-        
-        # Create a hash of the object name to get consistent colors
-        hash_object = hashlib.md5(obj_name.encode())
-        hash_hex = hash_object.hexdigest()
-        
-        # Convert first 6 characters of hash to RGB values
-        r = int(hash_hex[0:2], 16) / 255.0
-        g = int(hash_hex[2:4], 16) / 255.0  
-        b = int(hash_hex[4:6], 16) / 255.0
-        
-        # Ensure colors are bright enough to be visible
-        # Scale to range [0.3, 1.0] to avoid very dark colors
-        r = 0.3 + 0.7 * r
-        g = 0.3 + 0.7 * g
-        b = 0.3 + 0.7 * b
-        
-        color = (r, g, b)
+        # Generate unique, consistent colour for this object
+        color = self._object_hash_color(obj_name)
         
         # Define the 12 edges of a cube (connecting the 8 vertices)
         # Based on the vertex ordering from get_bbox_points:
@@ -1022,11 +1008,78 @@ class RoboKitchenEnv(BaseEnv):
             self.mjshowellipse(
                 xyz=np.array(vertex),
                 quat=(1, 0, 0, 0),  # orientation irrelevant for spheres
-                size=(0.05, 0.05, 0.05),  # small sphere radius
+                size=(0.01, 0.01, 0.01),  # small sphere radius
                 color=color,
                 alpha=0.9,
                 name=None  # no text label
             )
+
+    def _bbox_to_min_ellipsoid(self, bbox_points):
+        """Analytically convert 8 bounding-box vertices to centre, orientation (quat xyzw) and
+        radii (a, b, c) of the smallest-volume ellipsoid whose axes are aligned with the
+        box axes.  Radii are √3 times the half-lengths of the box."""
+
+        import numpy as np
+
+        if len(bbox_points) != 8:
+            return None
+
+        pts = np.asarray(bbox_points)
+        centre = pts.mean(axis=0)
+
+        # Principal directions via SVD (works for any oriented rectangular box)
+        _, _, vh = np.linalg.svd(pts - centre, full_matrices=False)
+        R_box = vh.T  # Columns are principal axes
+
+        # Ensure a right-handed coordinate frame (determinant +1)
+        if np.linalg.det(R_box) < 0:
+            R_box[:, -1] *= -1
+
+        local = (pts - centre) @ R_box  # Express vertices in box frame
+        half_lengths = np.max(np.abs(local), axis=0)
+
+        radii = half_lengths * np.sqrt(3.0)
+
+        quat_xyzw = R.from_matrix(R_box).as_quat()
+
+        return centre, quat_xyzw, radii
+
+    def _visualize_bbox_ellipsoid(self, bbox_points, obj_name):
+        """Draw the analytical minimal ellipsoid (√3-scaled) enclosing the box."""
+
+        res = self._bbox_to_min_ellipsoid(bbox_points)
+        if res is None:
+            return
+
+        centre, quat_xyzw, radii = res
+        if CFG.robo_kitchen_modulation_mode == "ellipsoid":
+            CFG.robo_kitchen_obstacles[obj_name] = (centre, radii, quat_xyzw)
+
+        color = self._object_hash_color(obj_name)
+
+        self.mjshowellipse(
+            xyz=centre,
+            quat=quat_xyzw,
+            size=tuple(radii),
+            color=color,
+            alpha=0.5,
+            name=None,
+        )
+
+    def _object_hash_color(self, obj_name: str):
+        """Return a bright, deterministic RGB colour for a given object name."""
+        import hashlib
+
+        hash_hex = hashlib.md5(obj_name.encode()).hexdigest()
+        r = int(hash_hex[0:2], 16) / 255.0
+        g = int(hash_hex[2:4], 16) / 255.0
+        b = int(hash_hex[4:6], 16) / 255.0
+
+        # Elevate brightness: map from [0,1] → [0.3,1]
+        r = 0.3 + 0.7 * r
+        g = 0.3 + 0.7 * g
+        b = 0.3 + 0.7 * b
+        return (r, g, b)
 
     def show_option_cluster_predicates(self, curr_option):
         """Show predicates in the viewer."""
@@ -1605,3 +1658,4 @@ def get_gripper_in_base_frame(state: State, gripper: Object, base: Object) -> Tu
     rel_quat_base = R.from_matrix(rel_rot_world).as_quat()
     
     return rel_pos_base, rel_quat_base
+

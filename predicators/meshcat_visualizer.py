@@ -78,6 +78,12 @@ class MeshcatVisualizer:
         self.robot_color = np.array([255, 0, 0])  # Red RGB for robot
         self.ref_traj_color = np.array([0, 0, 255])  # Blue RGB for ref traj
         self.velocity_color = np.array([0, 255, 0])  # Green RGB for velocity arrow
+        
+        # New color for obstacles (grey)
+        self.obstacle_color = np.array([128, 128, 128])
+        
+        # Store obstacle information so that we can delete/update later
+        self.obstacles: list[tuple[np.ndarray, np.ndarray, np.ndarray]] = []  # (center, axes, rotation_matrix)
 
         cylinder_height = 0.1
         cylinder_radius = 0.01
@@ -315,6 +321,37 @@ class MeshcatVisualizer:
             self.vis["ref_point"].set_transform(transform)
         else:
             logging.warning("Ref point not updated except for traj follower mode")
+
+    def set_obstacles(self, obstacles: list[tuple[np.ndarray, np.ndarray, np.ndarray]]):
+        """
+        Visualize ellipsoidal obstacles.
+
+        Each obstacle is represented by a tuple (center, axes, rotation_matrix)
+        where:
+            center: np.ndarray shape (3,) specifying the position of the ellipsoid centre.
+            axes: np.ndarray shape (3,) specifying the semi-axis lengths (a, b, c).
+            rotation_matrix: np.ndarray shape (3,3) providing orientation.
+        """
+        # Remove existing obstacle visuals
+        for i in range(len(self.obstacles)):
+            self.vis[f"obstacle_{i}"].delete()
+
+        # Store new obstacle list
+        self.obstacles = obstacles
+
+        for i, (center, axes, rotation_matrix) in enumerate(self.obstacles):
+            # Represent ellipsoid as a unit sphere with non-uniform scaling (axes) and orientation.
+            self.vis[f"obstacle_{i}"].set_object(
+                g.Sphere(1.0),
+                g.MeshBasicMaterial(color=color_array_to_hex(self.obstacle_color), opacity=0.4, transparent=True)
+            )
+
+            # Build combined rotation-scale matrix: R @ S where S=diag(axes)
+            rot_scale = rotation_matrix @ np.diag(axes)
+            transform = np.eye(4)
+            transform[:3, :3] = rot_scale
+            transform[:3, 3] = center
+            self.vis[f"obstacle_{i}"].set_transform(transform)
 
 
 def rescale(scores: np.ndarray) -> np.ndarray:

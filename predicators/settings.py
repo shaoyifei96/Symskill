@@ -49,7 +49,7 @@ class GlobalSettings:
 
     clustering_moving_average_window = 5
     clustering_debug = True
-    enable_meshcat = False
+    enable_meshcat = True
     clustering_se3_trans_weight = 10.0  # 0.05 m # 10 times differnece
     clustering_se3_rot_weight = 5.0  # 30 deg = 0.5236 rad
     clustering_feature_constancy_percentile = 10  # of total number of data points = 13782
@@ -91,7 +91,7 @@ class GlobalSettings:
     # robo_kitchen_task = "OpenSingleDoor"
     # robo_kitchen_task = "CloseDrawer"
     # robo_kitchen_task = "OpenDrawer"
-    # robo_kitchen_task = "TurnOnStove"
+    robo_kitchen_task = "TurnOnStove"
     # robo_kitchen_task = "TurnOffStove"
     # robo_kitchen_task = "TurnOnSinkFaucet"
     # robo_kitchen_task = "TurnOffSinkFaucet"
@@ -99,7 +99,7 @@ class GlobalSettings:
     # composite tasks (leaning needs to be done in sequence, see README)
     # robo_kitchen_task = "StoreFruit" # New task
     # robo_kitchen_task = "StoreFruitFull" # New task
-    robo_kitchen_task = "CookCheeseAndTomatoes" # New task
+    # robo_kitchen_task = "CookCheeseAndTomatoes" # New task
     # tasks that won't work with current approach
     # robo_kitchen_task = "TurnOnMicrowave" # this is not working, nothing is in motion in the dataset button just clicks
     # robo_kitchen_viz_debug = False # i think the use_gui flag covers this
@@ -111,20 +111,25 @@ class GlobalSettings:
     make_test_videos = False
     loglevel = 30
     if enable_meshcat:
-        visualizer = MeshcatVisualizer(mode="traj_follower")
+        visualizer = MeshcatVisualizer(mode="se3_lpvds")
     else:
         visualizer = None
     option_to_init_pose: Dict[str, List[np.ndarray]] = {}
     option_to_policy = {}
     use_teleop = None # None for WBC, True for Keyboard, False for no base motion
+
     robo_kitchen_visualize_bboxes = True  # visualize object bounding boxes at test time
+    robo_kitchen_modulation_mode = "ellipsoid" # None, "sphere", "ellipsoid"
+    # {object_name: (obstacle_info)}, obstacle_info depends on the modulation mode
+    # for "ellipsoid" mode, obstacle_info is (center, axes, rotation_matrix)
+    robo_kitchen_obstacles = {} 
 
     """Unchanging settings."""
     # global parameters
     # Note: num_train_tasks will be set dynamically based on robo_kitchen_task
     # This is handled in the get_arg_specific_settings method below
     # num_train_tasks = 10  # setting up later, this no longer used
-    num_test_tasks = 5
+    num_test_tasks = 1
     # Perform online learning for this many cycles or until this many
     # transitions have been collected, whichever happens first.
     num_online_learning_cycles = 10
@@ -840,8 +845,7 @@ class GlobalSettings:
         # Calculate num_train_tasks based on the task
         if robo_kitchen_task == "PnPCounterToCab" or \
             robo_kitchen_task == "TurnOnStove" or \
-            robo_kitchen_task == "TurnOffStove" or \
-            robo_kitchen_task == "PnPStoveToCounter":
+            robo_kitchen_task == "TurnOffStove":
             num_train_tasks = 50
         elif robo_kitchen_task == "OpenDrawer" or \
             robo_kitchen_task == "TurnOnSinkFaucet" or \

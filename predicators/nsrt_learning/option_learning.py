@@ -24,7 +24,7 @@ from predicators.pybullet_helpers.inverse_kinematics import InverseKinematicsErr
 from predicators.pybullet_helpers.robots import create_single_arm_pybullet_robot
 from predicators.settings import CFG
 from predicators.structs import Action, Array, Datastore, Object, OptionSpec, ParameterizedOption, Segment, State, STRIPSOperator, Variable, VarToObjSub, DummyParameterizedOption, Type
-from predicators.utils import OptionExecutionFailure, calculate_relative_pose, _flatten_and_convert_to_array
+from predicators.utils import OptionExecutionFailure, calculate_relative_pose_from_state, calculate_relative_pose, _flatten_and_convert_to_array
 
 from ds_policy import DSPolicy, UnifiedModelConfig, PositionModelConfig, QuaternionModelConfig, transform_frame, compute_vel_traj
 from scipy.spatial.transform import Rotation as R
@@ -713,7 +713,7 @@ class _DSOptionLearner(_OptionLearnerBase):
                         logging.warning(f"NSRT {op.name} cannot find OOI or gripper in state, ignoring this state")
                         continue
 
-                    gripper_or_obj_pose_OOI_frame = calculate_relative_pose(state, OOI_obj, gripper_or_obj, "translation", "quaternion")
+                    gripper_or_obj_pose_OOI_frame = calculate_relative_pose_from_state(state, OOI_obj, gripper_or_obj, "translation", "quaternion")
                     gripper_or_obj_pos_traj_OOI_frame.append(gripper_or_obj_pose_OOI_frame[:3])
                     gripper_or_obj_quat_traj_OOI_frame.append(gripper_or_obj_pose_OOI_frame[3:])
                     option_gripper_action.append(action.arr[6])
@@ -1190,9 +1190,6 @@ class _LearnedDSParameterizedOption(ParameterizedOption):
         grounded_op = self.operator.ground(tuple(objects))
         return all(pre.holds(state) for pre in grounded_op.preconditions)
 
-
-
-
     def _DS_based_policy(self, state: State, memory: Dict, objects: Sequence[Object], params: Array) -> Action:
         # NOTE: assume objects contains gripper and obj_of_interest. We can find base from state
         # use the first base in state as base
@@ -1252,9 +1249,25 @@ class _LearnedDSParameterizedOption(ParameterizedOption):
 
         assert base and OOI_obj and gripper_or_obj and left_finger and right_finger
 
-        gripper_or_obj_pose_OOI_frame = calculate_relative_pose(state, OOI_obj, gripper_or_obj, "translation", "quaternion")
-        left_right_finger_dist = calculate_relative_pose(state, left_finger, right_finger, "translation", "quaternion")
+        gripper_or_obj_pose_OOI_frame = calculate_relative_pose_from_state(state, OOI_obj, gripper_or_obj, "translation", "quaternion")
+        left_right_finger_dist = calculate_relative_pose_from_state(state, left_finger, right_finger, "translation", "quaternion")
         left_right_finger_dist = np.linalg.norm(left_right_finger_dist[:3])
+
+        # Add modulations for obstacles
+        if CFG.robo_kitchen_modulation_mode == "ellipsoid":
+            self._ds_policy.clear_modulations()
+            # Collect obstacles for visualization
+            vis_obstacles = []
+            for obj_name, obstacle_info in CFG.robo_kitchen_obstacles.items():
+                center, radii, quat_xyzw = obstacle_info
+                relative_pose = calculate_relative_pose(state.get(OOI_obj, "translation"), state.get(OOI_obj, "quaternion"), center, quat_xyzw)
+                self._ds_policy.add_ellipsoid_modulation(relative_pose[:3], radii, R.from_quat(relative_pose[3:]).as_matrix())
+                vis_obstacles.append((relative_pose[:3], radii, R.from_quat(relative_pose[3:]).as_matrix()))
+                logging.info(f"Added ellipsoid modulation for {obj_name}")
+
+            # Update Meshcat visualizer with obstacles
+            if CFG.visualizer and len(vis_obstacles) > 0:
+                CFG.visualizer.set_obstacles(vis_obstacles)
 
         # Get action from DS Policy
         action = self._ds_policy.get_action(
