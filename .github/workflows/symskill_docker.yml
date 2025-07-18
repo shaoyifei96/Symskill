@@ -79,10 +79,10 @@ jobs:
           name: videos
           path: videos
       
-      - name: upload generated datasets
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: generated_datasets
-          path: generated_datasets
+      # - name: upload generated datasets
+      #   if: always()
+      #   uses: actions/upload-artifact@v4
+      #   with:
+      #     name: generated_datasets
+      #     path: generated_datasets
           

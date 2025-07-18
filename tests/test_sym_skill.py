@@ -34,12 +34,14 @@ BASE_SIMULATED_ARGV = [
 ]
 
 ROBO_KITCHEN_TASK_NAMES = [
-    "PnPCounterToCab",
-    "PnPCabToCounter",
     "OpenSingleDoor",
     "CloseSingleDoor",
-    "CloseDrawer",
+    "PnPCounterToCab",
+    "PnPCabToCounter",
+    "PnPStoveToCounter",
+    "PnPCounterToStove",
     "OpenDrawer",
+    "CloseDrawer",
     "TurnOnStove",
     "TurnOffStove",
     "TurnOnSinkFaucet",
