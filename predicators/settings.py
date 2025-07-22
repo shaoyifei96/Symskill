@@ -20,6 +20,7 @@ class GlobalSettings:
     reprocess_ground_atom_dataset_using_cluster_replacement = True
     reprocess_ground_atom_dataset_using_cluster_predicates = False
     remove_inOrigin_pred = True
+    robo_kitchen_obj_names = ["robot0_base", "gripper", "left_finger", "right_finger"] # this stores the actual object names, determined by a mujoco id, such as "cabinet_10" (see how these are constructed in robocasa/kithcen.py)
 
     use_learnt_goal_predicates = True
     use_negated_goal_predicates = False
@@ -84,14 +85,16 @@ class GlobalSettings:
 
     # robo_kitchen env parameters
     robo_kitchen_randomize_init_state = True  # not used
-    # robo_kitchen_task = "OpenSingleDoor"
+    robo_kitchen_task = "OpenSingleDoor"
     # robo_kitchen_task = "PnPCounterToCab"
+    # robo_kitchen_task = "PnPCabToCounter"
     # robo_kitchen_task = "PnPStoveToCounter"
+    # robo_kitchen_task = "PnPCounterToStove"
     # robo_kitchen_task = "CloseSingleDoor"
     # robo_kitchen_task = "OpenSingleDoor"
     # robo_kitchen_task = "CloseDrawer"
     # robo_kitchen_task = "OpenDrawer"
-    robo_kitchen_task = "TurnOnStove"
+    # robo_kitchen_task = "TurnOnStove"
     # robo_kitchen_task = "TurnOffStove"
     # robo_kitchen_task = "TurnOnSinkFaucet"
     # robo_kitchen_task = "TurnOffSinkFaucet"

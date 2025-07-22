@@ -26,6 +26,7 @@ class RoboKitchenPerceiver(BasePerceiver):
         DrawerClosed = pred_name_to_pred["DrawerClosed"]
         DrawerOpen = pred_name_to_pred["DrawerOpen"]
         OnSurface = pred_name_to_pred["OnSurface"]
+        OnCounter = pred_name_to_pred["OnCounter"]
         InContainer = pred_name_to_pred["InContainer"]
         KnobTurnedOn = pred_name_to_pred["KnobTurnedOn"]
         MicrowaveOn = pred_name_to_pred["MicrowaveOn"]
@@ -43,6 +44,7 @@ class RoboKitchenPerceiver(BasePerceiver):
         cabinet = RoboKitchenEnv.object_name_to_object("cabinet")
         obj = RoboKitchenEnv.object_name_to_object("obj")
         bottom = RoboKitchenEnv.object_name_to_object("bottom")
+        counter = RoboKitchenEnv.object_name_to_object("counter")
         stove = RoboKitchenEnv.object_name_to_object("stovetop")
         knob = RoboKitchenEnv.object_name_to_object("knob")
         microwave = RoboKitchenEnv.object_name_to_object("microwave")
@@ -84,10 +86,17 @@ class RoboKitchenPerceiver(BasePerceiver):
             goal = {
                 GroundAtom(OnSurface, [obj, bottom]),
             }
+        elif goal_desc == 'PnPCabToCounter':
+            goal = {
+                GroundAtom(OnCounter, [obj, counter]),
+            }
+        elif goal_desc == 'PnPCounterToStove':
+            goal = {
+                GroundAtom(InContainer, [obj, container]),
+            }
         elif goal_desc == 'StoreFruit':
             goal = {
                 GroundAtom(OnSurface, [obj, bottom]),
-                # GroundAtom(DoorClosed, [door, cabinet]),
             }
         elif goal_desc == 'StoreFruitFull':
             goal = {
