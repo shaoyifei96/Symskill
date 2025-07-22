@@ -898,6 +898,25 @@ class RoboKitchenEnv(BaseEnv):
         
         # Visualize all objects (graspable items)
         for obj_name in self._env_raw.obj_body_id:
+            if 'door' in obj_name:
+                # Find the cabinet fixture with a door
+                cabinet = None
+                for fixture in getattr(self._env_raw, "fixtures", {}).values():
+                    if hasattr(fixture, "door_name"):
+                        cabinet = fixture
+                        break
+                if cabinet is not None:
+                    # For single door
+                    door_body_name = cabinet.door_name  # e.g., "cabinet_main_hingedoor"
+                    door_body_id = self._env_raw.sim.model.body_name2id(door_body_name)
+                    door_pos = self._env_raw.sim.data.body_xpos[door_body_id]
+                    door_quat_wxyz = self._env_raw.sim.data.body_xquat[door_body_id]
+                    door_quat_xyzw = np.array([door_quat_wxyz[1], door_quat_wxyz[2], door_quat_wxyz[3], door_quat_wxyz[0]])
+                    bbox_points = self._get_body_bbox_points(door_body_id)
+                    
+                    self._visualize_bbox_wireframe(bbox_points, "actual_door_panel")
+                    self._visualize_bbox_ellipsoid(bbox_points, "actual_door_panel")
+                continue
             obj_model = self._env_raw.objects.get(obj_name)
             if obj_model is None:
                 continue
@@ -1612,6 +1631,62 @@ class RoboKitchenEnv(BaseEnv):
             utils.save_video(filename, self._video_frames)
             self._video_frames = []
             self._frame_counter = 0
+
+    def _get_body_bbox_points(self, body_id):
+        """Compute bounding-box corner points (8 vertices) for all geoms that belong to a MuJoCo body.
+
+        This utility walks through every geom attached to the specified body, computes the
+        world-frame corner points for box geoms, and then returns the 8 vertices of a
+        world-axis-aligned bounding box that encloses all of those points.  For our current
+        use-case (visualising cabinet doors) the door panel is modelled as a single box geom,
+        so this provides an accurate oriented bounding box.  If no box geoms are found, an
+        empty list is returned.
+        """
+        model = self._env_raw.sim.model
+        data = self._env_raw.sim.data
+
+        # Range of geom indices that belong to this body
+        geom_start = model.body_geomadr[body_id]
+        geom_num = model.body_geomnum[body_id]
+        if geom_num == 0:
+            return []
+
+        vertices = []  # world-frame vertices from every box geom
+        for g in range(geom_start, geom_start + geom_num):
+            geom_type = model.geom_type[g]
+            # Only handle box geoms for now – cabinet doors are boxes in the XML.
+            if geom_type != mujoco.mjtGeom.mjGEOM_BOX:
+                continue
+
+            # Half-sizes along the geom's local x,y,z axes.
+            size = model.geom_size[g]  # (3,)
+            # World-frame position of the geom centre.
+            pos = data.geom_xpos[g]
+            # World-frame orientation (3×3 rotation matrix, row-major) of the geom.
+            mat = data.geom_xmat[g].reshape(3, 3)
+
+            # Eight corner points of the box in the geom's local frame
+            for dx in (-size[0], size[0]):
+                for dy in (-size[1], size[1]):
+                    for dz in (-size[2], size[2]):
+                        local_offset = np.array([dx, dy, dz])
+                        world_pt = pos + mat @ local_offset
+                        vertices.append(world_pt)
+
+        if not vertices:
+            return []
+
+        vertices = np.stack(vertices, axis=0)
+        # Axis-aligned bounding box that encloses all vertices.
+        min_corner = vertices.min(axis=0)
+        max_corner = vertices.max(axis=0)
+
+        bbox_points = []
+        for x in (min_corner[0], max_corner[0]):
+            for y in (min_corner[1], max_corner[1]):
+                for z in (min_corner[2], max_corner[2]):
+                    bbox_points.append(np.array([x, y, z]))
+        return bbox_points
 
 
 def frame_transform(pos_in_init: np.ndarray, quat_in_init: np.ndarray, target_pos: np.ndarray, target_rot: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:

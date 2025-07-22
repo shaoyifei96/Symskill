@@ -273,7 +273,7 @@ def run_episode_and_get_observations(
                     ", auto_clean=True
                     )
 
-                env.show_option_cluster_predicates(curr_option)
+                # env.show_option_cluster_predicates(curr_option)
 
                 obs = env.step(act)
                 actions.append(act)
