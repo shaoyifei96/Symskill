@@ -66,7 +66,7 @@ class RoboKitchenEnv(BaseEnv):
     door_half_open_thresh = 0.4  # rad
     grab_close_distance_thresh = 0.02  # m
     gripper_fingers_distance_thresh = 0.08  # m
-    place_close_y_thresh = 0.1  # m
+    place_close_z_thresh = 0.13  # m
     place_close_xy_thresh = 0.15  # m
 
     online_door_open_thresh = np.deg2rad(70)  # rad
@@ -1417,8 +1417,8 @@ class RoboKitchenEnv(BaseEnv):
         surface_pos = state.get(surface, "translation")
         surface_quat = state.get(surface, "quaternion")
         obj_pos_in_surface, _ = frame_transform(obj_pos, obj_quat, surface_pos, R.from_quat(surface_quat).as_matrix())
-        on_surface_top = 0.0 <= obj_pos_in_surface[2] <= cls.place_close_y_thresh
-        in_surface_region = abs(obj_pos_in_surface[0]) <= 0.13 and abs(obj_pos_in_surface[1]) <= 0.13
+        on_surface_top = 0.0 <= obj_pos_in_surface[2] <= cls.place_close_z_thresh
+        in_surface_region = abs(obj_pos_in_surface[0]) <= 0.25 and abs(obj_pos_in_surface[1]) <= 0.25
         # print(obj_pos_in_surface[0], obj_pos_in_surface[1])
         # print(near_surface, in_surface)
         return on_surface_top and in_surface_region
@@ -1543,7 +1543,7 @@ class RoboKitchenEnv(BaseEnv):
         container_pos = state.get(container, "translation")
         container_quat = state.get(container, "quaternion")
         obj_pos_in_container, _ = frame_transform(obj_pos, obj_quat, container_pos, R.from_quat(container_quat).as_matrix())
-        in_container = 0.0 <= obj_pos_in_container[2] <= cls.place_close_y_thresh
+        in_container = 0.0 <= obj_pos_in_container[2] <= cls.place_close_z_thresh
         in_container_region = abs(obj_pos_in_container[0]) <= 0.13 and abs(obj_pos_in_container[1]) <= 0.13
         return in_container and in_container_region
     
