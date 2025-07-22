@@ -83,12 +83,12 @@ class GlobalSettings:
 
     # robo_kitchen env parameters
     robo_kitchen_randomize_init_state = True  # not used
-    # robo_kitchen_task = "OpenSingleDoor"
+    robo_kitchen_task = "OpenSingleDoor"
     # robo_kitchen_task = "CloseSingleDoor"
     # robo_kitchen_task = "PnPCounterToCab"
     # robo_kitchen_task = "PnPCabToCounter"
     # robo_kitchen_task = "PnPStoveToCounter"
-    robo_kitchen_task = "PnPCounterToStove"
+    # robo_kitchen_task = "PnPCounterToStove"
     # robo_kitchen_task = "OpenDrawer"
     # robo_kitchen_task = "CloseDrawer"
     # robo_kitchen_task = "TurnOnStove"
@@ -840,7 +840,8 @@ class GlobalSettings:
         if robo_kitchen_task == "PnPCounterToCab" or \
             robo_kitchen_task == "TurnOnStove" or \
             robo_kitchen_task == "TurnOffStove" or \
-            robo_kitchen_task == "PnPCabToCounter":
+            robo_kitchen_task == "PnPCabToCounter" or \
+            robo_kitchen_task == "PnPCounterToStove":
             num_train_tasks = 50
         elif robo_kitchen_task == "OpenDrawer" or \
             robo_kitchen_task == "TurnOnSinkFaucet" or \
