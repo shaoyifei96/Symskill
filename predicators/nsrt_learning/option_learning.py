@@ -12,7 +12,7 @@ import warnings
 import matplotlib.pyplot as plt
 
 import numpy as np
-from predicators.utils import check_dict_contact_predicate_to_rel_pose_predicates
+from predicators.utils import check_dict_contact_predicate_to_rel_pose_predicates, obj_name_matching
 import pybullet as p
 from gym.spaces import Box
 
@@ -1259,11 +1259,31 @@ class _LearnedDSParameterizedOption(ParameterizedOption):
             # Collect obstacles for visualization
             vis_obstacles = []
             for obj_name, obstacle_info in CFG.robo_kitchen_obstacles.items():
-                center, radii, quat_xyzw = obstacle_info
+                if obj_name_matching(obj_name, OOI_obj.name, consider_number=False): # don't consider object of interest as obstacle
+                    continue
+                bbox_points, (center, radii, quat_xyzw) = obstacle_info
                 relative_pose = calculate_relative_pose(state.get(OOI_obj, "translation"), state.get(OOI_obj, "quaternion"), center, quat_xyzw)
+                ellipsoid_tuple = (relative_pose[:3], radii, R.from_quat(relative_pose[3:]).as_matrix())
                 self._ds_policy.add_ellipsoid_modulation(relative_pose[:3], radii, R.from_quat(relative_pose[3:]).as_matrix())
-                vis_obstacles.append((relative_pose[:3], radii, R.from_quat(relative_pose[3:]).as_matrix()))
-                logging.info(f"Added ellipsoid modulation for {obj_name}")
+                # Transform bbox_points to OOI_obj frame
+                # bbox_points are in world frame, transform each to OOI_obj frame
+                ooi_pos = state.get(OOI_obj, "translation")
+                ooi_quat = state.get(OOI_obj, "quaternion")
+                ooi_rot = R.from_quat(ooi_quat).as_matrix()
+                ooi_rot_inv = ooi_rot.T
+                ooi_pos = np.array(ooi_pos)
+                transformed_bbox_points = []
+                for pt in bbox_points:
+                    pt = np.array(pt)
+                    rel_pt = pt - ooi_pos
+                    rel_pt = ooi_rot_inv @ rel_pt
+                    transformed_bbox_points.append(rel_pt)
+                transformed_bbox_points = np.array(transformed_bbox_points)
+                vis_obstacles.append({
+                    'bbox_points': transformed_bbox_points,
+                    'ellipsoid': ellipsoid_tuple
+                })
+                logging.info(f"Added ellipsoid and bbox modulation for {obj_name}")
 
             # Update Meshcat visualizer with obstacles
             if CFG.visualizer and len(vis_obstacles) > 0:

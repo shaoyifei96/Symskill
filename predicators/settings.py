@@ -50,7 +50,7 @@ class GlobalSettings:
 
     clustering_moving_average_window = 5
     clustering_debug = True
-    enable_meshcat = True
+    enable_meshcat = False
     clustering_se3_trans_weight = 10.0  # 0.05 m # 10 times differnece
     clustering_se3_rot_weight = 5.0  # 30 deg = 0.5236 rad
     clustering_feature_constancy_percentile = 10  # of total number of data points = 13782
@@ -85,12 +85,12 @@ class GlobalSettings:
 
     # robo_kitchen env parameters
     robo_kitchen_randomize_init_state = True  # not used
-    robo_kitchen_task = "OpenSingleDoor"
+    # robo_kitchen_task = "OpenSingleDoor"
     # robo_kitchen_task = "PnPCounterToCab"
     # robo_kitchen_task = "PnPCabToCounter"
     # robo_kitchen_task = "PnPStoveToCounter"
     # robo_kitchen_task = "PnPCounterToStove"
-    # robo_kitchen_task = "CloseSingleDoor"
+    robo_kitchen_task = "CloseSingleDoor"
     # robo_kitchen_task = "OpenSingleDoor"
     # robo_kitchen_task = "CloseDrawer"
     # robo_kitchen_task = "OpenDrawer"
@@ -123,7 +123,7 @@ class GlobalSettings:
 
     robo_kitchen_visualize_bboxes = True  # visualize object bounding boxes at test time
     robo_kitchen_modulation_mode = "ellipsoid" # None, "sphere", "ellipsoid"
-    # {object_name: (obstacle_info)}, obstacle_info depends on the modulation mode
+    # {object_name: (bbox_points, obstacle_info)}, obstacle_info depends on the modulation mode
     # for "ellipsoid" mode, obstacle_info is (center, axes, rotation_matrix)
     robo_kitchen_obstacles = {} 
 

@@ -4295,3 +4295,22 @@ def add_text_to_draw_img(
     # Add the text to the image
     draw.text(position, text, fill="red", font=font)
     return draw
+
+
+def obj_name_matching(name_1: str, name_2: str, consider_number: bool = True) -> bool:
+    """
+    Format of name_1 and name_2: '{object_type}_{number}_pos_quat'
+    If consider_number is True, then the number also needs to match.
+    """
+    name_1_no_pos_quat = name_1
+    name_2_no_pos_quat = name_2
+    if name_1.endswith("_pos_quat"):
+        name_1_no_pos_quat = name_1[:-9]
+    if name_2.endswith("_pos_quat"):
+        name_2_no_pos_quat = name_2[:-9]
+    if consider_number:
+        return name_1_no_pos_quat == name_2_no_pos_quat
+    # If the string ends with an underscore followed by digits, remove that part
+    name_1_no_num_no_pos_quat = re.sub(r'_\d+$', '', name_1_no_pos_quat)
+    name_2_no_num_no_pos_quat = re.sub(r'_\d+$', '', name_2_no_pos_quat)
+    return name_1_no_num_no_pos_quat == name_2_no_num_no_pos_quat

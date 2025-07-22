@@ -1,6 +1,7 @@
 """A Kitchen environment wrapping robosuite kitchen."""
 
 import copy
+import re
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple, cast
 
 import numpy as np
@@ -934,7 +935,7 @@ class RoboKitchenEnv(BaseEnv):
         # Visualize bounding boxes if enabled
         if CFG.robo_kitchen_modulation_mode is not None:
             CFG.robo_kitchen_obstacles = {}
-            self._visualize_object_bboxes()
+            self._get_object_bboxes()
         # Video frame saving logic (only if GUI is not enabled)
         if not self._using_gui:
             self._frame_counter += 1
@@ -987,53 +988,59 @@ class RoboKitchenEnv(BaseEnv):
                 quat = quat_world
             self._env_raw.viewer.mjshowellipse(xyz, quat=quat, size=size, color=color, alpha=alpha, name=name)
 
-    def _visualize_object_bboxes(self):
+    def _get_object_bboxes(self):
         """Visualize bounding boxes of all objects and fixtures in the environment."""
         if not (self._env_raw and hasattr(self._env_raw, "viewer") and self._env_raw.viewer is not None):
             return
         
+        door_ids = []
+        for name in CFG.robo_kitchen_obj_names:
+            # Match names like 'door_{num}_pos_quat' and extract the num
+            match = re.match(r"door_(\d+)_pos_quat$", name)
+            if match:
+                door_ids.append(int(match.group(1)))
+
         # Visualize all objects (graspable items)
         for obj_name in self._env_raw.obj_body_id:
             if 'door' in obj_name:
-                # Find the cabinet fixture with a door
-                cabinet = None
-                for fixture in getattr(self._env_raw, "fixtures", {}).values():
-                    if hasattr(fixture, "door_name"):
-                        cabinet = fixture
-                        break
+                if len(door_ids) == 0:
+                    logging.warning("No door ids found")
+                    continue
+                id = door_ids[-1]
+                cabinet = next(
+                    (fx for fx in getattr(self._env_raw, "fixtures", {}).values()
+                    if self._env_raw.sim.model.body_name2id(fx.root_body) == id),
+                    None
+                )
                 if cabinet is not None:
                     # For single door
-                    door_body_name = cabinet.door_name  # e.g., "cabinet_main_hingedoor"
-                    door_body_id = self._env_raw.sim.model.body_name2id(door_body_name)
-                    door_pos = self._env_raw.sim.data.body_xpos[door_body_id]
-                    door_quat_wxyz = self._env_raw.sim.data.body_xquat[door_body_id]
-                    door_quat_xyzw = np.array([door_quat_wxyz[1], door_quat_wxyz[2], door_quat_wxyz[3], door_quat_wxyz[0]])
-                    bbox_points = self._get_body_bbox_points(door_body_id)
-                    
-                    self._visualize_bbox_wireframe(bbox_points, "actual_door_panel")
-                    self._visualize_bbox_ellipsoid(bbox_points, "actual_door_panel")
-                continue
-            obj_model = self._env_raw.objects.get(obj_name)
-            if obj_model is None:
-                continue
-            
-            # Get object position and orientation
-            obj_pos = self._env_raw.sim.data.body_xpos[self._env_raw.obj_body_id[obj_name]]
-            obj_quat_wxyz = self._env_raw.sim.data.body_xquat[self._env_raw.obj_body_id[obj_name]]
-            # Convert from wxyz to xyzw format
-            obj_quat_xyzw = np.array([obj_quat_wxyz[1], obj_quat_wxyz[2], obj_quat_wxyz[3], obj_quat_wxyz[0]])
-            
-            # Get bounding box points
-            try:
-                bbox_points = obj_model.get_bbox_points(trans=obj_pos, rot=obj_quat_xyzw)
+                    door_body_name = cabinet.door_name
+                    # Compute bounding box points for the door panel body
+                    bbox_points = self._get_body_bbox_points(door_body_name, ignore_handle=True)
+                else:
+                    logging.warning(f"door_{id}'s cabinet not found in fixtures")
+                    door_ids.pop()
+                    continue
+            else:
+                obj_model = self._env_raw.objects.get(obj_name)
+                if obj_model is None:
+                    continue
                 
-                # Visualize bounding box as wireframe
-                self._visualize_bbox_wireframe(bbox_points, obj_name)
-                # Visualize analytical minimal ellipsoid that encloses the bbox
-                self._visualize_bbox_ellipsoid(bbox_points, obj_name)
-            except Exception:
-                # Skip objects that don't have proper bounding box implementation
-                continue
+                # Get object position and orientation
+                obj_pos = self._env_raw.sim.data.body_xpos[self._env_raw.obj_body_id[obj_name]]
+                obj_quat_wxyz = self._env_raw.sim.data.body_xquat[self._env_raw.obj_body_id[obj_name]]
+                # Convert from wxyz to xyzw format
+                obj_quat_xyzw = np.array([obj_quat_wxyz[1], obj_quat_wxyz[2], obj_quat_wxyz[3], obj_quat_wxyz[0]])
+                
+                # Get bounding box points
+                try:
+                    bbox_points = obj_model.get_bbox_points(trans=obj_pos, rot=obj_quat_xyzw)
+                except Exception:
+                    # Skip objects that don't have proper bounding box implementation
+                    continue
+            center, quat_xyzw, radii = self._fit_bbox_ellipsoid(bbox_points, obj_name)
+            if CFG.robo_kitchen_visualize_bboxes:
+                self._visualize_bbox_ellipsoid(bbox_points, center, quat_xyzw, radii, obj_name)
         
         # Visualize all fixtures (cabinets, doors, drawers, counters, etc.)
         # if hasattr(self._env_raw, 'fixtures'):
@@ -1060,6 +1067,52 @@ class RoboKitchenEnv(BaseEnv):
 
     def _visualize_bbox_wireframe(self, bbox_points, obj_name):
         """Visualize bounding box as wireframe cube using edges."""
+        
+
+    def _bbox_to_min_ellipsoid(self, bbox_points):
+        """Analytically convert 8 bounding-box vertices to centre, orientation (quat xyzw) and
+        radii (a, b, c) of the smallest-volume ellipsoid whose axes are aligned with the
+        box axes.  Radii are √3 times the half-lengths of the box."""
+
+        import numpy as np
+
+        if len(bbox_points) != 8:
+            return None
+
+        pts = np.asarray(bbox_points)
+        centre = pts.mean(axis=0)
+
+        # Principal directions via SVD (works for any oriented rectangular box)
+        _, _, vh = np.linalg.svd(pts - centre, full_matrices=False)
+        R_box = vh.T  # Columns are principal axes
+
+        # Ensure a right-handed coordinate frame (determinant +1)
+        if np.linalg.det(R_box) < 0:
+            R_box[:, -1] *= -1
+
+        local = (pts - centre) @ R_box  # Express vertices in box frame
+        half_lengths = np.max(np.abs(local), axis=0)
+
+        radii = half_lengths * np.sqrt(3.0)
+
+        quat_xyzw = R.from_matrix(R_box).as_quat()
+
+        return centre, quat_xyzw, radii
+
+    def _fit_bbox_ellipsoid(self, bbox_points, obj_name):
+        """Draw the analytical minimal ellipsoid (√3-scaled) enclosing the box."""
+
+        res = self._bbox_to_min_ellipsoid(bbox_points)
+        if res is None:
+            return
+
+        centre, quat_xyzw, radii = res
+        if CFG.robo_kitchen_modulation_mode == "ellipsoid":
+            CFG.robo_kitchen_obstacles[obj_name] = (bbox_points, (centre, radii, quat_xyzw))
+
+        return centre, quat_xyzw, radii
+
+    def _visualize_bbox_ellipsoid(self, bbox_points, centre, quat_xyzw, radii, obj_name):
         if len(bbox_points) != 8:
             return
         
@@ -1128,49 +1181,6 @@ class RoboKitchenEnv(BaseEnv):
                 alpha=0.9,
                 name=None  # no text label
             )
-
-    def _bbox_to_min_ellipsoid(self, bbox_points):
-        """Analytically convert 8 bounding-box vertices to centre, orientation (quat xyzw) and
-        radii (a, b, c) of the smallest-volume ellipsoid whose axes are aligned with the
-        box axes.  Radii are √3 times the half-lengths of the box."""
-
-        import numpy as np
-
-        if len(bbox_points) != 8:
-            return None
-
-        pts = np.asarray(bbox_points)
-        centre = pts.mean(axis=0)
-
-        # Principal directions via SVD (works for any oriented rectangular box)
-        _, _, vh = np.linalg.svd(pts - centre, full_matrices=False)
-        R_box = vh.T  # Columns are principal axes
-
-        # Ensure a right-handed coordinate frame (determinant +1)
-        if np.linalg.det(R_box) < 0:
-            R_box[:, -1] *= -1
-
-        local = (pts - centre) @ R_box  # Express vertices in box frame
-        half_lengths = np.max(np.abs(local), axis=0)
-
-        radii = half_lengths * np.sqrt(3.0)
-
-        quat_xyzw = R.from_matrix(R_box).as_quat()
-
-        return centre, quat_xyzw, radii
-
-    def _visualize_bbox_ellipsoid(self, bbox_points, obj_name):
-        """Draw the analytical minimal ellipsoid (√3-scaled) enclosing the box."""
-
-        res = self._bbox_to_min_ellipsoid(bbox_points)
-        if res is None:
-            return
-
-        centre, quat_xyzw, radii = res
-        if CFG.robo_kitchen_modulation_mode == "ellipsoid":
-            CFG.robo_kitchen_obstacles[obj_name] = (centre, radii, quat_xyzw)
-
-        color = self._object_hash_color(obj_name)
 
         self.mjshowellipse(
             xyz=centre,
@@ -1789,60 +1799,118 @@ class RoboKitchenEnv(BaseEnv):
             self._video_frames = []
             self._frame_counter = 0
 
-    def _get_body_bbox_points(self, body_id):
-        """Compute bounding-box corner points (8 vertices) for all geoms that belong to a MuJoCo body.
+    def _get_body_bbox_points(self, body_name: str, ignore_handle: bool = True):
+        """Return 8 world-coordinate bounding box corner points for the given MuJoCo body.
 
-        This utility walks through every geom attached to the specified body, computes the
-        world-frame corner points for box geoms, and then returns the 8 vertices of a
-        world-axis-aligned bounding box that encloses all of those points.  For our current
-        use-case (visualising cabinet doors) the door panel is modelled as a single box geom,
-        so this provides an accurate oriented bounding box.  If no box geoms are found, an
-        empty list is returned.
+        The bounding box is computed as an axis-aligned bounding box that encloses
+        all geoms that belong to the body. This works for visualization purposes
+        and does not assume any specific geom type (box / sphere / cylinder).
+        Returns None if the body is not found or contains no geoms.
         """
-        model = self._env_raw.sim.model
-        data = self._env_raw.sim.data
+        try:
+            model = self._env_raw.sim.model
+            data = self._env_raw.sim.data
+            target_body_id = model.body_name2id(body_name)
+        except Exception:
+            logging.warning(f"Body {body_name} not found in simulation model")
+            return None
 
-        # Range of geom indices that belong to this body
-        geom_start = model.body_geomadr[body_id]
-        geom_num = model.body_geomnum[body_id]
-        if geom_num == 0:
-            return []
+        # ------------------------------------------------------------------
+        # Gather all descendant body ids (including the target body itself).
+        # MuJoCo keeps a tree of bodies, where model.body_parentid gives the
+        # parent of a body (root's parent is -1). We include a geom if the
+        # body it is attached to is the target body or lies in its subtree.
+        # ------------------------------------------------------------------
+        parent = model.body_parentid
 
-        vertices = []  # world-frame vertices from every box geom
-        for g in range(geom_start, geom_start + geom_num):
-            geom_type = model.geom_type[g]
-            # Only handle box geoms for now – cabinet doors are boxes in the XML.
-            if geom_type != mujoco.mjtGeom.mjGEOM_BOX:
-                continue
+        def _is_descendant(child_id: int, ancestor_id: int) -> bool:
+            """Return True iff ancestor_id is on the path from child to root.
 
-            # Half-sizes along the geom's local x,y,z axes.
-            size = model.geom_size[g]  # (3,)
-            # World-frame position of the geom centre.
-            pos = data.geom_xpos[g]
-            # World-frame orientation (3×3 rotation matrix, row-major) of the geom.
-            mat = data.geom_xmat[g].reshape(3, 3)
+            Handles malformed parent arrays where the root body's parent id equals
+            itself (common in some MuJoCo models) to avoid infinite loops.
+            """
+            visited = set()
+            while child_id != -1:
+                if child_id == ancestor_id:
+                    return True
+                if child_id in visited:
+                    # Cycle detected (e.g.
+                    # parent[child_id] == child_id). Break to avoid infinite loop.
+                    break
+                visited.add(child_id)
+                next_id = parent[child_id]
+                if next_id == child_id:
+                    # Reached a self-parenting root
+                    break
+                child_id = next_id
+            return False
 
-            # Eight corner points of the box in the geom's local frame
-            for dx in (-size[0], size[0]):
-                for dy in (-size[1], size[1]):
-                    for dz in (-size[2], size[2]):
-                        local_offset = np.array([dx, dy, dz])
-                        world_pt = pos + mat @ local_offset
-                        vertices.append(world_pt)
+        geom_indices = [
+            g for g in range(model.ngeom) if _is_descendant(model.geom_bodyid[g], target_body_id)
+        ]
 
-        if not vertices:
-            return []
+        if len(geom_indices) == 0:
+            logging.warning(f"No geoms found for body {body_name} (including descendants)")
+            return None
 
-        vertices = np.stack(vertices, axis=0)
-        # Axis-aligned bounding box that encloses all vertices.
-        min_corner = vertices.min(axis=0)
-        max_corner = vertices.max(axis=0)
+        min_xyz = np.array([np.inf, np.inf, np.inf])
+        max_xyz = np.array([-np.inf, -np.inf, -np.inf])
 
-        bbox_points = []
-        for x in (min_corner[0], max_corner[0]):
-            for y in (min_corner[1], max_corner[1]):
-                for z in (min_corner[2], max_corner[2]):
-                    bbox_points.append(np.array([x, y, z]))
+        for g in geom_indices:
+            # Option A: skip handle-related geoms so bounding box thickness is not inflated
+            if ignore_handle:
+                g_name = model.geom_id2name(g)
+                body_name_of_geom = model.body_id2name(model.geom_bodyid[g])
+                if (g_name and "handle" in g_name.lower()) or (
+                    body_name_of_geom and "handle" in body_name_of_geom.lower()
+                ):
+                    continue
+
+            size = model.geom_size[g].copy()
+
+            geom_type = int(model.geom_type[g])  # 2: sphere, 3: capsule, 4: cylinder, 5: box, etc.
+
+            if geom_type == 2:  # sphere, size[0] = radius
+                r = size[0]
+                extents = np.array([r, r, r])
+            elif geom_type in (3, 4):  # capsule or cylinder
+                r = size[0]
+                half_len = size[1]
+                # Long axis (x) length = half_len + r (radius adds to each side)
+                extents = np.array([half_len + r, r, r])
+            else:  # box or other types assume extents directly in size
+                # For boxes, MuJoCo stores half-size extents already
+                sx = size[0]
+                sy = size[1] if size[1] > 0 else sx
+                sz = size[2] if size[2] > 0 else sx
+                extents = np.array([sx, sy, sz])
+
+            xpos = data.geom_xpos[g]
+            xmat = data.geom_xmat[g].reshape(3, 3)
+
+            # Iterate over 8 corner combinations
+            for dx in (-1, 1):
+                for dy in (-1, 1):
+                    for dz in (-1, 1):
+                        local_point = np.array([dx * extents[0], dy * extents[1], dz * extents[2]])
+                        world_point = xpos + xmat.dot(local_point)
+                        min_xyz = np.minimum(min_xyz, world_point)
+                        max_xyz = np.maximum(max_xyz, world_point)
+
+        minx, miny, minz = min_xyz
+        maxx, maxy, maxz = max_xyz
+
+        bbox_points = [
+            np.array([minx, miny, minz]),
+            np.array([maxx, miny, minz]),
+            np.array([minx, maxy, minz]),
+            np.array([minx, miny, maxz]),
+            np.array([maxx, maxy, maxz]),
+            np.array([minx, maxy, maxz]),
+            np.array([maxx, miny, maxz]),
+            np.array([maxx, maxy, minz]),
+        ]
+
         return bbox_points
 
 

@@ -322,36 +322,57 @@ class MeshcatVisualizer:
         else:
             logging.warning("Ref point not updated except for traj follower mode")
 
-    def set_obstacles(self, obstacles: list[tuple[np.ndarray, np.ndarray, np.ndarray]]):
+    def set_obstacles(self, obstacles):
         """
-        Visualize ellipsoidal obstacles.
+        Visualize obstacles as ellipsoids and/or bounding boxes.
 
-        Each obstacle is represented by a tuple (center, axes, rotation_matrix)
-        where:
-            center: np.ndarray shape (3,) specifying the position of the ellipsoid centre.
-            axes: np.ndarray shape (3,) specifying the semi-axis lengths (a, b, c).
-            rotation_matrix: np.ndarray shape (3,3) providing orientation.
+        Args:
+            obstacles: List of dicts, each with optional keys:
+                - 'ellipsoid': (center, axes, rotation_matrix)
+                - 'bbox': bbox_points (np.ndarray shape (8,3), box corners)
         """
         # Remove existing obstacle visuals
         for i in range(len(self.obstacles)):
             self.vis[f"obstacle_{i}"].delete()
+        # Remove previous bbox points
+        if hasattr(self, 'bbox_point_counts'):
+            for i, n_pts in enumerate(self.bbox_point_counts):
+                for pt_idx in range(n_pts):
+                    self.vis[f"obstacle_boxpt_{i}_{pt_idx}"].delete()
 
-        # Store new obstacle list
+        self.bbox_point_counts = []
         self.obstacles = obstacles
 
-        for i, (center, axes, rotation_matrix) in enumerate(self.obstacles):
-            # Represent ellipsoid as a unit sphere with non-uniform scaling (axes) and orientation.
-            self.vis[f"obstacle_{i}"].set_object(
-                g.Sphere(1.0),
-                g.MeshBasicMaterial(color=color_array_to_hex(self.obstacle_color), opacity=0.4, transparent=True)
-            )
-
-            # Build combined rotation-scale matrix: R @ S where S=diag(axes)
-            rot_scale = rotation_matrix @ np.diag(axes)
-            transform = np.eye(4)
-            transform[:3, :3] = rot_scale
-            transform[:3, 3] = center
-            self.vis[f"obstacle_{i}"].set_transform(transform)
+        ellipsoid_count = 0
+        bbox_count = 0
+        for obs in self.obstacles:
+            # Ellipsoid visualization
+            if 'ellipsoid' in obs and obs['ellipsoid'] is not None:
+                center, axes, rotation_matrix = obs['ellipsoid']
+                self.vis[f"obstacle_{ellipsoid_count}"].set_object(
+                    g.Sphere(1.0),
+                    g.MeshBasicMaterial(color=color_array_to_hex(self.obstacle_color), opacity=0.4, transparent=True)
+                )
+                rot_scale = rotation_matrix @ np.diag(axes)
+                transform = np.eye(4)
+                transform[:3, :3] = rot_scale
+                transform[:3, 3] = center
+                self.vis[f"obstacle_{ellipsoid_count}"].set_transform(transform)
+                ellipsoid_count += 1
+            # Bounding box visualization
+            if 'bbox_points' in obs and obs['bbox_points'] is not None:
+                bbox_points = obs['bbox_points']
+                # Visualize each bbox point as a small sphere
+                for pt_idx, pt in enumerate(bbox_points):
+                    self.vis[f"obstacle_boxpt_{bbox_count}_{pt_idx}"].set_object(
+                        g.Sphere(0.01),
+                        g.MeshBasicMaterial(color=color_array_to_hex(self.obstacle_color), opacity=0.8, transparent=True)
+                    )
+                    pt_transform = np.eye(4)
+                    pt_transform[:3, 3] = pt
+                    self.vis[f"obstacle_boxpt_{bbox_count}_{pt_idx}"].set_transform(pt_transform)
+                self.bbox_point_counts.append(len(bbox_points))
+                bbox_count += 1
 
 
 def rescale(scores: np.ndarray) -> np.ndarray:
