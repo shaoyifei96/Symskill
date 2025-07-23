@@ -609,9 +609,16 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             keep_indices = [6, 7, 23, 44, 45, 46]  # all left cab
             # keep_indices = [6, 23]
             dataset._trajectories = [dataset._trajectories[i] for i in keep_indices if i < len(dataset._trajectories)]
+        elif CFG.robo_kitchen_task == "PnPCabToCounter":
+            keep_indices = [ 1, 2, 5, 6, 7, 8, 9]
+            dataset._trajectories = [dataset._trajectories[i] for i in keep_indices if i < len(dataset._trajectories)]
         elif CFG.robo_kitchen_task == "PnPCounterToStove":
-            remove_indices = [5]
+            remove_indices = [4, 5, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49]
+            # don't need 50, just take half to shorten learning time.
             dataset._trajectories = [dataset._trajectories[i] for i in range(len(dataset._trajectories)) if i not in remove_indices]
+        elif CFG.robo_kitchen_task == "PnPStoveToCounter":
+            keep_indices = [ 0, 1, 2, 3, 5, 6, 7, 8, 9]
+            dataset._trajectories = [dataset._trajectories[i] for i in keep_indices if i < len(dataset._trajectories)]
         elif CFG.robo_kitchen_task == "TurnOnStove":
             keep_indices = [0, 9, 10, 11, 12, 20, 33, 37, 38, 39, 42, 44, 46] # all counter-clockwise 
             dataset._trajectories = [dataset._trajectories[i] for i in keep_indices if i < len(dataset._trajectories)]
@@ -630,9 +637,6 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         # logging.info(f"Filtered dataset to trajectories (indices: {keep_indices})")
         elif CFG.robo_kitchen_task == "TurnOffSinkFaucet":
             keep_indices = [ 5, 7, 11, 17, 19, 21]
-            dataset._trajectories = [dataset._trajectories[i] for i in keep_indices if i < len(dataset._trajectories)]
-        elif CFG.robo_kitchen_task == "PnPCabToCounter":
-            keep_indices = [ 1, 2, 5, 6, 7, 8, 9]
             dataset._trajectories = [dataset._trajectories[i] for i in keep_indices if i < len(dataset._trajectories)]
         # Clear caches before starting learning
         self._atom_dataset_cache = {}
@@ -1726,7 +1730,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         relative_pose_dataset_dict, traj_all_objs_all, contact_period_rel_trajs, goal_reached_states, object_type_in_contact_with_gripper_longest_duration, ground_atom_dataset = self._extract_relative_pose_data(ground_atom_dataset, all_objs_types, gripper_type, in_contact_pred, in_origin_pred)
         # single out the object with in contact with gripper for longest duration
         # Ensure all trajectories have the same object with longest contact duration
-        assert len(set(object_type_in_contact_with_gripper_longest_duration)) == 1, "All trajectories should have the same object with longest contact duration"
+        assert len(set(object_type_in_contact_with_gripper_longest_duration)) == 1, "All trajectories should have the same object with longest contact/motion duration"
         obj_type_contact_with_gripper = object_type_in_contact_with_gripper_longest_duration[0]
         obj_type_of_reference_best, min_reconstruction_error, list_of_reconstruction_errors = self._select_reference_object(contact_period_rel_trajs)
         # just 1 object does not support contacting with multiple objects 
@@ -2109,7 +2113,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                     # continue
             unified_config = UnifiedModelConfig(
                 mode="se3_lpvds",
-                K_candidates=[1]
+                K_candidates=[4]
             )
             ds_policy = DSPolicy(
                 x=x,
