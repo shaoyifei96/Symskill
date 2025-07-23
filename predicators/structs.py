@@ -758,7 +758,7 @@ class STRIPSOperator:
     add_effects: Set[LiftedAtom]
     delete_effects: Set[LiftedAtom]
     ignore_effects: Set[Predicate]
-    maintain_effects: Set[LiftedAtom]
+    maintain_effects: Set[LiftedAtom] = field(default_factory=set)
 
     def make_nsrt(self, option: ParameterizedOption, option_vars: Sequence[Variable], sampler: NSRTSampler = field(repr=False)) -> NSRT:
         """Make an NSRT out of this STRIPSOperator object, given the necessary
@@ -790,10 +790,11 @@ class STRIPSOperator:
         assert len(objects) == len(self.parameters)
         assert all(o.is_instance(p.type) for o, p in zip(objects, self.parameters))
         sub = dict(zip(self.parameters, objects))
-        preconditions = {atom.ground(sub) for atom in self.preconditions}
-        add_effects = {atom.ground(sub) for atom in self.add_effects}
-        delete_effects = {atom.ground(sub) for atom in self.delete_effects}
-        return _GroundSTRIPSOperator(self, list(objects), preconditions, add_effects, delete_effects)
+        preconditions = {atom.ground(sub) for atom in self.preconditions if set(atom.variables).issubset(sub.keys())}
+        maintain_effects = {atom.ground(sub) for atom in self.maintain_effects if set(atom.variables).issubset(sub.keys())}
+        add_effects = {atom.ground(sub) for atom in self.add_effects if set(atom.variables).issubset(sub.keys())}
+        delete_effects = {atom.ground(sub) for atom in self.delete_effects if set(atom.variables).issubset(sub.keys())}
+        return _GroundSTRIPSOperator(self, list(objects), preconditions, add_effects, delete_effects, maintain_effects)
 
     @cached_property
     def _str(self) -> str:
@@ -802,6 +803,7 @@ class STRIPSOperator:
     Preconditions: {sorted(self.preconditions, key=str)}
     Add Effects: {sorted(self.add_effects, key=str)}
     Delete Effects: {sorted(self.delete_effects, key=str)}
+    Maintain Effects: {sorted(self.maintain_effects, key=str)}
     Ignore Effects: {sorted(self.ignore_effects, key=str)}"""
 
     @cached_property
@@ -878,9 +880,9 @@ class STRIPSOperator:
             new_delete_effects = self.delete_effects - {effect}
         # Since we are removing an effect, it could be the case
         # that parameters need to be removed from the operator.
-        remaining_params = {p for atom in self.preconditions | new_add_effects | new_delete_effects for p in atom.variables} | set(option_vars)
+        remaining_params = {p for atom in self.preconditions | new_add_effects | new_delete_effects | self.maintain_effects for p in atom.variables} | set(option_vars)
         new_params = [p for p in self.parameters if p in remaining_params]
-        return STRIPSOperator(self.name, new_params, self.preconditions, new_add_effects, new_delete_effects, self.ignore_effects | {effect.predicate})
+        return STRIPSOperator(self.name, new_params, self.preconditions, new_add_effects, new_delete_effects, self.ignore_effects | {effect.predicate}, self.maintain_effects)
 
     def get_complexity(self) -> float:
         """Get the complexity of this operator.
@@ -904,6 +906,7 @@ class _GroundSTRIPSOperator:
     preconditions: Set[GroundAtom]
     add_effects: Set[GroundAtom]
     delete_effects: Set[GroundAtom]
+    maintain_effects: Set[GroundAtom]
 
     @cached_property
     def _str(self) -> str:
@@ -912,6 +915,7 @@ class _GroundSTRIPSOperator:
     Preconditions: {sorted(self.preconditions, key=str)}
     Add Effects: {sorted(self.add_effects, key=str)}
     Delete Effects: {sorted(self.delete_effects, key=str)}
+    Maintain Effects: {sorted(self.maintain_effects, key=str)}
     Ignore Effects: {sorted(self.ignore_effects, key=str)}"""
 
     @cached_property

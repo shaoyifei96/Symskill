@@ -90,7 +90,7 @@ class GlobalSettings:
     # robo_kitchen_task = "PnPCabToCounter"
     # robo_kitchen_task = "PnPStoveToCounter"
     # robo_kitchen_task = "PnPCounterToStove"
-    robo_kitchen_task = "CloseSingleDoor"
+    # robo_kitchen_task = "CloseSingleDoor"
     # robo_kitchen_task = "OpenSingleDoor"
     # robo_kitchen_task = "CloseDrawer"
     # robo_kitchen_task = "OpenDrawer"
@@ -100,7 +100,7 @@ class GlobalSettings:
     # robo_kitchen_task = "TurnOffSinkFaucet"
     # robo_kitchen_task = "PnPCounterToStove" #not yet done
     # composite tasks (leaning needs to be done in sequence, see README)
-    # robo_kitchen_task = "StoreFruit" # New task
+    robo_kitchen_task = "StoreFruit" # New task
     # robo_kitchen_task = "StoreFruitFull" # New task
     # robo_kitchen_task = "CookCheeseAndTomatoes" # New task
     # tasks that won't work with current approach
@@ -122,10 +122,13 @@ class GlobalSettings:
     use_teleop = None # None for WBC, True for Keyboard, False for no base motion
 
     robo_kitchen_visualize_bboxes = True  # visualize object bounding boxes at test time
-    robo_kitchen_modulation_mode = "ellipsoid" # None, "sphere", "ellipsoid"
+    robo_kitchen_modulation_mode = "ellipsoid" # None, "ellipsoid"
     # {object_name: (bbox_points, obstacle_info)}, obstacle_info depends on the modulation mode
     # for "ellipsoid" mode, obstacle_info is (center, axes, rotation_matrix)
     robo_kitchen_obstacles = {} 
+    robo_kitchen_exclude_obstacles = set() # set of object names to exclude from obstacles
+
+    show_option_cluster_predicates = True
 
     """Unchanging settings."""
     # global parameters

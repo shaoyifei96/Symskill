@@ -1000,8 +1000,12 @@ class RoboKitchenEnv(BaseEnv):
             if match:
                 door_ids.append(int(match.group(1)))
 
-        # Visualize all objects (graspable items)
+        # These are from each task's _get_obj_cfgs(), e.g. "door", "distr_counter", etc.
+        # In terms of mapping to CFG.robo_kitchen_obj_names, 
+        # objs are fine because they are not added mujoco id in CFG.robo_kitchen_obj_names, 
+        # but doors are added mujoco id (so we know which door belongs to which cabinet).
         for obj_name in self._env_raw.obj_body_id:
+            obstacle_name = obj_name # what to store in CFG.robo_kitchen_obstacles
             if 'door' in obj_name:
                 if len(door_ids) == 0:
                     logging.warning("No door ids found")
@@ -1016,7 +1020,8 @@ class RoboKitchenEnv(BaseEnv):
                     # For single door
                     door_body_name = cabinet.door_name
                     # Compute bounding box points for the door panel body
-                    bbox_points = self._get_body_bbox_points(door_body_name, ignore_handle=True)
+                    bbox_points = self._get_body_bbox_points(door_body_name, ignore_handle=False)
+                    obstacle_name = f'door_{id}'
                 else:
                     logging.warning(f"door_{id}'s cabinet not found in fixtures")
                     door_ids.pop()
@@ -1038,9 +1043,9 @@ class RoboKitchenEnv(BaseEnv):
                 except Exception:
                     # Skip objects that don't have proper bounding box implementation
                     continue
-            center, quat_xyzw, radii = self._fit_bbox_ellipsoid(bbox_points, obj_name)
+            center, quat_xyzw, radii = self._fit_bbox_ellipsoid(bbox_points, obstacle_name) # obstacle_name is what to store in CFG.robo_kitchen_obstacles
             if CFG.robo_kitchen_visualize_bboxes:
-                self._visualize_bbox_ellipsoid(bbox_points, center, quat_xyzw, radii, obj_name)
+                self._visualize_bbox_ellipsoid(bbox_points, center, quat_xyzw, radii, obj_name) # obj_name is only used for generating a color (doesn't matter)
         
         # Visualize all fixtures (cabinets, doors, drawers, counters, etc.)
         # if hasattr(self._env_raw, 'fixtures'):

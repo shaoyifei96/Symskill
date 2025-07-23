@@ -272,8 +272,8 @@ def run_episode_and_get_observations(
                     Option: {curr_option.name}\n \
                     ", auto_clean=True
                     )
-
-                # env.show_option_cluster_predicates(curr_option)
+                if CFG.show_option_cluster_predicates:
+                    env.show_option_cluster_predicates(curr_option)
 
                 obs = env.step(act)
                 actions.append(act)

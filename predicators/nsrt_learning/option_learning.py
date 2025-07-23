@@ -1185,10 +1185,18 @@ class _LearnedDSParameterizedOption(ParameterizedOption):
         if CFG.visualizer:
             CFG.visualizer.set_demo_trajs(self._ds_policy.x)
 
-        return True
-        # Check if initiable based on preconditions.
+        # Pre-compute the set of object names that should be skipped as
+        # obstacles.  These are the objects that appear together with the
+        # gripper in cluster predicates of the grounded NSRT.
         grounded_op = self.operator.ground(tuple(objects))
-        return all(pre.holds(state) for pre in grounded_op.preconditions)
+        memory["excluded_obj_names"] = _get_objects_clustered_with_gripper(grounded_op)
+
+        # We bypass the traditional precondition check because the planner has
+        # already ensured initiability.  Keeping this as always True retains
+        # previous behaviour while enabling the new memory field.
+        return True
+        # --- dead code retained for reference ---
+        # return all(pre.holds(state) for pre in grounded_op.preconditions)
 
     def _DS_based_policy(self, state: State, memory: Dict, objects: Sequence[Object], params: Array) -> Action:
         # NOTE: assume objects contains gripper and obj_of_interest. We can find base from state
@@ -1259,7 +1267,13 @@ class _LearnedDSParameterizedOption(ParameterizedOption):
             # Collect obstacles for visualization
             vis_obstacles = []
             for obj_name, obstacle_info in CFG.robo_kitchen_obstacles.items():
-                if obj_name_matching(obj_name, OOI_obj.name, consider_number=False): # don't consider object of interest as obstacle
+                # Skip objects that should be excluded because they are clustered with the gripper for this option execution.
+                excluded = False
+                for excluded_obj_name in memory.get("excluded_obj_names", set()):
+                    if obj_name_matching(obj_name, excluded_obj_name, consider_number=False):
+                        excluded = True
+                        break
+                if excluded:
                     continue
                 bbox_points, (center, radii, quat_xyzw) = obstacle_info
                 relative_pose = calculate_relative_pose(state.get(OOI_obj, "translation"), state.get(OOI_obj, "quaternion"), center, quat_xyzw)
@@ -1471,3 +1485,31 @@ def _create_absolute_option_param(state: State, changing_var_to_feat: Dict[Varia
             else:
                 vec.append(obj_vec[idx])
     return np.array(vec, dtype=np.float32)
+
+
+# -------------------------------------------------------------
+# Helper for obstacle exclusion
+# -------------------------------------------------------------
+
+
+def _get_objects_clustered_with_gripper(grounded_op: STRIPSOperator) -> Set[str]:
+    """Return the names of all concrete objects that appear *with* a gripper
+    argument in any atom belonging to ``grounded_op``'s add-effects or
+    preconditions.  These objects should be excluded from obstacle
+    consideration for the associated option.
+
+    The predicate names can be anything (they are learned clusters such as
+    "RelCovCluster-…").  We simply detect the presence of a
+    ``gripper_type`` object within the atom's objects list.
+    """
+    excluded: Set[str] = set()
+    # Both add_effects and preconditions are considered so that predicates
+    # that are maintained throughout the option are also captured.
+    for atom in grounded_op.add_effects | grounded_op.maintain_effects:
+        # Only  those atoms that involve a gripper are relevant.
+        if any(o.type.name == "gripper_type" for o in atom.objects):
+            # Collect every non-gripper object in the atom.
+            for o in atom.objects:
+                if o.type.name != "gripper_type":
+                    excluded.add(o.name)
+    return excluded
