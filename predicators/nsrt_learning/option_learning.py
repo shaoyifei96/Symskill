@@ -1229,6 +1229,7 @@ class _LearnedDSParameterizedOption(ParameterizedOption):
         gripper_or_obj = None
         left_finger = None
         right_finger = None
+        wrist = None
 
         cur_nsrt = memory["current_nsrt"]
         effects = set()
@@ -1252,10 +1253,12 @@ class _LearnedDSParameterizedOption(ParameterizedOption):
                 left_finger = obj
             if obj.type.name == "right_finger_type":
                 right_finger = obj
-            if base and OOI_obj and gripper_or_obj and left_finger and right_finger:
+            if obj.type.name == "wrist_type":
+                wrist = obj
+            if base and OOI_obj and gripper_or_obj and left_finger and right_finger and wrist:
                 break
 
-        assert base and OOI_obj and gripper_or_obj and left_finger and right_finger
+        assert base and OOI_obj and gripper_or_obj and left_finger and right_finger and wrist
 
         gripper_or_obj_pose_OOI_frame = calculate_relative_pose_from_state(state, OOI_obj, gripper_or_obj, "translation", "quaternion")
         left_right_finger_dist = calculate_relative_pose_from_state(state, left_finger, right_finger, "translation", "quaternion")
@@ -1304,11 +1307,13 @@ class _LearnedDSParameterizedOption(ParameterizedOption):
                 CFG.visualizer.set_obstacles(vis_obstacles)
 
         # Get action from DS Policy
+        wrist_pose_OOI_frame = calculate_relative_pose_from_state(state, OOI_obj, wrist, "translation", "quaternion")
         action = self._ds_policy.get_action(
             np.concatenate([gripper_or_obj_pose_OOI_frame[:3], gripper_or_obj_pose_OOI_frame[3:]]),
             clf=True,
             alpha_V=10.0,
             lookahead=5,  # Use Control Lyapunov Function  # CLF parameter  # Number of steps to look ahead
+            wrist_pose=wrist_pose_OOI_frame,
         )
 
         # here we no longer assume motion is between gripper and OOI.

@@ -20,7 +20,7 @@ class GlobalSettings:
     reprocess_ground_atom_dataset_using_cluster_replacement = True
     reprocess_ground_atom_dataset_using_cluster_predicates = False
     remove_inOrigin_pred = True
-    robo_kitchen_obj_names = ["robot0_base", "gripper", "left_finger", "right_finger"] # this stores the actual object names, determined by a mujoco id, such as "cabinet_10" (see how these are constructed in robocasa/kithcen.py)
+    robo_kitchen_obj_names = ["robot0_base", "gripper", "left_finger", "right_finger", "wrist"] # this stores the actual object names, determined by a mujoco id, such as "cabinet_10" (see how these are constructed in robocasa/kithcen.py)
 
     use_learnt_goal_predicates = True
     use_negated_goal_predicates = False
@@ -50,7 +50,7 @@ class GlobalSettings:
 
     clustering_moving_average_window = 5
     clustering_debug = True
-    enable_meshcat = False
+    enable_meshcat = True
     clustering_se3_trans_weight = 10.0  # 0.05 m # 10 times differnece
     clustering_se3_rot_weight = 5.0  # 30 deg = 0.5236 rad
     clustering_feature_constancy_percentile = 10  # of total number of data points = 13782

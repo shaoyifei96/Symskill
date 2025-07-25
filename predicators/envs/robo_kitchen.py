@@ -80,6 +80,7 @@ class RoboKitchenEnv(BaseEnv):
     door_type = Type("door_type", ["translation", "quaternion"], parent=object_type)
     base_type = Type("base_type", ["translation", "quaternion"], parent=object_type)
     gripper_type = Type("gripper_type", ["translation", "quaternion"], parent=object_type)
+    wrist_type = Type("wrist_type", ["translation", "quaternion"], parent=object_type)
     left_finger_type = Type("left_finger_type", ["translation", "quaternion"], parent=object_type)
     right_finger_type = Type("right_finger_type", ["translation", "quaternion"], parent=object_type)
     cabinet_type = Type("cabinet_type", ["translation", "quaternion"], parent=object_type)
@@ -103,6 +104,7 @@ class RoboKitchenEnv(BaseEnv):
         "leftdoor": door_type,
         "rightdoor": door_type,
         "gripper": gripper_type,
+        "wrist": wrist_type,
         "left_finger": left_finger_type,
         "right_finger": right_finger_type,
         "cabinet": cabinet_type,
@@ -640,7 +642,7 @@ class RoboKitchenEnv(BaseEnv):
                     "controller_configs": controller_config,
                     "layout_ids": layout_ids,
                     "style_ids": [6], # this combination of layout and style makes sure the stove is stovetop, so similar to demos for turn on stove
-                    "translucent_robot": True,
+                    "translucent_robot": False,
                 }
 
                 print(colored(f"Initializing environment for task: {task_name}", "yellow"))
@@ -669,6 +671,9 @@ class RoboKitchenEnv(BaseEnv):
 
         # Reset environment with seed
         obs = self._env.reset()
+        # Compute robot arm sphere approximation once
+        if train_or_test == "test":
+            self._init_robot_arm_spheres()
 
         if CFG.use_teleop:
             self.device = Keyboard(
@@ -936,6 +941,8 @@ class RoboKitchenEnv(BaseEnv):
         if CFG.robo_kitchen_modulation_mode is not None:
             CFG.robo_kitchen_obstacles = {}
             self._get_object_bboxes()
+        # Visualize robot arm spheres each step (GUI only)
+        # self._visualize_robot_arm_spheres()
         # Video frame saving logic (only if GUI is not enabled)
         if not self._using_gui:
             self._frame_counter += 1
@@ -1195,6 +1202,166 @@ class RoboKitchenEnv(BaseEnv):
             alpha=0.5,
             name=None,
         )
+
+        # BEGIN ROBOT ARM SPHERE METHODS
+    def _init_robot_arm_spheres(self):
+        """Compute 2-4 bounding spheres per robot link (Panda Omron) using an
+        axis-aligned sweep in the link frame.
+
+        The sphere parameters are stored in
+        ``self.robot_arm_spheres`` as a list of tuples
+        ``(body_name, local_offset, radius)`` where
+          • *body_name*      - Mujoco body name (string)  
+          • *local_offset*   - 3-vector, centre expressed in the **link** frame  
+          • *radius*         - scalar, metres
+
+        We treat every geom belonging to the link, expand its extent in the
+        link frame, then wrap the aggregated AABB with the minimal enclosing
+        sphere (centre = box midpoint, radius = max corner distance).  Only
+        links whose body name starts with ``robot0`` (the Panda arm prefix in
+        RoboCasa) are considered.
+        """
+        import numpy as np  # local import to avoid circular issues
+
+        # Guard against running before the mujoco simulator exists.
+        if not getattr(self, "_env_raw", None):
+            self.robot_arm_spheres = []
+            return
+
+        model = self._env_raw.sim.model
+        data = self._env_raw.sim.data
+
+        robot_prefix = "robot0"                     # Panda Omron prefix
+        spheres: list[tuple[str, np.ndarray, float]] = []
+
+        for body_id in range(model.nbody):
+            body_name = model.body_id2name(body_id)
+            if body_name is None or not body_name.startswith(robot_prefix):
+                continue
+
+            # World‑frame pose of the link.
+            body_pos = data.body_xpos[body_id].copy()
+            body_xmat = data.body_xmat[body_id].reshape(3, 3).copy()
+
+            # Grow an axis‑aligned box in the **link** frame that encloses
+            # every geom attached to this body.
+            ext_min = np.array([ np.inf,  np.inf,  np.inf])
+            ext_max = np.array([-np.inf, -np.inf, -np.inf])
+
+            for g in range(model.ngeom):
+                if int(model.geom_bodyid[g]) != body_id:
+                    continue
+
+                geom_type = int(model.geom_type[g])
+                size      = model.geom_size[g].copy()
+                geom_pos  = data.geom_xpos[g].copy()
+                geom_xmat = data.geom_xmat[g].reshape(3, 3).copy()
+
+                # Centre of the geom expressed in the link frame
+                centre_local = body_xmat.T @ (geom_pos - body_pos)
+
+                if geom_type == 2:                                   # sphere
+                    r = size[0]
+                    ext_min = np.minimum(ext_min, centre_local - r)
+                    ext_max = np.maximum(ext_max, centre_local + r)
+
+                elif geom_type in (3, 4):                            # capsule / cyl
+                    r, half_len = size[0], size[1]
+                    axis_local  = body_xmat.T @ geom_xmat[:, 0]      # local x‑axis
+                    for sign in (-1.0, +1.0):
+                        end_pt = centre_local + sign * axis_local * half_len
+                        ext_min = np.minimum(ext_min, end_pt - r)
+                        ext_max = np.maximum(ext_max, end_pt + r)
+
+                else:                                                # box or mesh
+                    # size = half‑extents in geom frame; gather all eight corners
+                    sx, sy, sz = size if geom_type == 1 else (
+                        size[0],
+                        size[1] if size[1] > 0 else size[0],
+                        size[2] if size[2] > 0 else size[0],
+                    )
+                    corners = np.array(
+                        [[ sx,  sy,  sz], [ sx,  sy, -sz], [ sx, -sy,  sz], [ sx, -sy, -sz],
+                         [-sx,  sy,  sz], [-sx,  sy, -sz], [-sx, -sy,  sz], [-sx, -sy, -sz]]
+                    )
+                    # Express corners in the link frame
+                    rot_local = body_xmat.T @ geom_xmat
+                    corners_local = (rot_local @ corners.T).T + centre_local
+                    ext_min = np.minimum(ext_min, corners_local.min(axis=0))
+                    ext_max = np.maximum(ext_max, corners_local.max(axis=0))
+
+            if np.any(np.isinf(ext_min)):
+                # No geoms for this link (should not happen)
+                continue
+
+            # --- Split the link into 2‑4 spheres along its longest dimension ---
+            ext         = ext_max - ext_min
+            main_idx    = int(np.argmax(ext))              # index of longest axis
+            length_main = float(ext[main_idx])
+
+            # Radius: half of the largest minor extent (approximates cross‑section)
+            minor_ext    = np.delete(ext, main_idx)
+            cross_radius = 0.5 * float(np.max(minor_ext))
+            if cross_radius < 1e-4:
+                cross_radius = 0.5 * length_main  # degenerate case (thin link)
+
+            # Choose sphere count so they overlap slightly; clamp to [2,4]
+            n_spheres = int(np.ceil(length_main / (cross_radius * 1.5)))
+            n_spheres = max(2, min(4, n_spheres))
+
+            step = length_main / n_spheres
+            for i in range(n_spheres):
+                centre_local = ext_min.copy()
+                centre_local[main_idx] += (i + 0.5) * step   # centre of slice
+                # For the two minor axes, take the midpoint of their extents
+                for ax in range(3):
+                    if ax != main_idx:
+                        centre_local[ax] = 0.5 * (ext_min[ax] + ext_max[ax])
+
+                spheres.append(
+                    (body_name, centre_local.astype(float), float(cross_radius))
+                )
+
+        self.robot_arm_spheres = spheres
+
+    def _visualize_robot_arm_spheres(self):
+        """Render the per-link bounding spheres computed in
+        ``_init_robot_arm_spheres``.  Each sphere is drawn as an MJViewer
+        ellipsoid (equal axes → sphere).  Called every control step when the
+        GUI viewer is available.
+        """
+        if not getattr(self, "robot_arm_spheres", None):
+            return
+
+        # Skip if there is no active Mujoco viewer (e.g. off‑screen rendering).
+        if not (self._env_raw and hasattr(self._env_raw, "viewer")
+                and self._env_raw.viewer is not None):
+            return
+
+        model = self._env_raw.sim.model
+        data  = self._env_raw.sim.data
+
+        for body_name, local_offset, radius in self.robot_arm_spheres:
+            try:
+                body_id = model.body_name2id(body_name)
+            except Exception:
+                continue  # body was removed or renamed
+
+            body_pos  = data.body_xpos[body_id]
+            body_xmat = data.body_xmat[body_id].reshape(3, 3)
+
+            centre_world = body_pos + body_xmat @ local_offset
+
+            # Light blue, semi‑transparent
+            self.mjshowellipse(
+                xyz   = centre_world,
+                quat  = (1, 0, 0, 0),                   # identity orientation
+                size  = (radius, radius, radius),
+                color = (0.1, 0.4, 1.0),
+                alpha = 0.30,
+                name  = None,
+            )
+        # END ROBOT ARM SPHERE METHODS
 
     def _object_hash_color(self, obj_name: str):
         """Return a bright, deterministic RGB colour for a given object name."""
