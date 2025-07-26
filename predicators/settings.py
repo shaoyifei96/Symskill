@@ -37,12 +37,12 @@ class GlobalSettings:
     # clustering_invention approach parameters
     # predicate_candidates_method = "contact_clustering"  # "low_speed" or "contact_clustering" or "motion_analysis_contact"
     predicate_candidates_method = "motion_analysis_contact"  # "low_speed" or "contact_clustering" or "motion_analysis_contact"
-    motion_analysis_lin_vel_rot_vel_threshold = 0.001
+    motion_analysis_lin_vel_rot_vel_threshold = 0.002 # lin vel min thresh, under this, use rot vel
     motion_analysis_contact_threshold = 0.04
-    clustering_inv_cov_reg = 1e-3
-    clustering_inv_cov_reg_rot = 1e-1 # approximately 10 deg in each axis
-    clustering_inv_cov_reg_rot_low = 1e-3
-    clustering_change_only = False
+    clustering_inv_cov_reg_lin = 1e-8 
+    clustering_inv_cov_reg_rot = 1e-1 # 10% of cov
+    clustering_inv_cov_reg_rot_low = 1e-8
+    clustering_change_only = False # comparing using the starting relative pose vs the whole trajectory of relative pose
     
     resample_in_cluster = True
 
@@ -86,15 +86,28 @@ class GlobalSettings:
     # robo_kitchen_task = "OpenSingleDoor"
     # robo_kitchen_task = "CloseSingleDoor"
     # robo_kitchen_task = "PnPCounterToCab" 
-    robo_kitchen_task = "PnPCabToCounter" # error in finding ref frame, why is the wrong ref frame have lower error?
+    # robo_kitchen_task = "PnPCabToCounter" # error in finding ref frame, why is the wrong ref frame have lower error?
     # robo_kitchen_task = "PnPStoveToCounter"
     # robo_kitchen_task = "PnPCounterToStove"
     # robo_kitchen_task = "OpenDrawer"
     # robo_kitchen_task = "CloseDrawer"
     # robo_kitchen_task = "TurnOnStove"
     # robo_kitchen_task = "TurnOffStove"
-    # robo_kitchen_task = "TurnOnSinkFaucet"
+    robo_kitchen_task = "TurnOnSinkFaucet"
     # robo_kitchen_task = "TurnOffSinkFaucet"
+
+    gt_ref_obj_type = {"OpenSingleDoor": "cabinet_type", 
+                       "CloseSingleDoor": "cabinet_type",
+                       "PnPCounterToCab": "surface_type",
+                       "PnPCabToCounter": "counter_type",
+                       "PnPStoveToCounter": "counter_type",
+                       "PnPCounterToStove": "container_type",
+                       "OpenDrawer": "cabinet_type",
+                       "CloseDrawer": "cabinet_type",
+                       "TurnOnStove": "stove_type",
+                       "TurnOffStove": "stove_type",
+                       "TurnOnSinkFaucet": "sink_type",
+                       "TurnOffSinkFaucet": "sink_type",}
 
     # composite tasks (leaning needs to be done in sequence, see README)
     # robo_kitchen_task = "StoreFruit" # New task

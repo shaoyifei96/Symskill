@@ -144,6 +144,7 @@ class _RelativeFeatureCovClusterClassifierTransRot(_BinaryClassifier):
             mahalanobis_dist_sq_rot = mahalanobis_dist_sq_rot.item()
 
         # Use the pre-calculated threshold
+        # print(f"obj1: {obj1.name}, obj2: {obj2.name}, mahalanobis_dist_sq_trans: {mahalanobis_dist_sq_trans}, self.mahalanobis_threshold_trans: {self.mahalanobis_threshold_trans}, mahalanobis_dist_sq_rot: {mahalanobis_dist_sq_rot}, self.mahalanobis_threshold_rot: {self.mahalanobis_threshold_rot}")
         return mahalanobis_dist_sq_trans <= self.mahalanobis_threshold_trans and mahalanobis_dist_sq_rot <= self.mahalanobis_threshold_rot
 
     def __str__(self) -> str:
@@ -1001,7 +1002,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                     plt.savefig(f"feature_data/motion_analysis_traj{i}_obj_rot_{max_motion_obj.name}.png")
                     plt.close()
                 if n_bkps == 1:
-                    motion_frames = range(my_bkps[0]-10, len(lin_vel)) # -10 is a hack , assume 1 sec of contact before the motion
+                    motion_frames = range(my_bkps[0]-10, len(dataset.trajectories[i].states)) # -10 is a hack , assume 1 sec of contact before the motion
                 else:
                     motion_frames = range(my_bkps[0]-10, my_bkps[1]) 
                     # dynamic_threshold = CFG.motion_analysis_contact_threshold
@@ -1734,6 +1735,9 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         obj_type_contact_with_gripper = object_type_in_contact_with_gripper_longest_duration[0]
         obj_type_of_reference_best, min_reconstruction_error, list_of_reconstruction_errors = self._select_reference_object(contact_period_rel_trajs)
         # just 1 object does not support contacting with multiple objects 
+        gt_ref_obj_type = CFG.gt_ref_obj_type[CFG.robo_kitchen_task]
+        assert gt_ref_obj_type == obj_type_of_reference_best.name, f"GT reference object type not matching correct solution, gt_ref_obj_type: {gt_ref_obj_type}, obj_type_of_reference_best: {obj_type_of_reference_best.name}"
+        
         self._visualize_contact_period_trajectories(contact_period_rel_trajs, list_of_reconstruction_errors)
         ground_atom_dataset, relative_pose_dataset_dict = self._update_atom_sequences_with_goal_predicates(ground_atom_dataset, traj_all_objs_all, obj_type_of_reference_best, obj_type_contact_with_gripper, goal_reached_states, relative_pose_dataset_dict)
         renamed_cluster_candidates = self._add_goal_states_to_relative_pose_and_cluster(dataset, relative_pose_dataset_dict)
@@ -1901,23 +1905,32 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                         raise ValueError("Not enough points for covariance calculation.")
 
                     # Calculate difference from the mean translation
+                    num_dims_rot = 3 # always 3 for rotation
                     num_dims_trans = cluster_translations.shape[1] # Should be 3
                     assert num_dims_trans == 3
                     trans_diff = cluster_translations - mean_translation
-                    reg_term_trans = np.eye(num_dims_trans) * CFG.clustering_inv_cov_reg # Use CFG value
-                    cluster_cov_trans = np.cov(trans_diff, rowvar=False) + reg_term_trans
 
-                    num_dims_rot = cluster_quaternions.shape[1] - 1 # Should be 3
-                    assert num_dims_rot == 3
+                    cluster_cov_trans_raw = np.cov(trans_diff, rowvar=False)
+                    reg_term_trans = utils.compute_adaptive_reg_term(
+                        cluster_cov_trans_raw,
+                        base_reg=CFG.clustering_inv_cov_reg_lin
+                    )
+                    cluster_cov_trans = cluster_cov_trans_raw + reg_term_trans
+
+                    # Rotation regularization
                     log_deltas = (mean_rotation.inv() * rotations).as_rotvec()
+                    cluster_cov_rot_raw = np.cov(log_deltas.T)
+
                     if type1.name == "gripper_type" or type2.name == "gripper_type":
-                    # allow extra space for relative rotation bw gripper and obj so it doesnt always replan
-                        reg = CFG.clustering_inv_cov_reg_rot
-                    else: 
-                        reg = CFG.clustering_inv_cov_reg_rot_low
-                    reg_term_rot = np.eye(3) * reg # Use CFG value
-                    cluster_cov_rot = np.cov(log_deltas.T) + reg_term_rot
-                    
+                        base_reg = CFG.clustering_inv_cov_reg_rot
+                    else:
+                        base_reg = CFG.clustering_inv_cov_reg_rot_low
+
+                    reg_term_rot = utils.compute_adaptive_reg_term(
+                        cluster_cov_rot_raw,
+                        base_reg=base_reg
+                    )
+                    cluster_cov_rot = cluster_cov_rot_raw + reg_term_rot
                     # Convert covariance to degree variation for rotation
                     # Calculate standard deviation in degrees for each rotation axis
                     rot_std_degrees = np.sqrt(np.diag(cluster_cov_rot)) * (180.0 / np.pi)

@@ -78,6 +78,22 @@ if "CUDA_VISIBLE_DEVICES" in os.environ:  # pragma: no cover
         os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(cuda_visible_devices)
 
 
+def compute_adaptive_reg_term(cov, base_reg, min_reg=1e-20, max_reg=1.0, mode="eig"):
+    if mode == "trace":
+        cov_magnitude = np.trace(cov)
+    elif mode == "det":
+        cov_magnitude = np.linalg.det(cov)
+    elif mode == "eig":
+        cov_magnitude = np.max(np.linalg.eigvalsh(cov))
+    else:
+        raise ValueError(f"Unknown mode: {mode}")
+    
+    # Inverse proportionality: higher cov → lower reg
+    reg_scale = 1.0 / (cov_magnitude + 1e-20)  # Add small epsilon for numerical stability
+    reg_strength = np.clip(base_reg * reg_scale, min_reg, max_reg)
+    
+    return np.eye(cov.shape[0]) * reg_strength
+
 def check_dict_contact_predicate_to_rel_pose_predicates(atom: GroundAtom, state: State) -> bool:
     rel_pose_preds = CFG.dict_contact_predicate_to_rel_pose_predicates[(atom.predicate.name, atom.entities[0].type.name, atom.entities[1].type.name)]
     atom_holds = False
