@@ -39,8 +39,8 @@ class GlobalSettings:
     predicate_candidates_method = "motion_analysis_contact"  # "low_speed" or "contact_clustering" or "motion_analysis_contact"
     motion_analysis_lin_vel_rot_vel_threshold = 0.002 # lin vel min thresh, under this, use rot vel
     motion_analysis_contact_threshold = 0.04
-    clustering_inv_cov_reg_lin = 1e-8 
-    clustering_inv_cov_reg_rot = 1e-1 # 10% of cov
+    clustering_inv_cov_reg_lin = 1e-6 
+    clustering_inv_cov_reg_rot_gripper = 1e-2 # 10% of cov
     clustering_inv_cov_reg_rot_low = 1e-8
     clustering_change_only = False # comparing using the starting relative pose vs the whole trajectory of relative pose
     
@@ -96,8 +96,8 @@ class GlobalSettings:
     robo_kitchen_task = "TurnOnSinkFaucet"
     # robo_kitchen_task = "TurnOffSinkFaucet"
 
-    gt_ref_obj_type = {"OpenSingleDoor": "cabinet_type", 
-                       "CloseSingleDoor": "cabinet_type",
+    gt_ref_obj_type = {"OpenSingleDoor": ["cabinet_type", "surface_type"], 
+                       "CloseSingleDoor": ["cabinet_type", "surface_type"],
                        "PnPCounterToCab": "surface_type",
                        "PnPCabToCounter": "counter_type",
                        "PnPStoveToCounter": "counter_type",

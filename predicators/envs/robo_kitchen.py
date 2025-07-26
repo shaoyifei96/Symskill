@@ -1418,7 +1418,7 @@ class RoboKitchenEnv(BaseEnv):
         surface_quat = state.get(surface, "quaternion")
         obj_pos_in_surface, _ = frame_transform(obj_pos, obj_quat, surface_pos, R.from_quat(surface_quat).as_matrix())
         on_surface_top = 0.0 <= obj_pos_in_surface[2] <= cls.place_close_z_thresh
-        in_surface_region = abs(obj_pos_in_surface[0]) <= 0.25 and abs(obj_pos_in_surface[1]) <= 0.25
+        in_surface_region = abs(obj_pos_in_surface[0]) <= 0.20 and abs(obj_pos_in_surface[1]) <= 0.20
         # print(obj_pos_in_surface[0], obj_pos_in_surface[1])
         # print(near_surface, in_surface)
         return on_surface_top and in_surface_region
