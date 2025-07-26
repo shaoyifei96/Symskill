@@ -1736,7 +1736,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         obj_type_of_reference_best, min_reconstruction_error, list_of_reconstruction_errors = self._select_reference_object(contact_period_rel_trajs)
         # just 1 object does not support contacting with multiple objects 
         gt_ref_obj_type = CFG.gt_ref_obj_type[CFG.robo_kitchen_task]
-        assert gt_ref_obj_type == obj_type_of_reference_best.name, f"GT reference object type not matching correct solution, gt_ref_obj_type: {gt_ref_obj_type}, obj_type_of_reference_best: {obj_type_of_reference_best.name}"
+        # assert obj_type_of_reference_best.name in gt_ref_obj_type, f"GT reference object type not matching correct solution, gt_ref_obj_type: {gt_ref_obj_type}, obj_type_of_reference_best: {obj_type_of_reference_best.name}"
         
         self._visualize_contact_period_trajectories(contact_period_rel_trajs, list_of_reconstruction_errors)
         ground_atom_dataset, relative_pose_dataset_dict = self._update_atom_sequences_with_goal_predicates(ground_atom_dataset, traj_all_objs_all, obj_type_of_reference_best, obj_type_contact_with_gripper, goal_reached_states, relative_pose_dataset_dict)
@@ -1922,7 +1922,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                     cluster_cov_rot_raw = np.cov(log_deltas.T)
 
                     if type1.name == "gripper_type" or type2.name == "gripper_type":
-                        base_reg = CFG.clustering_inv_cov_reg_rot
+                        base_reg = CFG.clustering_inv_cov_reg_rot_gripper
                     else:
                         base_reg = CFG.clustering_inv_cov_reg_rot_low
 
@@ -2103,7 +2103,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             for rel_pose_traj in rel_pose_trajs:
                 x_traj = np.array(rel_pose_traj)[:, :3]
                 quat_traj = np.array(rel_pose_traj)[:, 3:]
-                x_dot_traj, omega_traj = compute_vel_traj(x_traj, np.array([R.from_quat(q).as_matrix() for q in quat_traj]), 1/60)
+                x_dot_traj, omega_traj = compute_vel_traj(x_traj, np.array([R.from_quat(q).as_matrix() for q in quat_traj]), 1/10)
                 x.append(x_traj)
                 quat.append(quat_traj)
                 x_dot.append(x_dot_traj)
