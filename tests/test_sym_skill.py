@@ -8,6 +8,7 @@ from predicators.settings import CFG
 from predicators import utils
 import shutil
 import glob 
+from predicators.settings import CFG
 
 results_dir = "results"
 base_results_dir = "sym_skill_base_results"
@@ -34,11 +35,14 @@ BASE_SIMULATED_ARGV = [
 ]
 
 ROBO_KITCHEN_TASK_NAMES = [
-    "PnPCounterToCab",
     "OpenSingleDoor",
     "CloseSingleDoor",
-    "CloseDrawer",
+    "PnPCounterToCab",
+    "PnPCabToCounter",
+    "PnPStoveToCounter",
+    "PnPCounterToStove",
     "OpenDrawer",
+    "CloseDrawer",
     "TurnOnStove",
     "TurnOffStove",
     "TurnOnSinkFaucet",
@@ -52,9 +56,9 @@ def test_main(robo_kitchen_task_name):
     Tests the main() function for various robo_kitchen_task configurations
     by simulating the command-line arguments.
     """
-
     CFG.dict_contact_predicate_to_rel_pose_predicates = {}
     CFG.dict_gt_goal_predicate_to_dummy_goal_predicates = {}
+    # CFG.robo_kitchen_task = robo_kitchen_task_name
     # Create a copy of the base arguments for this specific test run
     current_argv = list(BASE_SIMULATED_ARGV)
     # Add the current robo_kitchen_task to the arguments

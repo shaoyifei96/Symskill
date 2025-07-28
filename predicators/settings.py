@@ -22,7 +22,7 @@ class GlobalSettings:
     remove_inOrigin_pred = True
     robo_kitchen_obj_names = ["robot0_base", "gripper", "left_finger", "right_finger", "wrist"] # this stores the actual object names, determined by a mujoco id, such as "cabinet_10" (see how these are constructed in robocasa/kithcen.py)
 
-    use_learnt_goal_predicates = True
+    use_learnt_goal_predicates = False
     use_negated_goal_predicates = False
     enable_base_ref_obj_precondition = True
 
@@ -86,19 +86,18 @@ class GlobalSettings:
     # robo_kitchen env parameters
     robo_kitchen_randomize_init_state = True  # not used
     # robo_kitchen_task = "OpenSingleDoor"
-    # robo_kitchen_task = "PnPCounterToCab"
-    # robo_kitchen_task = "PnPCabToCounter"
+    # robo_kitchen_task = "CloseSingleDoor"
+    # robo_kitchen_task = "PnPCounterToCab" 
+    # robo_kitchen_task = "PnPCabToCounter" # error in finding ref frame, why is the wrong ref frame have lower error?
     # robo_kitchen_task = "PnPStoveToCounter"
     # robo_kitchen_task = "PnPCounterToStove"
-    # robo_kitchen_task = "CloseSingleDoor"
-    # robo_kitchen_task = "OpenSingleDoor"
-    # robo_kitchen_task = "CloseDrawer"
     # robo_kitchen_task = "OpenDrawer"
+    # robo_kitchen_task = "CloseDrawer"
     # robo_kitchen_task = "TurnOnStove"
     # robo_kitchen_task = "TurnOffStove"
     # robo_kitchen_task = "TurnOnSinkFaucet"
     # robo_kitchen_task = "TurnOffSinkFaucet"
-    # robo_kitchen_task = "PnPCounterToStove" #not yet done
+
     # composite tasks (leaning needs to be done in sequence, see README)
     robo_kitchen_task = "StoreFruit" # New task
     # robo_kitchen_task = "StoreFruitFull" # New task
@@ -851,13 +850,16 @@ class GlobalSettings:
         # Calculate num_train_tasks based on the task
         if robo_kitchen_task == "PnPCounterToCab" or \
             robo_kitchen_task == "TurnOnStove" or \
-            robo_kitchen_task == "TurnOffStove":
+            robo_kitchen_task == "TurnOffStove" or \
+            robo_kitchen_task == "PnPCabToCounter" or \
+            robo_kitchen_task == "PnPCounterToStove":
             num_train_tasks = 50
         elif robo_kitchen_task == "OpenDrawer" or \
             robo_kitchen_task == "TurnOnSinkFaucet" or \
             robo_kitchen_task == "TurnOffSinkFaucet":
             num_train_tasks = 25
         else:
+            # robo_kitchen_task == "PnPStoveToCounter" 
             num_train_tasks = 10
         # num_train_tasks = 10
 

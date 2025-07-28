@@ -42,7 +42,8 @@ jobs:
       - name: download datasets
         run: |
           git clone https://github.com/shaoyifei96/predicators_robocasa_files.git && \
-          cp predicators_robocasa_files/* . && \
+          mkdir -p generated_datasets && \
+          cp predicators_robocasa_files/* ./generated_datasets && \
           mkdir -p /github/home/mosek && \
           cp predicators_robocasa_files/mosek.lic /github/home/mosek/mosek.lic 
 
@@ -55,9 +56,42 @@ jobs:
           apt-get install -y libosmesa6-dev freeglut3-dev libglfw3-dev libgles2-mesa-dev libosmesa6 && \
           echo "MUJOCO_GL=osmesa" >> $GITHUB_ENV
 
-      - name: Run pytest
-        run: |
-          pytest --tb=short -rA --show-capture=stderr tests/test_sym_skill.py
+      - name: Run test OpenSingleDoor
+        if: always()
+        run: pytest --tb=short -rA --show-capture=stderr tests/test_sym_skill.py -k "OpenSingleDoor"
+      - name: Run test CloseSingleDoor
+        if: always()
+        run: pytest --tb=short -rA --show-capture=stderr tests/test_sym_skill.py -k "CloseSingleDoor"
+      - name: Run test PnPCounterToCab
+        if: always()
+        run: pytest --tb=short -rA --show-capture=stderr tests/test_sym_skill.py -k "PnPCounterToCab"
+      - name: Run test PnPCabToCounter
+        if: always()
+        run: pytest --tb=short -rA --show-capture=stderr tests/test_sym_skill.py -k "PnPCabToCounter"
+      - name: Run test PnPStoveToCounter
+        if: always()
+        run: pytest --tb=short -rA --show-capture=stderr tests/test_sym_skill.py -k "PnPStoveToCounter"
+      - name: Run test PnPCounterToStove
+        if: always()
+        run: pytest --tb=short -rA --show-capture=stderr tests/test_sym_skill.py -k "PnPCounterToStove"
+      - name: Run test OpenDrawer
+        if: always()
+        run: pytest --tb=short -rA --show-capture=stderr tests/test_sym_skill.py -k "OpenDrawer"
+      - name: Run test CloseDrawer
+        if: always()
+        run: pytest --tb=short -rA --show-capture=stderr tests/test_sym_skill.py -k "CloseDrawer"
+      - name: Run test TurnOnStove
+        if: always()
+        run: pytest --tb=short -rA --show-capture=stderr tests/test_sym_skill.py -k "TurnOnStove"
+      - name: Run test TurnOffStove
+        if: always()
+        run: pytest --tb=short -rA --show-capture=stderr tests/test_sym_skill.py -k "TurnOffStove"
+      - name: Run test TurnOnSinkFaucet
+        if: always()
+        run: pytest --tb=short -rA --show-capture=stderr tests/test_sym_skill.py -k "TurnOnSinkFaucet"
+      - name: Run test TurnOffSinkFaucet
+        if: always()
+        run: pytest --tb=short -rA --show-capture=stderr tests/test_sym_skill.py -k "TurnOffSinkFaucet"
       
       - name: upload feature data
         if: always()
