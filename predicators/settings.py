@@ -86,14 +86,14 @@ class GlobalSettings:
     # robo_kitchen_task = "OpenSingleDoor"
     # robo_kitchen_task = "CloseSingleDoor"
     # robo_kitchen_task = "PnPCounterToCab" 
-    # robo_kitchen_task = "PnPCabToCounter" # error in finding ref frame, why is the wrong ref frame have lower error?
+    robo_kitchen_task = "PnPCabToCounter" # error in finding ref frame, why is the wrong ref frame have lower error?
     # robo_kitchen_task = "PnPStoveToCounter"
     # robo_kitchen_task = "PnPCounterToStove"
     # robo_kitchen_task = "OpenDrawer"
     # robo_kitchen_task = "CloseDrawer"
     # robo_kitchen_task = "TurnOnStove"
     # robo_kitchen_task = "TurnOffStove"
-    robo_kitchen_task = "TurnOnSinkFaucet"
+    # robo_kitchen_task = "TurnOnSinkFaucet"
     # robo_kitchen_task = "TurnOffSinkFaucet"
 
     gt_ref_obj_type = {"OpenSingleDoor": ["cabinet_type", "surface_type"], 

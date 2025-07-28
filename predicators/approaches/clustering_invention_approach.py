@@ -611,7 +611,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             # keep_indices = [6, 23]
             dataset._trajectories = [dataset._trajectories[i] for i in keep_indices if i < len(dataset._trajectories)]
         elif CFG.robo_kitchen_task == "PnPCabToCounter":
-            keep_indices = [ 1, 2, 5, 6, 7, 8, 9]
+            keep_indices = [ 3, 9, 17, 23, 29, 31, 33, 36]
             dataset._trajectories = [dataset._trajectories[i] for i in keep_indices if i < len(dataset._trajectories)]
         elif CFG.robo_kitchen_task == "PnPCounterToStove":
             remove_indices = [4, 5, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49]
@@ -892,7 +892,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
 
     def _update_incontact_predicate_using_motion_analysis(self, dataset: Dataset, in_contact_pred: Predicate, gripper_type: Type) -> Dict[Tuple[Type, Type, str], List[np.ndarray]]:
         """Update incontact predicates using motion analysis.
-        Incontact seems like a previledged predicate, this function removes it
+        Incontact is a previledged predicate, this function removes it
         and replaces it with a more general predicate that is based on motion analysis.
         It looks at which object is in motion to determine if it is in contact with the gripper.
         """
@@ -901,7 +901,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         # Filter types so things other than gripper and are useful are kept!!!
         # types = {obj.type for traj in dataset.trajectories for obj in traj.states[0]}
         # Example filter (adjust as needed):
-        disallowed_type_names = {"gripper_type", "left_finger_type", "right_finger_type", "base_type"} # Added door_type based on usage
+        disallowed_type_names = {"gripper_type", "left_finger_type", "right_finger_type", "base_type", "drawer_type"} # Added door_type based on usage
         # Dictionary to store motion data for each object in each trajectory
         motion_data = defaultdict(lambda: defaultdict(list))
 
@@ -2135,7 +2135,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 omega=omega,
                 gripper=[],
                 unified_config=unified_config,
-                dt=1/60
+                dt=1/10
             )
             _, reconstruction_error = ds_policy.compute_reconstruction_error()
             # TODO: Add some basic requirements for the object of reference, so blacklist need more 
