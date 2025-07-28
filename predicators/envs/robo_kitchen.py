@@ -1409,16 +1409,17 @@ class RoboKitchenEnv(BaseEnv):
         return (obj1, obj2) in state.items_in_contact or (obj2, obj1) in state.items_in_contact
 
     @classmethod
-    def _OnSurface_holds(cls, state: State, objects: Sequence[Object]) -> bool:
+    def _OnSurface_holds(cls, state: State, objects: Sequence[Object], thresh: float = 0.2, vertical_thresh: float = None) -> bool:
         """Check if object is at location."""
+        vertical_thresh = vertical_thresh or cls.place_close_z_thresh
         obj, surface = objects
         obj_pos = state.get(obj, "translation")
         obj_quat = state.get(obj, "quaternion")
         surface_pos = state.get(surface, "translation")
         surface_quat = state.get(surface, "quaternion")
         obj_pos_in_surface, _ = frame_transform(obj_pos, obj_quat, surface_pos, R.from_quat(surface_quat).as_matrix())
-        on_surface_top = 0.0 <= obj_pos_in_surface[2] <= cls.place_close_z_thresh
-        in_surface_region = abs(obj_pos_in_surface[0]) <= 0.20 and abs(obj_pos_in_surface[1]) <= 0.20
+        on_surface_top = 0.0 <= obj_pos_in_surface[2] <= vertical_thresh
+        in_surface_region = abs(obj_pos_in_surface[0]) <= thresh and abs(obj_pos_in_surface[1]) <= thresh
         # print(obj_pos_in_surface[0], obj_pos_in_surface[1])
         # print(near_surface, in_surface)
         return on_surface_top and in_surface_region
@@ -1427,7 +1428,7 @@ class RoboKitchenEnv(BaseEnv):
     def _OnCounter_holds(cls, state: State, objects: Sequence[Object]) -> bool:
         """Check if object is on counter."""
         obj, counter = objects
-        return cls._OnSurface_holds(state, [obj, counter])
+        return cls._OnSurface_holds(state, [obj, counter], thresh = 1.3, vertical_thresh = 0.6)
 
     @classmethod
     def _KnobTurnedOn_holds(cls, state: State, objects: Sequence[Object]) -> bool:

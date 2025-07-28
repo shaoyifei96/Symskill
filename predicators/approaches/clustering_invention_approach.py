@@ -611,7 +611,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             # keep_indices = [6, 23]
             dataset._trajectories = [dataset._trajectories[i] for i in keep_indices if i < len(dataset._trajectories)]
         elif CFG.robo_kitchen_task == "PnPCabToCounter":
-            keep_indices = [ 3, 9, 17, 23, 29, 31, 33, 36]
+            keep_indices = [9, 17, 23, 29, 31, 33, 36]
             dataset._trajectories = [dataset._trajectories[i] for i in keep_indices if i < len(dataset._trajectories)]
         elif CFG.robo_kitchen_task == "PnPCounterToStove":
             remove_indices = [4, 5, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49]
@@ -2126,7 +2126,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                     # continue
             unified_config = UnifiedModelConfig(
                 mode="se3_lpvds",
-                K_candidates=[4]
+                K_candidates=[3]
             )
             ds_policy = DSPolicy(
                 x=x,
