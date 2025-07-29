@@ -1297,7 +1297,7 @@ class _LearnedDSParameterizedOption(ParameterizedOption):
                     'bbox_points': transformed_bbox_points,
                     'ellipsoid': ellipsoid_tuple
                 })
-                logging.info(f"Added ellipsoid and bbox modulation for {obj_name}")
+                # logging.info(f"Added ellipsoid and bbox modulation for {obj_name}")
 
             # Update Meshcat visualizer with obstacles
             if CFG.visualizer and len(vis_obstacles) > 0:

@@ -24,7 +24,7 @@ class GlobalSettings:
 
     use_learnt_goal_predicates = False
     use_negated_goal_predicates = False
-    enable_base_ref_obj_precondition = True
+    enable_base_ref_obj_precondition = False
 
     use_cluster_center_as_attractor = False
 
@@ -40,17 +40,17 @@ class GlobalSettings:
     predicate_candidates_method = "motion_analysis_contact"  # "low_speed" or "contact_clustering" or "motion_analysis_contact"
     motion_analysis_lin_vel_rot_vel_threshold = 0.002 # lin vel min thresh, under this, use rot vel
     motion_analysis_contact_threshold = 0.04
-    clustering_inv_cov_reg_lin = 1e-6
-    clustering_inv_cov_reg_rot_gripper = 1e-2 # 10% of cov
-    clustering_inv_cov_reg_rot_base = 1e-4 # base rotation is mostly just the same, so make it more accurate
-    clustering_inv_cov_reg_rot_low = 1e-2  # much lower for obj obj rotation, stove needs much lower, 1e-4 works, not sure about this task!!!!
+    clustering_inv_cov_reg_lin = 0.7
+    clustering_inv_cov_reg_rot_gripper = 0.5 
+    clustering_inv_cov_reg_rot_base = 0.5 # base rotation is mostly just the same, so make it more accurate
+    clustering_inv_cov_reg_rot_low = 0.01  # much lower for obj obj rotation, stove needs much lower, 1e-4 works, not sure about this task!!!!
     clustering_change_only = False
     
     resample_in_cluster = True
 
     clustering_moving_average_window = 5
     clustering_debug = True
-    enable_meshcat = True
+    enable_meshcat = False
     clustering_se3_trans_weight = 10.0  # 0.05 m # 10 times differnece
     clustering_se3_rot_weight = 5.0  # 30 deg = 0.5236 rad
     clustering_feature_constancy_percentile = 10  # of total number of data points = 13782
@@ -96,7 +96,7 @@ class GlobalSettings:
     # robo_kitchen_task = "TurnOnStove"
     # robo_kitchen_task = "TurnOffStove"
     # robo_kitchen_task = "TurnOnSinkFaucet"
-    # robo_kitchen_task = "TurnOffSinkFaucet"
+    robo_kitchen_task = "TurnOffSinkFaucet"
 
     gt_ref_obj_type = {"OpenSingleDoor": ["cabinet_type", "surface_type"], 
                        "CloseSingleDoor": ["cabinet_type", "surface_type"],
@@ -112,7 +112,7 @@ class GlobalSettings:
                        "TurnOffSinkFaucet": "sink_type",}
 
     # composite tasks (leaning needs to be done in sequence, see README)
-    robo_kitchen_task = "StoreFruit" # New task
+    # robo_kitchen_task = "StoreFruit" # New task
     # robo_kitchen_task = "StoreFruitFull" # New task
     # robo_kitchen_task = "CookCheeseAndTomatoes" # New task
     # tasks that won't work with current approach

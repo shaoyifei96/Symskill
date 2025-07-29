@@ -28,7 +28,7 @@ BASE_SIMULATED_ARGV = [
     "--execution_monitor", "expected_atoms_robocasa",
     # some flags to override settings.py to ensure consistency
     # "--num_train_tasks", "10",
-    "--num_test_tasks", "5",
+    "--num_test_tasks", "10",
     "--results_dir", results_dir,
     "--use_learnt_goal_predicates", "False",
     "--use_teleop", "False", #single stage task does not need motion of the base

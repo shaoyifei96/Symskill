@@ -27,8 +27,7 @@ jobs:
       - name: install robocasa # this is part of the docker, but since code is updated, need to install it again
         run: | # already installed with pip install -e robocasa
           cd /root/robocasa && \
-          git pull && \
-          git checkout f6bb03202f75d953bb73797d17483cd25ed5b52b
+          git pull 
         # commit before felix change
 
       - name: install ds_policy # this is part of the docker, but since code is updated, need to install it again

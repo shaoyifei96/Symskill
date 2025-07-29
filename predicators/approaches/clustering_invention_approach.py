@@ -595,7 +595,8 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                         CFG.dict_gt_goal_predicate_to_dummy_goal_predicates[key].update(value)
 
         # add base relative pose predicates as the base motion add effects
-        self._add_base_motion_add_effects()
+        if CFG.enable_base_ref_obj_precondition:     
+            self._add_base_motion_add_effects() 
 
         self._add_additional_remove_effects_operators()
         
@@ -2016,6 +2017,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                         base_reg=CFG.clustering_inv_cov_reg_lin
                     )
                     cluster_cov_trans = cluster_cov_trans_raw + reg_term_trans
+                    
 
                     # Rotation regularization
                     log_deltas = (mean_rotation.inv() * rotations).as_rotvec()

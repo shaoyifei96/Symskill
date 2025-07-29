@@ -78,7 +78,7 @@ if "CUDA_VISIBLE_DEVICES" in os.environ:  # pragma: no cover
         os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(cuda_visible_devices)
 
 
-def compute_adaptive_reg_term(cov, base_reg, min_reg=1e-20, max_reg=1.0, mode="eig"):
+def compute_adaptive_reg_term(cov, base_reg, min_reg=1e-20, max_reg=1.0, mode="trace"):
     if mode == "trace":
         cov_magnitude = np.trace(cov)
     elif mode == "det":
@@ -88,8 +88,8 @@ def compute_adaptive_reg_term(cov, base_reg, min_reg=1e-20, max_reg=1.0, mode="e
     else:
         raise ValueError(f"Unknown mode: {mode}")
     
-    # Inverse proportionality: higher cov → lower reg
-    reg_scale = 1.0 / (cov_magnitude + 1e-20)  # Add small epsilon for numerical stability
+    # proportionality to cov: higher cov → higher reg
+    reg_scale = cov_magnitude + 1e-18  # Add small epsilon for numerical stability
     reg_strength = np.clip(base_reg * reg_scale, min_reg, max_reg)
     
     return np.eye(cov.shape[0]) * reg_strength
