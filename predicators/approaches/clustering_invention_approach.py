@@ -145,6 +145,7 @@ class _RelativeFeatureCovClusterClassifierTransRot(_BinaryClassifier):
             mahalanobis_dist_sq_rot = mahalanobis_dist_sq_rot.item()
 
         # Use the pre-calculated threshold
+        # print(f"obj1: {obj1.name}, obj2: {obj2.name}, mahalanobis_dist_sq_trans: {mahalanobis_dist_sq_trans}, self.mahalanobis_threshold_trans: {self.mahalanobis_threshold_trans}, mahalanobis_dist_sq_rot: {mahalanobis_dist_sq_rot}, self.mahalanobis_threshold_rot: {self.mahalanobis_threshold_rot}")
         return mahalanobis_dist_sq_trans <= self.mahalanobis_threshold_trans and mahalanobis_dist_sq_rot <= self.mahalanobis_threshold_rot
 
     def __str__(self) -> str:
@@ -675,7 +676,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             # keep_indices = [6, 23]
             dataset._trajectories = [dataset._trajectories[i] for i in keep_indices if i < len(dataset._trajectories)]
         elif CFG.robo_kitchen_task == "PnPCabToCounter":
-            keep_indices = [ 1, 2, 5, 6, 7, 8, 9]
+            keep_indices = [9, 17, 23, 29, 31, 33, 36]
             dataset._trajectories = [dataset._trajectories[i] for i in keep_indices if i < len(dataset._trajectories)]
         elif CFG.robo_kitchen_task == "PnPCounterToStove":
             remove_indices = [4, 5, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49]
@@ -956,7 +957,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
 
     def _update_incontact_predicate_using_motion_analysis(self, dataset: Dataset, in_contact_pred: Predicate, gripper_type: Type) -> Dict[Tuple[Type, Type, str], List[np.ndarray]]:
         """Update incontact predicates using motion analysis.
-        Incontact seems like a previledged predicate, this function removes it
+        Incontact is a previledged predicate, this function removes it
         and replaces it with a more general predicate that is based on motion analysis.
         It looks at which object is in motion to determine if it is in contact with the gripper.
         """
@@ -965,7 +966,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         # Filter types so things other than gripper and are useful are kept!!!
         # types = {obj.type for traj in dataset.trajectories for obj in traj.states[0]}
         # Example filter (adjust as needed):
-        disallowed_type_names = {"gripper_type", "left_finger_type", "right_finger_type", "base_type"} # Added door_type based on usage
+        disallowed_type_names = {"gripper_type", "left_finger_type", "right_finger_type", "base_type", "drawer_type"} # Added door_type based on usage
         # Dictionary to store motion data for each object in each trajectory
         motion_data = defaultdict(lambda: defaultdict(list))
 
@@ -1066,7 +1067,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                     plt.savefig(f"feature_data/motion_analysis_traj{i}_obj_rot_{max_motion_obj.name}.png")
                     plt.close()
                 if n_bkps == 1:
-                    motion_frames = range(my_bkps[0]-10, len(lin_vel)) # -10 is a hack , assume 1 sec of contact before the motion
+                    motion_frames = range(my_bkps[0]-10, len(dataset.trajectories[i].states)) # -10 is a hack , assume 1 sec of contact before the motion
                 else:
                     motion_frames = range(my_bkps[0]-10, my_bkps[1]) 
                     # dynamic_threshold = CFG.motion_analysis_contact_threshold
@@ -1801,6 +1802,9 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         obj_type_contact_with_gripper = object_type_in_contact_with_gripper_longest_duration[0]
         obj_type_of_reference_best, min_reconstruction_error, list_of_reconstruction_errors = self._select_reference_object(contact_period_rel_trajs)
         # just 1 object does not support contacting with multiple objects 
+        gt_ref_obj_type = CFG.gt_ref_obj_type[CFG.robo_kitchen_task]
+        # assert obj_type_of_reference_best.name in gt_ref_obj_type, f"GT reference object type not matching correct solution, gt_ref_obj_type: {gt_ref_obj_type}, obj_type_of_reference_best: {obj_type_of_reference_best.name}"
+        
         self._visualize_contact_period_trajectories(contact_period_rel_trajs, list_of_reconstruction_errors)
         ground_atom_dataset, relative_pose_dataset_dict = self._update_atom_sequences_with_goal_predicates(ground_atom_dataset, traj_all_objs_all, obj_type_of_reference_best, obj_type_contact_with_gripper, goal_reached_states, relative_pose_dataset_dict)
         if CFG.enable_base_ref_obj_precondition:
@@ -2001,25 +2005,34 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                         raise ValueError("Not enough points for covariance calculation.")
 
                     # Calculate difference from the mean translation
+                    num_dims_rot = 3 # always 3 for rotation
                     num_dims_trans = cluster_translations.shape[1] # Should be 3
                     assert num_dims_trans == 3
                     trans_diff = cluster_translations - mean_translation
-                    reg_term_trans = np.eye(num_dims_trans) * CFG.clustering_inv_cov_reg_trans # Use CFG value
-                    cluster_cov_trans = np.cov(trans_diff, rowvar=False) + reg_term_trans
 
-                    num_dims_rot = cluster_quaternions.shape[1] - 1 # Should be 3
-                    assert num_dims_rot == 3
+                    cluster_cov_trans_raw = np.cov(trans_diff, rowvar=False)
+                    reg_term_trans = utils.compute_adaptive_reg_term(
+                        cluster_cov_trans_raw,
+                        base_reg=CFG.clustering_inv_cov_reg_lin
+                    )
+                    cluster_cov_trans = cluster_cov_trans_raw + reg_term_trans
+
+                    # Rotation regularization
                     log_deltas = (mean_rotation.inv() * rotations).as_rotvec()
+                    cluster_cov_rot_raw = np.cov(log_deltas.T)
+
                     if type1.name == "gripper_type" or type2.name == "gripper_type":
-                    # allow extra space for relative rotation bw gripper and obj so it doesnt always replan
-                        reg = CFG.clustering_inv_cov_reg_rot
+                        base_reg = CFG.clustering_inv_cov_reg_rot_gripper
                     elif type2.name == "base_type": 
-                        reg = CFG.clustering_inv_cov_reg_rot_base
-                    else: 
-                        reg = CFG.clustering_inv_cov_reg_rot_low
-                    reg_term_rot = np.eye(3) * reg # Use CFG value
-                    cluster_cov_rot = np.cov(log_deltas.T) + reg_term_rot
-                    
+                        base_reg = CFG.clustering_inv_cov_reg_rot_base
+                    else:
+                        base_reg = CFG.clustering_inv_cov_reg_rot_low
+
+                    reg_term_rot = utils.compute_adaptive_reg_term(
+                        cluster_cov_rot_raw,
+                        base_reg=base_reg
+                    )
+                    cluster_cov_rot = cluster_cov_rot_raw + reg_term_rot
                     # Convert covariance to degree variation for rotation
                     # Calculate standard deviation in degrees for each rotation axis
                     rot_std_degrees = np.sqrt(np.diag(cluster_cov_rot)) * (180.0 / np.pi)
@@ -2193,7 +2206,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             for rel_pose_traj in rel_pose_trajs:
                 x_traj = np.array(rel_pose_traj)[:, :3]
                 quat_traj = np.array(rel_pose_traj)[:, 3:]
-                x_dot_traj, omega_traj = compute_vel_traj(x_traj, np.array([R.from_quat(q).as_matrix() for q in quat_traj]), 1/60)
+                x_dot_traj, omega_traj = compute_vel_traj(x_traj, np.array([R.from_quat(q).as_matrix() for q in quat_traj]), 1/10)
                 x.append(x_traj)
                 quat.append(quat_traj)
                 x_dot.append(x_dot_traj)
@@ -2216,7 +2229,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                     # continue
             unified_config = UnifiedModelConfig(
                 mode="se3_lpvds",
-                K_candidates=[4]
+                K_candidates=[3]
             )
             ds_policy = DSPolicy(
                 x=x,
@@ -2225,7 +2238,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 omega=omega,
                 gripper=[],
                 unified_config=unified_config,
-                dt=1/60
+                dt=1/10
             )
             _, reconstruction_error = ds_policy.compute_reconstruction_error()
             # TODO: Add some basic requirements for the object of reference, so blacklist need more 
