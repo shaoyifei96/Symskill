@@ -1793,7 +1793,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             self._update_incontact_predicate_using_motion_analysis(dataset, in_contact_pred, gripper_type)
         learnt_goal_predicates = self.load_learnt_goals()
         predicates_to_monitor, ground_atom_dataset = self._create_gnd_atom_datasets(dataset, in_contact_pred, in_origin_pred, learnt_goal_predicates)
-        all_objs_types, robot_base_obj = self._find_common_objects_types(ground_atom_dataset)
+        all_objs_types, robot_base_obj_type = self._find_common_objects_types(ground_atom_dataset)
         relative_pose_dataset_dict, traj_all_objs_all, contact_period_rel_trajs, goal_reached_states, object_type_in_contact_with_gripper_longest_duration, ground_atom_dataset = self._extract_relative_pose_data(ground_atom_dataset, all_objs_types, gripper_type, in_contact_pred, in_origin_pred)
         # single out the object with in contact with gripper for longest duration
         # Ensure all trajectories have the same object with longest contact duration
@@ -1804,34 +1804,36 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         self._visualize_contact_period_trajectories(contact_period_rel_trajs, list_of_reconstruction_errors)
         ground_atom_dataset, relative_pose_dataset_dict = self._update_atom_sequences_with_goal_predicates(ground_atom_dataset, traj_all_objs_all, obj_type_of_reference_best, obj_type_contact_with_gripper, goal_reached_states, relative_pose_dataset_dict)
         if CFG.enable_base_ref_obj_precondition:
-            ground_atom_dataset, relative_pose_dataset_dict = self._add_base_ref_obj_precondition(ground_atom_dataset, relative_pose_dataset_dict, obj_type_of_reference_best, robot_base_obj)
+            ground_atom_dataset, relative_pose_dataset_dict = self._add_base_ref_obj_precondition(ground_atom_dataset, relative_pose_dataset_dict, obj_type_of_reference_best, robot_base_obj_type, traj_all_objs_all)
         renamed_cluster_candidates = self._add_goal_states_to_relative_pose_and_cluster(dataset, relative_pose_dataset_dict)
         
         
         return self._postprocess_cluster_predicates(env, dataset, ground_atom_dataset, predicates_to_monitor, renamed_cluster_candidates, obj_type_of_reference_best,obj_type_contact_with_gripper, learnt_goal_predicates)
         
-    def _add_base_ref_obj_precondition(self, ground_atom_dataset: List[GroundAtomTrajectory], relative_pose_dataset_dict: Dict[Tuple[Predicate, Type, Type, str], List[np.ndarray]],  obj_of_reference_best: Object, robot_base_obj: Object):
+    def _add_base_ref_obj_precondition(self, ground_atom_dataset: List[GroundAtomTrajectory], relative_pose_dataset_dict: Dict[Tuple[Predicate, Type, Type, str], List[np.ndarray]],  obj_type_of_reference_best: Type, robot_base_obj_type: Type, traj_all_objs_all: List[List[Object]]):
         # RelPosPred
-        RelPoseBaseRefObjPred = Predicate("RobotBaseRelPosPred-" + CFG.robo_kitchen_task, [obj_of_reference_best.type, robot_base_obj.type], lambda state, objects: True)
+        RelPoseBaseRefObjPred = Predicate("RobotBaseRelPosPred-" + CFG.robo_kitchen_task, [obj_type_of_reference_best, robot_base_obj_type], lambda state, objects: True)
         # this having a object type since it will need to be used when other tasks load and use the same predicates
         for i, (ll_traj, atom_seq) in enumerate(ground_atom_dataset):
             if not ll_traj.states: continue # Skip empty trajectories
-
+            obj_ref = [o for o in traj_all_objs_all[i] if o.type == obj_type_of_reference_best][0]
+            obj_base = [o for o in ll_traj.states[0].data.keys() if o.type == robot_base_obj_type][0]
+            assert obj_ref is not None and obj_base is not None, "Reference or base object not found"
             skip_var =max(int(len(atom_seq) / 50),1)
             logging.debug(f"Processing trajectory {i+1}/{len(ground_atom_dataset)} with {len(atom_seq)} atoms, skipping every {skip_var} atoms.")
             for t in range(len(atom_seq)):# Add the predicate to every ground atom at this timestep
-                ground_atom = GroundAtom(RelPoseBaseRefObjPred, [obj_of_reference_best, robot_base_obj])
+                ground_atom = GroundAtom(RelPoseBaseRefObjPred, [obj_ref, obj_base])
                 ground_atom_dataset[i][1][t].add(ground_atom)
             for t in range(skip_var, len(atom_seq), skip_var): # Start from 1 to compare with t-1, skip every 4, for efficiency
                 state_t = ll_traj.states[t]
                 
                 rel_pose_at_contact_obj2_in_obj1_frame = utils.calculate_relative_pose_from_state(
-                    state_t, obj_of_reference_best, robot_base_obj,
+                    state_t, obj_ref, obj_base,
                     CFG.trans_feat_name, CFG.quat_feat_name
                 )
 
                 if rel_pose_at_contact_obj2_in_obj1_frame is not None:
-                    key = (RelPoseBaseRefObjPred, obj_of_reference_best.type, robot_base_obj.type, "2in1")
+                    key = (RelPoseBaseRefObjPred, obj_type_of_reference_best, robot_base_obj_type, "2in1")
                     relative_pose_dataset_dict[key].append(rel_pose_at_contact_obj2_in_obj1_frame)
 
         return ground_atom_dataset, relative_pose_dataset_dict
@@ -2416,7 +2418,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             traj_objs_types = set([obj.type for obj in traj.states[0].data.keys()])
             all_objs_types = all_objs_types.intersection(traj_objs_types)  # Keep only objects present in all trajectories
         all_objs_types = list(all_objs_types)  # Convert back to list for further processing
-        robot_base_objs_types = [o_type for o_type in all_objs_types if "base" in o_type.name and "robot" in o_type.name]
+        robot_base_objs_types = [o_type for o_type in all_objs_types if "base_type" == o_type.name]
         robot_base_obj_type = robot_base_objs_types[0] if robot_base_objs_types else None
 
         all_objs_types = [
