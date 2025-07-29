@@ -41,8 +41,9 @@ class GlobalSettings:
     motion_analysis_lin_vel_rot_vel_threshold = 0.002 # lin vel min thresh, under this, use rot vel
     motion_analysis_contact_threshold = 0.04
     clustering_inv_cov_reg_lin = 0.7
+    clustering_inv_cov_reg_lin_low = 0.01
     clustering_inv_cov_reg_rot_gripper = 0.5 
-    clustering_inv_cov_reg_rot_base = 0.5 # base rotation is mostly just the same, so make it more accurate
+    clustering_inv_cov_reg_rot_base = 0.5 # base rotation is mostly just the same, so make it more wide
     clustering_inv_cov_reg_rot_low = 0.01  # much lower for obj obj rotation, stove needs much lower, 1e-4 works, not sure about this task!!!!
     clustering_change_only = False
     
@@ -147,7 +148,7 @@ class GlobalSettings:
     # Note: num_train_tasks will be set dynamically based on robo_kitchen_task
     # This is handled in the get_arg_specific_settings method below
     # num_train_tasks = 10  # setting up later, this no longer used
-    num_test_tasks = 1
+    num_test_tasks = 5
     # Perform online learning for this many cycles or until this many
     # transitions have been collected, whichever happens first.
     num_online_learning_cycles = 10

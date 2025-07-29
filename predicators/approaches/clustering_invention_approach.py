@@ -680,11 +680,11 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             keep_indices = [9, 17, 23, 29, 31, 33, 36]
             dataset._trajectories = [dataset._trajectories[i] for i in keep_indices if i < len(dataset._trajectories)]
         elif CFG.robo_kitchen_task == "PnPCounterToStove":
-            remove_indices = [4, 5, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49]
+            keep_indices = [0, 1, 2, 3, 6, 7, 8, 9, 10, 11]
             # don't need 50, just take half to shorten learning time.
-            dataset._trajectories = [dataset._trajectories[i] for i in range(len(dataset._trajectories)) if i not in remove_indices]
+            dataset._trajectories = [dataset._trajectories[i] for i in keep_indices if i < len(dataset._trajectories)]
         elif CFG.robo_kitchen_task == "PnPStoveToCounter":
-            keep_indices = [ 0, 1, 2, 3, 5, 6, 7, 8, 9]
+            keep_indices = [ 0, 1, 3, 5, 6, 7, 8, 9]
             dataset._trajectories = [dataset._trajectories[i] for i in keep_indices if i < len(dataset._trajectories)]
         elif CFG.robo_kitchen_task == "TurnOnStove":
             keep_indices = [0, 9, 10, 11, 12, 20, 33, 37, 38, 39, 42, 44, 46] # all counter-clockwise 
@@ -2010,30 +2010,30 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                     num_dims_trans = cluster_translations.shape[1] # Should be 3
                     assert num_dims_trans == 3
                     trans_diff = cluster_translations - mean_translation
-
                     cluster_cov_trans_raw = np.cov(trans_diff, rowvar=False)
-                    reg_term_trans = utils.compute_adaptive_reg_term(
-                        cluster_cov_trans_raw,
-                        base_reg=CFG.clustering_inv_cov_reg_lin
-                    )
-                    cluster_cov_trans = cluster_cov_trans_raw + reg_term_trans
-                    
-
                     # Rotation regularization
                     log_deltas = (mean_rotation.inv() * rotations).as_rotvec()
                     cluster_cov_rot_raw = np.cov(log_deltas.T)
 
                     if type1.name == "gripper_type" or type2.name == "gripper_type":
-                        base_reg = CFG.clustering_inv_cov_reg_rot_gripper
+                        base_reg_rot = CFG.clustering_inv_cov_reg_rot_gripper
+                        base_reg_trans = CFG.clustering_inv_cov_reg_lin
                     elif type2.name == "base_type": 
-                        base_reg = CFG.clustering_inv_cov_reg_rot_base
-                    else:
-                        base_reg = CFG.clustering_inv_cov_reg_rot_low
+                        base_reg_rot = CFG.clustering_inv_cov_reg_rot_base
+                        base_reg_trans = CFG.clustering_inv_cov_reg_lin
+                    else: # obj obj reg
+                        base_reg_rot = CFG.clustering_inv_cov_reg_rot_low
+                        base_reg_trans = CFG.clustering_inv_cov_reg_lin_low
 
+                    reg_term_trans = utils.compute_adaptive_reg_term(
+                        cluster_cov_trans_raw,
+                        base_reg=base_reg_trans
+                    )
                     reg_term_rot = utils.compute_adaptive_reg_term(
                         cluster_cov_rot_raw,
-                        base_reg=base_reg
+                        base_reg=base_reg_rot
                     )
+                    cluster_cov_trans = cluster_cov_trans_raw + reg_term_trans
                     cluster_cov_rot = cluster_cov_rot_raw + reg_term_rot
                     # Convert covariance to degree variation for rotation
                     # Calculate standard deviation in degrees for each rotation axis
