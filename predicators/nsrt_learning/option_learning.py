@@ -1190,18 +1190,6 @@ class _LearnedDSParameterizedOption(ParameterizedOption):
         # gripper in cluster predicates of the grounded NSRT.
         grounded_op = self.operator.ground(tuple(objects))
         memory["excluded_obj_names"] = _get_objects_clustered_with_gripper(grounded_op)
-
-        # We bypass the traditional precondition check because the planner has
-        # already ensured initiability.  Keeping this as always True retains
-        # previous behaviour while enabling the new memory field.
-        return True
-        # --- dead code retained for reference ---
-        # return all(pre.holds(state) for pre in grounded_op.preconditions)
-
-    def _DS_based_policy(self, state: State, memory: Dict, objects: Sequence[Object], params: Array) -> Action:
-        # NOTE: assume objects contains gripper and obj_of_interest. We can find base from state
-        # use the first base in state as base
-        memory["time_step"] += 1
         
         # === ACCESS FAILURE INFORMATION ===
         # The failure information from execution monitor is already available in memory!
@@ -1223,6 +1211,15 @@ class _LearnedDSParameterizedOption(ParameterizedOption):
                     failure_memory.pop(idx)
                 
                 logging.info(f"Processed {len(processed_indices)} failures, {len(failure_memory)} failures remaining")
+        
+        return True
+
+
+    def _DS_based_policy(self, state: State, memory: Dict, objects: Sequence[Object], params: Array) -> Action:
+        # NOTE: assume objects contains gripper and obj_of_interest. We can find base from state
+        # use the first base in state as base
+        memory["time_step"] += 1
+        
         
         base = None
         OOI_obj = None
