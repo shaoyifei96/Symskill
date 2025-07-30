@@ -436,12 +436,13 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         return "clustering_invention"
 
 
-    def _add_delete_effects(self, all_entries: Dict[str, Set[Predicate]], entry_to_exclude: str, old_params: List[Variable], new_params: List[Variable], new_delete_effects: Set[LiftedAtom]) -> Tuple[List[Variable], Set[LiftedAtom]]:
+    def _add_delete_effects(self, all_entries: Dict[str, Set[Predicate]], entry_to_exclude: str, new_params: List[Variable], new_delete_effects: Set[LiftedAtom]) -> Tuple[List[Variable], Set[LiftedAtom]]:
         """
         Add delete effects for the incontact predicates and robotbase rel pos preds.
         """
         mode = "robotbase" if "RobotBaseRelCovCluster" in entry_to_exclude else "incontact"
         for key, effects_to_delete in all_entries.items():
+            if len(key) == 2: key = key[0]
             if mode == "robotbase" and "RobotBaseRelPosPred" in key and key.split("-")[1] == entry_to_exclude.split("-")[1]:
                 continue # robot base predicate
             elif mode == "incontact" and key == entry_to_exclude: # incontact predicate
@@ -450,7 +451,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 # Find the corresponding variables from NSRT parameters
                 obj0_var = None
                 obj1_var = None
-                for var in old_params:
+                for var in new_params:
                     if var.type.name == eff.types[0].name:  # object type
                         obj0_var = var
                     elif var.type.name == eff.types[1].name:
@@ -474,6 +475,10 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                     obj1_var = new_vars_to_add[0]
                 else: # both are defined
                     new_vars_to_add = []
+                for var in new_vars_to_add:
+                    for param in new_params:
+                        if var.type.name == param.type.name:
+                            raise ValueError(f"Variable {var} of type {var.type.name} already exists in new_params")
                 new_params = new_params + new_vars_to_add
                 lifted_atom = LiftedAtom(eff, [obj0_var, obj1_var])
                 new_delete_effects.add(lifted_atom)
@@ -497,7 +502,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             if key1 == 'InContact' and key2 in available_object_types:
                 incontact_entries[key2] = effects
             elif "RobotBaseRelPosPred" in key1:
-                robotbase_entries[key1] = effects
+                robotbase_entries[key1, key2] = effects
         logging.info(f"Found {len(incontact_entries)} InContact entries for available object types")
         logging.info(f"Found {len(robotbase_entries)} RobotBaseRelPosPred entries for available object types")
 
@@ -513,12 +518,12 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
 
                 if add_eff.entities[1].type.name == "gripper_type": # comes into contact, exclude the predicates that keeps the incontact with the gripper
                     object_in_contact = add_eff.entities[0].type.name
-                    new_params, new_delete_effects = self._add_delete_effects(incontact_entries, object_in_contact, nsrt.parameters, new_params, new_delete_effects)
+                    new_params, new_delete_effects = self._add_delete_effects(incontact_entries, object_in_contact,  new_params, new_delete_effects)
                 elif "RobotBaseRelCovCluster" in str(add_eff): # robot base rel pos pred, exclude the predicates that keeps the incontact with the gripper
                     # delete the robotbase rel pos pred with other names
-                    new_params, new_delete_effects = self._add_delete_effects(robotbase_entries, str(add_eff), nsrt.parameters, new_params, new_delete_effects)
+                    new_params, new_delete_effects = self._add_delete_effects(robotbase_entries, str(add_eff),  new_params, new_delete_effects)
                     # delete all incontact predicates if moving the base, using str(add_eff) to enforce mode robotbase
-                    new_params, new_delete_effects = self._add_delete_effects(incontact_entries, str(add_eff), nsrt.parameters, new_params, new_delete_effects)
+                    new_params, new_delete_effects = self._add_delete_effects(incontact_entries, str(add_eff),  new_params, new_delete_effects)
                 else:
                     logging.warning(f"NSRT {nsrt.name} is not gripper related or robotbase rel pos pred, directly adding to updated_nsrts")
             else:
@@ -539,22 +544,25 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 # Keep the original RepositionBase NSRT, add a new NSRT for each task
                 for pred, obj1_type, obj2_type in CFG.dict_contact_predicate_to_rel_pose_predicates.keys():
                     val_pred = CFG.dict_contact_predicate_to_rel_pose_predicates[pred, obj1_type, obj2_type]
-                    assert len(val_pred) == 1
-                    val_pred = list(val_pred)[0]
-                    if "RobotBaseRelPosPred" in pred:
-                        task = pred.split("-")[1]
-                        # assert nsrt.parameters[0].type.name == obj1_type # type of object of ref, default nsrt doesn not know this
-                        assert nsrt.parameters[1].type.name == obj2_type
-                        # replace all parameters with new variables
-                        new_vars_to_add = utils.create_new_variables(val_pred.types)
-                        nsrt = nsrt.copy_with( # only option is kept
-                            name=f"RepositionBase-{task}",
-                            parameters=new_vars_to_add,
-                            option_vars=new_vars_to_add,
-                            add_effects={LiftedAtom(val_pred, new_vars_to_add)},
-                            _sampler=RoboKitchenGroundTruthNSRTFactory.create_sampler_with_extra_data(trans_rot=(val_pred._classifier.trans_center, val_pred._classifier.rot_center)),
-                        )
-                        new_nsrts.add(nsrt)
+                    # Handle multiple predicates in val_pred
+                    for single_pred in val_pred:
+                        if "RobotBaseRelCovCluster" in single_pred.name:
+                            task = single_pred.name.split("-")[1]
+                            assert nsrt.parameters[1].type.name == obj2_type
+                            
+                            # Create a separate NSRT for each predicate in val_pred
+                        
+                            # replace all parameters with new variables
+                            new_vars_to_add = utils.create_new_variables(single_pred.types)
+                            new_nsrt = nsrt.copy_with( # only option is kept
+                                name=f"RepositionBase-{task}",
+                                parameters=new_vars_to_add,
+                                option_vars=new_vars_to_add,
+                                add_effects={LiftedAtom(single_pred, new_vars_to_add)},
+                                _sampler=RoboKitchenGroundTruthNSRTFactory.create_sampler_with_extra_data(
+                                    trans_rot=(single_pred._classifier.trans_center, single_pred._classifier.rot_center)),
+                            )
+                            new_nsrts.add(new_nsrt)
             else:
                 new_nsrts.add(nsrt)
         self._nsrts = new_nsrts
