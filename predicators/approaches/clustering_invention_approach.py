@@ -1809,37 +1809,58 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         self._visualize_contact_period_trajectories(contact_period_rel_trajs, list_of_reconstruction_errors)
         ground_atom_dataset, relative_pose_dataset_dict = self._update_atom_sequences_with_goal_predicates(ground_atom_dataset, traj_all_objs_all, obj_type_of_reference_best, obj_type_contact_with_gripper, goal_reached_states, relative_pose_dataset_dict)
         if CFG.enable_base_ref_obj_precondition:
-            ground_atom_dataset, relative_pose_dataset_dict = self._add_base_ref_obj_precondition(ground_atom_dataset, relative_pose_dataset_dict, obj_type_of_reference_best, robot_base_obj_type, traj_all_objs_all)
+            ground_atom_dataset, relative_pose_dataset_dict = self._add_base_ref_obj_precondition(ground_atom_dataset, relative_pose_dataset_dict, obj_type_of_reference_best, obj_type_contact_with_gripper, robot_base_obj_type, traj_all_objs_all)
         renamed_cluster_candidates = self._add_goal_states_to_relative_pose_and_cluster(dataset, relative_pose_dataset_dict)
         
         
         return self._postprocess_cluster_predicates(env, dataset, ground_atom_dataset, predicates_to_monitor, renamed_cluster_candidates, obj_type_of_reference_best,obj_type_contact_with_gripper, learnt_goal_predicates)
         
-    def _add_base_ref_obj_precondition(self, ground_atom_dataset: List[GroundAtomTrajectory], relative_pose_dataset_dict: Dict[Tuple[Predicate, Type, Type, str], List[np.ndarray]],  obj_type_of_reference_best: Type, robot_base_obj_type: Type, traj_all_objs_all: List[List[Object]]):
+    def _add_base_ref_obj_precondition(self, ground_atom_dataset: List[GroundAtomTrajectory], relative_pose_dataset_dict: Dict[Tuple[Predicate, Type, Type, str], List[np.ndarray]],  obj_type_of_reference_best: Type, obj_type_contact_with_gripper: Type, robot_base_obj_type: Type, traj_all_objs_all: List[List[Object]]):
         # RelPosPred
         RelPoseBaseRefObjPred = Predicate("RobotBaseRelPosPred-" + CFG.robo_kitchen_task, [obj_type_of_reference_best, robot_base_obj_type], lambda state, objects: True)
+        RelPoseBaseContactObjPred = Predicate("RobotBaseRelPosPred-" + CFG.robo_kitchen_task, [obj_type_contact_with_gripper, robot_base_obj_type], lambda state, objects: True)
         # this having a object type since it will need to be used when other tasks load and use the same predicates
         for i, (ll_traj, atom_seq) in enumerate(ground_atom_dataset):
             if not ll_traj.states: continue # Skip empty trajectories
             obj_ref = [o for o in traj_all_objs_all[i] if o.type == obj_type_of_reference_best][0]
             obj_base = [o for o in ll_traj.states[0].data.keys() if o.type == robot_base_obj_type][0]
+            obj_contact = [o for o in ll_traj.states[0].data.keys() if o.type == obj_type_contact_with_gripper][0]
             assert obj_ref is not None and obj_base is not None, "Reference or base object not found"
             skip_var =max(int(len(atom_seq) / 50),1)
             logging.debug(f"Processing trajectory {i+1}/{len(ground_atom_dataset)} with {len(atom_seq)} atoms, skipping every {skip_var} atoms.")
             for t in range(len(atom_seq)):# Add the predicate to every ground atom at this timestep
-                ground_atom = GroundAtom(RelPoseBaseRefObjPred, [obj_ref, obj_base])
-                ground_atom_dataset[i][1][t].add(ground_atom)
+                ground_atom_ref = GroundAtom(RelPoseBaseRefObjPred, [obj_ref, obj_base])
+                ground_atom_contact = GroundAtom(RelPoseBaseContactObjPred, [obj_contact, obj_base])
+                # Check if there's an InContact predicate with obj_contact
+                has_contact_with_obj = False
+                for atom in atom_seq[t]:
+                    if atom.predicate.name == "InContact" and obj_contact in atom.objects:
+                        has_contact_with_obj = True
+                        break
+                
+                # Add the reference object precondition
+                if has_contact_with_obj:
+                    ground_atom_dataset[i][1][t].add(ground_atom_ref)
+                else:
+                    ground_atom_dataset[i][1][t].add(ground_atom_contact)
             for t in range(skip_var, len(atom_seq), skip_var): # Start from 1 to compare with t-1, skip every 4, for efficiency
                 state_t = ll_traj.states[t]
                 
-                rel_pose_at_contact_obj2_in_obj1_frame = utils.calculate_relative_pose_from_state(
+                rel_pose_at_contact_obj2_in_obj1_frame_ref = utils.calculate_relative_pose_from_state(
                     state_t, obj_ref, obj_base,
                     CFG.trans_feat_name, CFG.quat_feat_name
                 )
+                rel_pose_at_contact_obj2_in_obj1_frame_contact = utils.calculate_relative_pose_from_state(
+                    state_t, obj_contact, obj_base,
+                    CFG.trans_feat_name, CFG.quat_feat_name
+                )
 
-                if rel_pose_at_contact_obj2_in_obj1_frame is not None:
+                if rel_pose_at_contact_obj2_in_obj1_frame_ref is not None:
                     key = (RelPoseBaseRefObjPred, obj_type_of_reference_best, robot_base_obj_type, "2in1")
-                    relative_pose_dataset_dict[key].append(rel_pose_at_contact_obj2_in_obj1_frame)
+                    relative_pose_dataset_dict[key].append(rel_pose_at_contact_obj2_in_obj1_frame_ref)
+                if rel_pose_at_contact_obj2_in_obj1_frame_contact is not None:
+                    key = (RelPoseBaseContactObjPred, obj_type_contact_with_gripper, robot_base_obj_type, "2in1")
+                    relative_pose_dataset_dict[key].append(rel_pose_at_contact_obj2_in_obj1_frame_contact)
 
         return ground_atom_dataset, relative_pose_dataset_dict
 

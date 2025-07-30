@@ -41,7 +41,7 @@ class GlobalSettings:
     motion_analysis_lin_vel_rot_vel_threshold = 0.002 # lin vel min thresh, under this, use rot vel
     motion_analysis_contact_threshold = 0.04
     clustering_inv_cov_reg_lin = 0.7
-    clustering_inv_cov_reg_lin_low = 0.01
+    clustering_inv_cov_reg_lin_low = 0.7
     clustering_inv_cov_reg_rot_gripper = 0.5 
     clustering_inv_cov_reg_rot_base = 0.5 # base rotation is mostly just the same, so make it more wide
     clustering_inv_cov_reg_rot_low = 0.01  # much lower for obj obj rotation, stove needs much lower, 1e-4 works, not sure about this task!!!!
@@ -88,7 +88,7 @@ class GlobalSettings:
     robo_kitchen_randomize_init_state = True  # not used
     # robo_kitchen_task = "OpenSingleDoor"
     # robo_kitchen_task = "CloseSingleDoor"
-    # robo_kitchen_task = "PnPCounterToCab" 
+    robo_kitchen_task = "PnPCounterToCab" 
     # robo_kitchen_task = "PnPCabToCounter" # error in finding ref frame, why is the wrong ref frame have lower error?
     # robo_kitchen_task = "PnPStoveToCounter"
     # robo_kitchen_task = "PnPCounterToStove"
@@ -97,7 +97,7 @@ class GlobalSettings:
     # robo_kitchen_task = "TurnOnStove"
     # robo_kitchen_task = "TurnOffStove"
     # robo_kitchen_task = "TurnOnSinkFaucet"
-    robo_kitchen_task = "TurnOffSinkFaucet"
+    # robo_kitchen_task = "TurnOffSinkFaucet"
 
     gt_ref_obj_type = {"OpenSingleDoor": ["cabinet_type", "surface_type"], 
                        "CloseSingleDoor": ["cabinet_type", "surface_type"],
