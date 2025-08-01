@@ -145,7 +145,9 @@ class _RelativeFeatureCovClusterClassifierTransRot(_BinaryClassifier):
             mahalanobis_dist_sq_rot = mahalanobis_dist_sq_rot.item()
 
         # Use the pre-calculated threshold
-        # print(f"obj1: {obj1.name}, obj2: {obj2.name}, mahalanobis_dist_sq_trans: {mahalanobis_dist_sq_trans}, self.mahalanobis_threshold_trans: {self.mahalanobis_threshold_trans}, mahalanobis_dist_sq_rot: {mahalanobis_dist_sq_rot}, self.mahalanobis_threshold_rot: {self.mahalanobis_threshold_rot}")
+        # is_classified = mahalanobis_dist_sq_trans <= self.mahalanobis_threshold_trans and mahalanobis_dist_sq_rot <= self.mahalanobis_threshold_rot
+        # color = "\033[92m" if is_classified else "\033[91m"  # Green if True, Red if False
+        # print(f"{color}obj1: {obj1.name}, obj2: {obj2.name}, mahalanobis_dist_sq_trans: {mahalanobis_dist_sq_trans}, self.mahalanobis_threshold_trans: {self.mahalanobis_threshold_trans}, mahalanobis_dist_sq_rot: {mahalanobis_dist_sq_rot}, self.mahalanobis_threshold_rot: {self.mahalanobis_threshold_rot}\033[0m")
         return mahalanobis_dist_sq_trans <= self.mahalanobis_threshold_trans and mahalanobis_dist_sq_rot <= self.mahalanobis_threshold_rot
 
     def __str__(self) -> str:
@@ -687,6 +689,10 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         elif CFG.robo_kitchen_task == "PnPCabToCounter":
             keep_indices = [9, 17, 23, 29, 31, 33, 36]
             dataset._trajectories = [dataset._trajectories[i] for i in keep_indices if i < len(dataset._trajectories)]
+        elif CFG.robo_kitchen_task == "PnPCabToCounterTomato":
+            # Use similar indices as PnPCabToCounter since it's the same basic action
+            keep_indices = [0, 1, 2]
+            dataset._trajectories = [dataset._trajectories[i] for i in keep_indices if i < len(dataset._trajectories)]
         elif CFG.robo_kitchen_task == "PnPCounterToStove":
             keep_indices = [0, 1, 2, 3, 6, 7, 8, 9, 10, 11]
             # don't need 50, just take half to shorten learning time.
@@ -975,7 +981,8 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         # Filter types so things other than gripper and are useful are kept!!!
         # types = {obj.type for traj in dataset.trajectories for obj in traj.states[0]}
         # Example filter (adjust as needed):
-        disallowed_type_names = {"gripper_type", "left_finger_type", "right_finger_type", "base_type", "drawer_type"} # Added door_type based on usage
+        disallowed_type_names = {"wrist_type", "gripper_type", "left_finger_type", "right_finger_type", "base_type", "drawer_type"} # Added door_type based on usage # drawer and inner drawer are the same, so just choose one
+
         # Dictionary to store motion data for each object in each trajectory
         motion_data = defaultdict(lambda: defaultdict(list))
 
@@ -1948,7 +1955,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             pred_key = tuple([goal_pred.name] + [t.name for t in goal_pred.types])
             CFG.dict_gt_goal_predicate_to_dummy_goal_predicates[pred_key] = set([DummyPredicate(f"{CFG.robo_kitchen_task}-goal", [obj_type_of_reference_best, obj_type_contact_with_gripper])])
         else:
-            raise NotImplementedError("Environment goal predicates not found, did you forget to define it for the task?")
+            raise NotImplementedError("Environment goal predicates not found, did you forget to define it for the task? Check perceiver, and robo_kitchen")
         for pred in predicates_to_monitor:
             pass # the following three lines seems to make dr-unreachable error more likely but don't know why
             # if isinstance(pred, DummyPredicate): # goal predicate
@@ -2035,32 +2042,35 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                         raise ValueError("Not enough points for covariance calculation.")
 
                     # Calculate difference from the mean translation
-                    num_dims_rot = 3 # always 3 for rotation
                     num_dims_trans = cluster_translations.shape[1] # Should be 3
                     assert num_dims_trans == 3
                     trans_diff = cluster_translations - mean_translation
                     cluster_cov_trans_raw = np.cov(trans_diff, rowvar=False)
+                    
+                    num_dims_rot = 3 # always 3 for rotation
                     # Rotation regularization
                     log_deltas = (mean_rotation.inv() * rotations).as_rotvec()
                     cluster_cov_rot_raw = np.cov(log_deltas.T)
 
                     if type1.name == "gripper_type" or type2.name == "gripper_type":
+                        base_reg_trans = CFG.clustering_inv_cov_reg_lin
                         base_reg_rot = CFG.clustering_inv_cov_reg_rot_gripper
-                        base_reg_trans = CFG.clustering_inv_cov_reg_lin
                     elif type2.name == "base_type": 
-                        base_reg_rot = CFG.clustering_inv_cov_reg_rot_base
                         base_reg_trans = CFG.clustering_inv_cov_reg_lin
+                        base_reg_rot = CFG.clustering_inv_cov_reg_rot_base
                     else: # obj obj reg
-                        base_reg_rot = CFG.clustering_inv_cov_reg_rot_low
                         base_reg_trans = CFG.clustering_inv_cov_reg_lin_low
+                        base_reg_rot = CFG.clustering_inv_cov_reg_rot_low
 
                     reg_term_trans = utils.compute_adaptive_reg_term(
                         cluster_cov_trans_raw,
-                        base_reg=base_reg_trans
+                        base_reg=base_reg_trans,
+                        min_reg=0.01 / 4 # reg adds the std, so divide by 4 to get almost 100% confidence
                     )
                     reg_term_rot = utils.compute_adaptive_reg_term(
                         cluster_cov_rot_raw,
-                        base_reg=base_reg_rot
+                        base_reg=base_reg_rot,
+                        min_reg=0.01 / 3
                     )
                     cluster_cov_trans = cluster_cov_trans_raw + reg_term_trans
                     cluster_cov_rot = cluster_cov_rot_raw + reg_term_rot
@@ -2070,6 +2080,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                     # Calculate the average degree variation across all rotation axes
                     avg_degree_variation = np.mean(rot_std_degrees)
                     # Log the degree variation information
+                    logging.debug(f"Cluster {k} translation variations: X={cluster_cov_trans[0][0]:.2f}, Y={cluster_cov_trans[1][1]:.2f}, Z={cluster_cov_trans[2][2]:.2f}")
                     logging.debug(f"Cluster {k} rotation degree variations: X={rot_std_degrees[0]:.2f}°, Y={rot_std_degrees[1]:.2f}°, Z={rot_std_degrees[2]:.2f}°, Avg={avg_degree_variation:.2f}°")
                     # Store degree variation info in the cluster info
 

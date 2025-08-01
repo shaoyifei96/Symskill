@@ -21,6 +21,7 @@ class GlobalSettings:
     reprocess_ground_atom_dataset_using_cluster_predicates = False
     remove_inOrigin_pred = True
     robo_kitchen_obj_names = ["robot0_base", "gripper", "left_finger", "right_finger", "wrist"] # this stores the actual object names, determined by a mujoco id, such as "cabinet_10" (see how these are constructed in robocasa/kithcen.py)
+    #"cabinet", "plate", "tomato_1"] 
 
     use_learnt_goal_predicates = False
     use_negated_goal_predicates = False
@@ -88,8 +89,9 @@ class GlobalSettings:
     robo_kitchen_randomize_init_state = True  # not used
     # robo_kitchen_task = "OpenSingleDoor"
     # robo_kitchen_task = "CloseSingleDoor"
-    robo_kitchen_task = "PnPCounterToCab" 
-    # robo_kitchen_task = "PnPCabToCounter" # error in finding ref frame, why is the wrong ref frame have lower error?
+    # robo_kitchen_task = "PnPCounterToCab" 
+    robo_kitchen_task = "PnPCabToCounter" # error in finding ref frame, why is the wrong ref frame have lower error? #this has no plate discard
+    # robo_kitchen_task = "PnPCabToCounterTomato" # error in finding ref frame, why is the wrong ref frame have lower error? #this has no plate discard
     # robo_kitchen_task = "PnPStoveToCounter"
     # robo_kitchen_task = "PnPCounterToStove"
     # robo_kitchen_task = "OpenDrawer"
@@ -103,6 +105,7 @@ class GlobalSettings:
                        "CloseSingleDoor": ["cabinet_type", "surface_type"],
                        "PnPCounterToCab": "surface_type",
                        "PnPCabToCounter": "counter_type",
+                       "PnPCabToCounterTomato": "container_type",
                        "PnPStoveToCounter": "counter_type",
                        "PnPCounterToStove": "container_type",
                        "OpenDrawer": "cabinet_type",
@@ -119,10 +122,12 @@ class GlobalSettings:
     # tasks that won't work with current approach
     # robo_kitchen_task = "TurnOnMicrowave" # this is not working, nothing is in motion in the dataset button just clicks
     # robo_kitchen_viz_debug = False # i think the use_gui flag covers this
-    robo_kitchen_contact_smoothing_window = 21
+    path_to_user_demo = "/home/yifei/Documents/task_planning_2/robocasa/robocasa/models/assets/demonstrations_private/2025-08-01-00-40-00/"
+    robo_kitchen_user_demo = False # if True, this has priority, if False, then load flag is considered
     robo_kitchen_load_dataset = True # this has priority, if False, then save flag is considered
     robo_kitchen_save_dataset = not robo_kitchen_load_dataset
     robo_kitchen_save_traj_by_segment = False
+    robo_kitchen_contact_smoothing_window = 21
     robo_kitchen_policy_model = "node"  # "simple_ds" or "node"
     make_test_videos = False
     loglevel = 30
@@ -148,7 +153,7 @@ class GlobalSettings:
     # Note: num_train_tasks will be set dynamically based on robo_kitchen_task
     # This is handled in the get_arg_specific_settings method below
     # num_train_tasks = 10  # setting up later, this no longer used
-    num_test_tasks = 5
+    num_test_tasks = 1
     # Perform online learning for this many cycles or until this many
     # transitions have been collected, whichever happens first.
     num_online_learning_cycles = 10
@@ -631,7 +636,7 @@ class GlobalSettings:
     # STRIPS learning algorithm. See get_name() functions in the directory
     # nsrt_learning/strips_learning/ for valid settings.
     strips_learner = "cluster_and_intersect"
-    disable_harmlessness_check = False  # some methods may want this to be True
+    disable_harmlessness_check = True  # some methods may want this to be True
     enable_harmless_op_pruning = False  # some methods may want this to be True
     precondition_soft_intersection_threshold_percent = 0.8  # between 0 and 1
     backchaining_check_intermediate_harmlessness = False
@@ -872,10 +877,11 @@ class GlobalSettings:
             robo_kitchen_task == "TurnOnSinkFaucet" or \
             robo_kitchen_task == "TurnOffSinkFaucet":
             num_train_tasks = 25
+        elif robo_kitchen_task == "PnPCabToCounterTomato":
+            num_train_tasks = 3
         else:
             # robo_kitchen_task == "PnPStoveToCounter" 
             num_train_tasks = 10
-        # num_train_tasks = 10
 
         return dict(
             num_train_tasks=num_train_tasks,

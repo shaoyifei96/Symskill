@@ -116,7 +116,21 @@ def main() -> None:
         included_preds, excluded_preds,
         env) if CFG.approach != "oracle" else included_preds
     # Create the train tasks.
-    env_train_tasks = env.get_train_tasks()
+
+    perceiver = create_perceiver(CFG.perceiver)
+    # Get train task is needed here since we need initial condition of the task to solve the task from the gt operator
+    # but if we only have demos, here we don't need to get train tasks
+    if CFG.approach != "clustering_invention":
+        env_train_tasks = env.get_train_tasks()
+        train_tasks = [perceiver.reset(t) for t in env_train_tasks]
+        # If train tasks have goals that involve excluded predicates, strip those
+        # predicate classifiers to prevent leaking information to the approaches.
+        stripped_train_tasks = [
+            utils.strip_task(task, preds) for task in train_tasks
+        ]
+    else:
+        train_tasks = []
+        stripped_train_tasks = []
     # We assume that a train Task can be constructed from a EnvironmentTask.
     # In other words, the initial obs is assumed to contain enough information
     # to determine all of the objects and their initial states. We only make
@@ -124,13 +138,7 @@ def main() -> None:
     # test tasks. We need to make it for training tasks because all of the data
     # collection here is offline, so there would be no way for agent to gather
     # information in training.
-    perceiver = create_perceiver(CFG.perceiver)
-    train_tasks = [perceiver.reset(t) for t in env_train_tasks]
-    # If train tasks have goals that involve excluded predicates, strip those
-    # predicate classifiers to prevent leaking information to the approaches.
-    stripped_train_tasks = [
-        utils.strip_task(task, preds) for task in train_tasks
-    ]
+
     # If the goals of the tasks that the approaches solve need to be described
     # using predicates that differ from those in the goals of the tasks that the
     # demonstrator solves, then replace those predicates accordingly. This is

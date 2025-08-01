@@ -127,6 +127,7 @@ class RoboKitchenEnv(BaseEnv):
         "door_2": door_type,
         "plate": container_type,
         "tomato": thing_type,
+        "tomato_1": thing_type,
         "cheese": thing_type,
         "pan": container_type,
         # PnPStoveToCounter
@@ -279,12 +280,13 @@ class RoboKitchenEnv(BaseEnv):
         "StoreFruit",
         "StoreFruitFull",
         "CookCheeseAndTomatoes",
+        "PnPCabToCounterTomato",
     ]
 
     def __init__(self, use_gui: bool = True) -> None:
         super().__init__(use_gui)
 
-        print(f"ALL_KITCHEN_ENVIRONMENTS: {ALL_KITCHEN_ENVIRONMENTS}")
+        # print(f"ALL_KITCHEN_ENVIRONMENTS: {ALL_KITCHEN_ENVIRONMENTS}")
 
         if self._using_gui:
             pass
@@ -345,6 +347,8 @@ class RoboKitchenEnv(BaseEnv):
             return [self.object_name_to_object("sink_faucet_handle"), self.object_name_to_object("sink")]
         elif task_name == "CookCheeseAndTomatoes":
             return [self.object_name_to_object("tomato"), self.object_name_to_object("cheese")]
+        elif task_name == "PnPCabToCounterTomato":
+            return [self.object_name_to_object("tomato_1"), self.object_name_to_object("plate")]
         else:
             raise ValueError(f"Task {task_name} not supported")
 
@@ -616,13 +620,26 @@ class RoboKitchenEnv(BaseEnv):
             plate = plates[0]
             if self._InContainer_holds(state, [tomato, plate]) and self._InContainer_holds(state, [cheese, plate]):
                 return True
+        elif goal_desc == "PnPCabToCounterTomato":
+            objs = self.object_name_to_objects("tomato_1", test_time=True)
+            assert len(objs) == 1, "Expected exactly one object"
+            obj = objs[0]
+            plates = self.object_name_to_objects("plate", test_time=True)
+            assert len(plates) == 1, "Expected exactly one plate object"
+            plate = plates[0]
+            if self._OnSurface_holds(state, [obj, plate]):
+                return True
         else:
             raise ValueError(f"Goal description {goal_desc} not supported")
 
-    def _reset_initial_state(self, seed: int, train_or_test: str, task_name: str, complex_config: bool = False) -> Observation:
+    def _reset_initial_state(self,
+                               seed: int,
+                               train_or_test: str,
+                               task_name: str,
+                               initial_state_info: Optional[Dict] = None
+                               ) -> Observation:
         """Reset the environment to an initial state based on the seed."""
         # Create or recreate environment if needed
-        warnings.warn("Resetting environment to initial state from seed not implemented for robosuite kitchen")
         if self._env is None:
             complex_config = True  # NOTE: this should be removed. only for mac
             if complex_config:
@@ -1487,6 +1504,8 @@ class RoboKitchenEnv(BaseEnv):
             goal_preds = {self._pred_name_to_pred["SinkFaucetOn"]}
         elif goal_desc == "TurnOffSinkFaucet":
             goal_preds = {self._pred_name_to_pred["SinkFaucetOff"]}
+        elif goal_desc == "PnPCabToCounterTomato":
+            goal_preds = {self._pred_name_to_pred["InContainer"]}
         return goal_preds
 
     @property
@@ -1563,6 +1582,26 @@ class RoboKitchenEnv(BaseEnv):
                 found_names.append(robo_kitchen_obj_name)
         for found_name in found_names:
             found_objects.append(Object(found_name, cls.obj_name_to_type[obj_name_no_num]))
+# deal with case with objects that we need to add offline for user demo data, where no env is avaliable.
+        if len(found_objects) > 1:
+            raise ValueError(f"Expected exactly 1 object for {obj_name}, got {len(found_objects)}")
+            # if len(found_objects) != 2:
+            #     raise ValueError(f"Expected exactly 2 objects for {obj_name}, got {len(found_objects)}")
+            
+            # # Check if they have the same base name (without pos_quat)
+            # obj1_base = found_objects[0].name[:-9] if found_objects[0].name.endswith("pos_quat") else found_objects[0].name
+            # obj2_base = found_objects[1].name[:-9] if found_objects[1].name.endswith("pos_quat") else found_objects[1].name
+            
+            # if obj1_base != obj2_base:
+            #     raise ValueError(f"Objects have different base names: {obj1_base} and {obj2_base}")
+            
+            # # Keep the one that ends with pos_quat
+            # if found_objects[0].name.endswith("pos_quat"):
+            #     found_objects.pop(1)
+            # elif found_objects[1].name.endswith("pos_quat"):
+            #     found_objects.pop(0)
+            # else:
+            #     raise ValueError(f"Neither object ends with pos_quat: {found_objects[0].name} and {found_objects[1].name}")
         return found_objects
     
     @classmethod

@@ -26,7 +26,7 @@ def create_dataset(env: BaseEnv, train_tasks: List[Task],
     """
     if CFG.env == "robo_kitchen":
         # return create_demo_data_from_robocasa(env, train_tasks, known_options, CFG.robo_kitchen_task)
-        return create_demo_data(env, train_tasks, known_options, annotate_with_gt_ops=False, robocasa_task=CFG.robo_kitchen_task)
+        return create_demo_data(env, known_options, annotate_with_gt_ops=False, robocasa_task=CFG.robo_kitchen_task)
     if CFG.offline_data_method == "demo":
         return create_demo_data(env,
                                 train_tasks,

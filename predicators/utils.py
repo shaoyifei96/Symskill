@@ -89,8 +89,7 @@ def compute_adaptive_reg_term(cov, base_reg, min_reg=1e-20, max_reg=1.0, mode="t
         raise ValueError(f"Unknown mode: {mode}")
     
     # proportionality to cov: higher cov → higher reg
-    reg_scale = cov_magnitude + 1e-18  # Add small epsilon for numerical stability
-    reg_strength = np.clip(base_reg * reg_scale, min_reg, max_reg)
+    reg_strength = np.clip(base_reg * cov_magnitude, min_reg, max_reg)
     
     return np.eye(cov.shape[0]) * reg_strength
 

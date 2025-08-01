@@ -1,10 +1,11 @@
 """Create offline datasets by collecting demonstrations."""
 
 import functools
+import glob
 import logging
 import os
 import re
-from typing import Callable, List, Set
+from typing import Callable, List, Set, Tuple
 
 import dill as pkl
 import h5py
@@ -32,7 +33,7 @@ from robocasa.utils.dataset_registry import get_ds_path
 from PIL import Image
 
 
-def create_demo_data(env: BaseEnv, train_tasks: List[Task],
+def create_demo_data(env: BaseEnv,
                      known_options: Set[ParameterizedOption],
                      annotate_with_gt_ops: bool,
                      robocasa_task: str = None) -> Dataset:
@@ -46,22 +47,29 @@ def create_demo_data(env: BaseEnv, train_tasks: List[Task],
         robocasa_task: If provided, load demonstrations from robocasa dataset
                       instead of collecting new ones
     """
-    if robocasa_task is not None:
-        if CFG.robo_kitchen_load_dataset:
-            dataset_fname = f"generated_datasets/robokitchen__{robocasa_task}__{CFG.num_train_tasks}.pkl"
-            if os.path.exists(dataset_fname):
-                with open(dataset_fname, "rb") as f:
-                    dataset = pkl.load(f)
-                return dataset
-            else:
-                raise ValueError(f"Dataset not found at {dataset_fname}")
-        else:
-            dataset = create_demo_data_from_robocasa(env, train_tasks, known_options, robocasa_task)
-            if CFG.robo_kitchen_save_dataset:
-                dataset_fname = f"generated_datasets/robokitchen__{robocasa_task}__{CFG.num_train_tasks}.pkl"
-                with open(dataset_fname, "wb") as f:
-                    pkl.dump(dataset, f)
+    if robocasa_task is not None: # three cases here. 1. the ones robocasa provides needs processing (slow) 2. the ones robocasa provided and we processed, 3. the ones we collect
+        if CFG.robo_kitchen_user_demo: # case 3
+            env._reset_initial_state(seed=0, train_or_test="train", task_name=robocasa_task)
+            dataset = create_demo_data_from_user_demo(env, CFG.path_to_user_demo, robocasa_task)
             return dataset
+        else:
+            if CFG.robo_kitchen_load_dataset:   # case 2
+                dataset_fname = f"generated_datasets/robokitchen__{robocasa_task}__{CFG.num_train_tasks}.pkl"
+                if os.path.exists(dataset_fname):
+                    with open(dataset_fname, "rb") as f:
+                        dataset = pkl.load(f)
+                    return dataset
+                else:
+                    raise ValueError(f"Dataset not found at {dataset_fname}")
+            else: # case 1 
+                # convert demos from raw demos to ones with observations, this also reads from a file, so it does not need the train task,
+                # only needs the task name
+                dataset = create_demo_data_from_robocasa(env, known_options, robocasa_task)
+                if CFG.robo_kitchen_save_dataset:
+                    dataset_fname = f"generated_datasets/robokitchen__{robocasa_task}__{CFG.num_train_tasks}.pkl"
+                    with open(dataset_fname, "wb") as f:
+                        pkl.dump(dataset, f)
+                return dataset
 
 
 def _create_demo_data_with_loading(env: BaseEnv, train_tasks: List[Task],
@@ -312,7 +320,90 @@ def human_demonstrator_policy(env: BaseEnv, caption: str,
     return container["action"]
 
 
-def create_demo_data_from_robocasa(env: RoboKitchenEnv, train_tasks: List[Task],
+def create_demo_data_from_user_demo(env: RoboKitchenEnv,
+                                    path_to_demo: str,
+                                 task_name: str) -> Dataset:
+    """Create offline datasets by loading user demonstrations.
+    This is real data so no contact information, contact left empty!!!
+    
+    Args:
+        env: The environment to load demonstrations for
+        path_to_demo: Path to the user demo directory containing pickle files named demo_0_obs.pkl, demo_1_obs.pkl, etc.
+        task_name: Name of the robocasa task to load (e.g. 'PnPCounterToCab')
+    
+    Returns:
+        Dataset containing the loaded demonstrations
+    """
+    
+    # Find all demo pickle files in the directory
+    demo_files = glob.glob(os.path.join(path_to_demo, "*_obs.pkl"))
+    demo_files.sort()  # Sort to ensure consistent ordering
+    
+    if not demo_files:
+        raise ValueError(f"No *_obs.pkl files found in directory {path_to_demo}")
+    
+    trajectories = []
+    
+    for demo_idx, demo_file_path in enumerate(demo_files):
+        # Show progress
+        if demo_idx >= CFG.num_train_tasks:
+            break
+        logging.info(f"Processing demo {demo_idx+1} / {min(CFG.num_train_tasks, len(demo_files))}")
+        
+        # Load pickle file containing list of observations
+        with open(demo_file_path, "rb") as f:
+            observations = pkl.load(f)
+        
+        if not isinstance(observations, list) or len(observations) == 0:
+            logging.warning(f"Skipping {demo_file_path}: not a valid list of observations")
+            continue
+            
+        # Create list of State objects from observations
+        states = []
+        frames_center = []
+        frames_left = []
+        frames_right = []
+        
+        for t, obs in enumerate(observations):
+            # Since this is real data, contact information is not available
+            # Create empty contact set as mentioned in the docstring
+            contact_set = set()
+            
+            # Create state object from observation
+            state = RoboKitchenEnv.state_info_to_state(obs, contact_set)
+            states.append(state)
+            
+        
+        # Since we don't have real actions, create dummy actions for compatibility
+        # Actions should be one less than states
+        action_objs = []
+        if len(states) > 1:
+            dummy_action = np.zeros(7)  # Assuming 7-DOF action space for robotic arm
+            for _ in range(len(states) - 1):
+                action_obj = Action(dummy_action)
+                action_objs.append(action_obj)
+        
+        # Create LowLevelTrajectory
+        traj = LowLevelTrajectory(
+            _states=list(states),
+            _actions=action_objs,
+            _is_demo=True,
+            _train_task_idx=demo_idx,
+            _raw_robosuite_states=None,  # Not available for user demos
+            _model_file=None,  # Not available for user demos
+            _ep_meta=None  # Not available for user demos
+        )
+        trajectories.append(traj)
+        
+        # Save video if frames were collected
+        if not CFG.use_gui and frames_center:
+            center_video_save_name = f"robokitchen__{task_name}__{demo_idx}__center.mp4"
+            utils.save_video(center_video_save_name, frames_center)
+    
+    return Dataset(trajectories)
+
+
+def create_demo_data_from_robocasa(env: RoboKitchenEnv,
                                  known_options: Set[ParameterizedOption],
                                  task_name: str) -> Dataset:
     """Create offline datasets by loading robocasa demonstrations.
@@ -483,10 +574,10 @@ def create_demo_data_from_robocasa(env: RoboKitchenEnv, train_tasks: List[Task],
 
             if not CFG.use_gui:
                 center_video_save_name = f"robokitchen__{task_name}__{demo_idx}__center.mp4"
-                left_video_save_name = f"robokitchen__{task_name}__{demo_idx}__left.mp4"
-                right_video_save_name = f"robokitchen__{task_name}__{demo_idx}__right.mp4"
+                # left_video_save_name = f"robokitchen__{task_name}__{demo_idx}__left.mp4"
+                # right_video_save_name = f"robokitchen__{task_name}__{demo_idx}__right.mp4"
                 utils.save_video(center_video_save_name, frames_center)
-                utils.save_video(left_video_save_name, frames_left)
-                utils.save_video(right_video_save_name, frames_right)
+                # utils.save_video(left_video_save_name, frames_left)
+                # utils.save_video(right_video_save_name, frames_right)
 
     return Dataset(trajectories)

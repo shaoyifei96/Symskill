@@ -52,7 +52,9 @@ class RoboKitchenPerceiver(BasePerceiver):
         drawer_inner_box = RoboKitchenEnv.object_name_to_object("drawer_inner_box")
         cabinet_1 = RoboKitchenEnv.object_name_to_object("cabinet_1")
         cabinet_2 = RoboKitchenEnv.object_name_to_object("cabinet_2")
+        cabinet_3 = RoboKitchenEnv.object_name_to_object("cabinet_3")
         tomato = RoboKitchenEnv.object_name_to_object("tomato")
+        tomato_1 = RoboKitchenEnv.object_name_to_object("tomato_1")
         cheese = RoboKitchenEnv.object_name_to_object("cheese")
         plate = RoboKitchenEnv.object_name_to_object("plate")
         container = RoboKitchenEnv.object_name_to_object("container")
@@ -139,6 +141,10 @@ class RoboKitchenPerceiver(BasePerceiver):
         elif goal_desc == 'TurnOffSinkFaucet':
             goal = {
                 GroundAtom(SinkFaucetOff, [sink_faucet_handle]),
+            }
+        elif goal_desc == 'PnPCabToCounterTomato':
+            goal = {
+                GroundAtom(InContainer, [tomato_1, plate]),
             }
         else:
             raise NotImplementedError(f"Unrecognized goal: {goal_desc}")
