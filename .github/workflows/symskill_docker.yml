@@ -50,7 +50,7 @@ jobs:
           git submodule update --init --recursive && \
           cd /root/ds_policy/ds_policy/se3_lpvds/src/lpvds/src/damm/build && \
           cmake ../src && \
-          make && \
+          make 
 
       - name: Install Symskill
         run: |
