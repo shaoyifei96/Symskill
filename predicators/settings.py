@@ -122,8 +122,11 @@ class GlobalSettings:
     # tasks that won't work with current approach
     # robo_kitchen_task = "TurnOnMicrowave" # this is not working, nothing is in motion in the dataset button just clicks
     # robo_kitchen_viz_debug = False # i think the use_gui flag covers this
-    path_to_user_demo = "/home/yifei/Documents/task_planning_2/robocasa/robocasa/models/assets/demonstrations_private/2025-08-01-00-40-00/"
-    robo_kitchen_user_demo = False # if True, this has priority, if False, then load flag is considered
+    path_to_user_demo = "/home/yifei/Documents/task_planning_2/robocasa/robocasa/models/assets/demonstrations_private/2025-08-01-21-56-57"
+    if robo_kitchen_task == "PnPCabToCounterTomato":
+        robo_kitchen_user_demo = True
+    else:
+        robo_kitchen_user_demo = False # if True, this has priority, if False, then load flag is considered
     robo_kitchen_load_dataset = True # this has priority, if False, then save flag is considered
     robo_kitchen_save_dataset = not robo_kitchen_load_dataset
     robo_kitchen_save_traj_by_segment = False
@@ -878,7 +881,7 @@ class GlobalSettings:
             robo_kitchen_task == "TurnOffSinkFaucet":
             num_train_tasks = 25
         elif robo_kitchen_task == "PnPCabToCounterTomato":
-            num_train_tasks = 3
+            num_train_tasks = 6
         else:
             # robo_kitchen_task == "PnPStoveToCounter" 
             num_train_tasks = 10

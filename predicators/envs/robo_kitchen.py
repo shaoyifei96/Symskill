@@ -121,13 +121,8 @@ class RoboKitchenEnv(BaseEnv):
         "sink_faucet_handle": sink_faucet_handle_type,  # The sink faucet object
         "sink": sink_type,  # The sink object
         # CookCheeseAndTomatoes
-        "cabinet_1": cabinet_type,
-        "cabinet_2": cabinet_type,
-        "door_1": door_type,
-        "door_2": door_type,
         "plate": container_type,
         "tomato": thing_type,
-        "tomato_1": thing_type,
         "cheese": thing_type,
         "pan": container_type,
         # PnPStoveToCounter
@@ -348,7 +343,7 @@ class RoboKitchenEnv(BaseEnv):
         elif task_name == "CookCheeseAndTomatoes":
             return [self.object_name_to_object("tomato"), self.object_name_to_object("cheese")]
         elif task_name == "PnPCabToCounterTomato":
-            return [self.object_name_to_object("tomato_1"), self.object_name_to_object("plate")]
+            return [self.object_name_to_object("tomato"), self.object_name_to_object("plate")]
         else:
             raise ValueError(f"Task {task_name} not supported")
 
@@ -609,24 +604,19 @@ class RoboKitchenEnv(BaseEnv):
             if sink_faucet_handle is not None and self._SinkFaucetOff_holds(state, [sink_faucet_handle]):
                 return True
         elif goal_desc == "CookCheeseAndTomatoes":
-            tomatoes = self.object_name_to_objects("tomato", test_time=True)
-            assert len(tomatoes) == 1, "Expected exactly one tomato object"
-            tomato = tomatoes[0]
-            cheeses = self.object_name_to_objects("cheese", test_time=True)
-            assert len(cheeses) == 1, "Expected exactly one cheese object"
-            cheese = cheeses[0]
-            plates = self.object_name_to_objects("plate", test_time=True)
-            assert len(plates) == 1, "Expected exactly one plate object"
-            plate = plates[0]
-            if self._InContainer_holds(state, [tomato, plate]) and self._InContainer_holds(state, [cheese, plate]):
+            tomato = self.object_name_to_object("tomato_1", test_time=True)
+            assert tomato is not None, "Expected exactly one tomato object"
+            cheese = self.object_name_to_object("cheese", test_time=True)
+            assert cheese is not None, "Expected exactly one cheese object"
+            plate = self.object_name_to_object("plate")
+            assert plate is not None, "Expected exactly one plate object"
+            if self._InContainer_holds(state, [tomato, plate]): #and self._InContainer_holds(state, [cheese, plate]):
                 return True
         elif goal_desc == "PnPCabToCounterTomato":
-            objs = self.object_name_to_objects("tomato_1", test_time=True)
-            assert len(objs) == 1, "Expected exactly one object"
-            obj = objs[0]
-            plates = self.object_name_to_objects("plate", test_time=True)
-            assert len(plates) == 1, "Expected exactly one plate object"
-            plate = plates[0]
+            obj = self.object_name_to_object("tomato_1", test_time=True)
+            assert obj is not None, "Expected exactly one object"
+            plate = self.object_name_to_object("plate")
+            assert plate is not None, "Expected exactly one plate object"
             if self._OnSurface_holds(state, [obj, plate]):
                 return True
         else:
@@ -647,6 +637,8 @@ class RoboKitchenEnv(BaseEnv):
                 controller_config = load_composite_controller_config(robot=robot_type)
                 if CFG.robo_kitchen_task == "OpenDrawer":
                     layout_ids = [0]
+                elif CFG.robo_kitchen_task == "PnPCabToCounterTomato" or CFG.robo_kitchen_task == "CookCheeseAndTomatoes":
+                    layout_ids = [10]
                 else:
                     layout_ids = [3]
                 
@@ -1020,7 +1012,7 @@ class RoboKitchenEnv(BaseEnv):
         door_ids = []
         for name in CFG.robo_kitchen_obj_names:
             # Match names like 'door_{num}_pos_quat' and extract the num
-            match = re.match(r"door_(\d+)_pos_quat$", name)
+            match = re.match(r"door_(\d+)$", name)
             if match:
                 door_ids.append(int(match.group(1)))
 
@@ -1028,13 +1020,8 @@ class RoboKitchenEnv(BaseEnv):
         # In terms of mapping to CFG.robo_kitchen_obj_names, 
         # objs are fine because they are not added mujoco id in CFG.robo_kitchen_obj_names, 
         # but doors are added mujoco id (so we know which door belongs to which cabinet).
-        for obj_name in self._env_raw.obj_body_id:
-            obstacle_name = obj_name # what to store in CFG.robo_kitchen_obstacles
-            if 'door' in obj_name:
-                if len(door_ids) == 0:
-                    logging.warning("No door ids found")
-                    continue
-                id = door_ids[-1]
+        if len(door_ids) > 0:
+            for id in door_ids:
                 cabinet = next(
                     (fx for fx in getattr(self._env_raw, "fixtures", {}).values()
                     if self._env_raw.sim.model.body_name2id(fx.root_body) == id),
@@ -1048,25 +1035,29 @@ class RoboKitchenEnv(BaseEnv):
                     obstacle_name = f'door_{id}'
                 else:
                     logging.warning(f"door_{id}'s cabinet not found in fixtures")
-                    door_ids.pop()
-                    continue
-            else:
-                obj_model = self._env_raw.objects.get(obj_name)
-                if obj_model is None:
-                    continue
-                
-                # Get object position and orientation
-                obj_pos = self._env_raw.sim.data.body_xpos[self._env_raw.obj_body_id[obj_name]]
-                obj_quat_wxyz = self._env_raw.sim.data.body_xquat[self._env_raw.obj_body_id[obj_name]]
-                # Convert from wxyz to xyzw format
-                obj_quat_xyzw = np.array([obj_quat_wxyz[1], obj_quat_wxyz[2], obj_quat_wxyz[3], obj_quat_wxyz[0]])
-                
-                # Get bounding box points
-                try:
-                    bbox_points = obj_model.get_bbox_points(trans=obj_pos, rot=obj_quat_xyzw)
-                except Exception:
-                    # Skip objects that don't have proper bounding box implementation
-                    continue
+                center, quat_xyzw, radii = self._fit_bbox_ellipsoid(bbox_points, obstacle_name) # obstacle_name is what to store in CFG.robo_kitchen_obstacles
+                if CFG.robo_kitchen_visualize_bboxes:
+                    self._visualize_bbox_ellipsoid(bbox_points, center, quat_xyzw, radii, "door"+str(id)) # obj_name is only used for generating a color (doesn't matter)
+        
+        for obj_name in self._env_raw.obj_body_id:
+            obstacle_name = obj_name # what to store in CFG.robo_kitchen_obstacles
+            
+            obj_model = self._env_raw.objects.get(obj_name)
+            if obj_model is None:
+                continue
+            
+            # Get object position and orientation
+            obj_pos = self._env_raw.sim.data.body_xpos[self._env_raw.obj_body_id[obj_name]]
+            obj_quat_wxyz = self._env_raw.sim.data.body_xquat[self._env_raw.obj_body_id[obj_name]]
+            # Convert from wxyz to xyzw format
+            obj_quat_xyzw = np.array([obj_quat_wxyz[1], obj_quat_wxyz[2], obj_quat_wxyz[3], obj_quat_wxyz[0]])
+            
+            # Get bounding box points
+            try:
+                bbox_points = obj_model.get_bbox_points(trans=obj_pos, rot=obj_quat_xyzw)
+            except Exception:
+                # Skip objects that don't have proper bounding box implementation
+                continue
             center, quat_xyzw, radii = self._fit_bbox_ellipsoid(bbox_points, obstacle_name) # obstacle_name is what to store in CFG.robo_kitchen_obstacles
             if CFG.robo_kitchen_visualize_bboxes:
                 self._visualize_bbox_ellipsoid(bbox_points, center, quat_xyzw, radii, obj_name) # obj_name is only used for generating a color (doesn't matter)
@@ -1574,8 +1565,6 @@ class RoboKitchenEnv(BaseEnv):
             return []
         for robo_kitchen_obj_name in CFG.robo_kitchen_obj_names:
             robo_kitchen_obj_name_no_num = robo_kitchen_obj_name
-            if robo_kitchen_obj_name.endswith("pos_quat"):
-                robo_kitchen_obj_name_no_num = robo_kitchen_obj_name[:-9]
             if "_" in robo_kitchen_obj_name_no_num and robo_kitchen_obj_name_no_num.split("_")[-1].isdigit():
                 robo_kitchen_obj_name_no_num = "_".join(robo_kitchen_obj_name_no_num.split("_")[:-1])
             if obj_name_no_num == robo_kitchen_obj_name_no_num:
@@ -1620,16 +1609,24 @@ class RoboKitchenEnv(BaseEnv):
         if obj_name.endswith("pos_quat"):
             obj_name_no_pos_quat = obj_name[:-9]
 
-        for robo_kitchen_obj_name in CFG.robo_kitchen_obj_names:
-            robo_kitchen_obj_name_no_pos_quat = robo_kitchen_obj_name
-            if robo_kitchen_obj_name.endswith("pos_quat"):
-                robo_kitchen_obj_name_no_pos_quat = robo_kitchen_obj_name[:-9]
-            if obj_name_no_pos_quat == robo_kitchen_obj_name_no_pos_quat:
-                obj_name_raw = obj_name_no_pos_quat
-                if "_" in obj_name and obj_name.split("_")[-1].isdigit():
-                    obj_name_raw = "_".join(obj_name.split("_")[:-1])
-                if obj_name_raw in cls.obj_name_to_type:
-                    return Object(robo_kitchen_obj_name, cls.obj_name_to_type[obj_name_raw])
+
+        # obj_name is name_id, we need to find if it is in cls.obj_name_to_type
+        obj_name_no_num = obj_name_no_pos_quat.split("_")[0] if "_" in obj_name_no_pos_quat and obj_name_no_pos_quat.split("_")[1].isdigit() else obj_name_no_pos_quat
+        if obj_name_no_num in cls.obj_name_to_type:
+            return Object(obj_name_no_pos_quat, cls.obj_name_to_type[obj_name_no_num])
+        else:
+            return None
+        
+        # for robo_kitchen_obj_name in CFG.robo_kitchen_obj_names:
+        #     robo_kitchen_obj_name_no_pos_quat = robo_kitchen_obj_name
+        #     if robo_kitchen_obj_name.endswith("pos_quat"):
+        #         robo_kitchen_obj_name_no_pos_quat = robo_kitchen_obj_name[:-9]
+        #     if obj_name_no_pos_quat == robo_kitchen_obj_name_no_pos_quat:
+        #         obj_name_raw = obj_name_no_pos_quat
+        #         if "_" in obj_name and obj_name.split("_")[-1].isdigit():
+        #             obj_name_raw = "_".join(obj_name.split("_")[:-1])
+        #         if obj_name_raw in cls.obj_name_to_type:
+        #             return Object(robo_kitchen_obj_name, cls.obj_name_to_type[obj_name_raw])
         return None
 
     @classmethod

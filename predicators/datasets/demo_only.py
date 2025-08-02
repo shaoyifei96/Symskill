@@ -336,23 +336,26 @@ def create_demo_data_from_user_demo(env: RoboKitchenEnv,
     """
     
     # Find all demo pickle files in the directory
-    demo_files = glob.glob(os.path.join(path_to_demo, "*_obs.pkl"))
-    demo_files.sort()  # Sort to ensure consistent ordering
+    demo_obs_files = glob.glob(os.path.join(path_to_demo, "*_obs.pkl"))
+    # action_files = glob.glob(os.path.join(path_to_demo, "*_actions.pkl"))
+    demo_obs_files.sort()  # Sort to ensure consistent ordering
     
-    if not demo_files:
+    if not demo_obs_files:
         raise ValueError(f"No *_obs.pkl files found in directory {path_to_demo}")
     
     trajectories = []
     
-    for demo_idx, demo_file_path in enumerate(demo_files):
+    for demo_idx, demo_file_path in enumerate(demo_obs_files):
         # Show progress
         if demo_idx >= CFG.num_train_tasks:
             break
-        logging.info(f"Processing demo {demo_idx+1} / {min(CFG.num_train_tasks, len(demo_files))}")
+        logging.info(f"Processing demo {demo_idx+1} / {min(CFG.num_train_tasks, len(demo_obs_files))}")
         
         # Load pickle file containing list of observations
         with open(demo_file_path, "rb") as f:
             observations = pkl.load(f)
+        with open(demo_file_path.replace("_obs.pkl", "_actions.pkl"), "rb") as f:
+            actions = pkl.load(f)
         
         if not isinstance(observations, list) or len(observations) == 0:
             logging.warning(f"Skipping {demo_file_path}: not a valid list of observations")
@@ -360,11 +363,12 @@ def create_demo_data_from_user_demo(env: RoboKitchenEnv,
             
         # Create list of State objects from observations
         states = []
+        action_ref = []
         frames_center = []
         frames_left = []
         frames_right = []
         
-        for t, obs in enumerate(observations):
+        for obs, action in zip(observations, actions):
             # Since this is real data, contact information is not available
             # Create empty contact set as mentioned in the docstring
             contact_set = set()
@@ -373,20 +377,12 @@ def create_demo_data_from_user_demo(env: RoboKitchenEnv,
             state = RoboKitchenEnv.state_info_to_state(obs, contact_set)
             states.append(state)
             
-        
-        # Since we don't have real actions, create dummy actions for compatibility
-        # Actions should be one less than states
-        action_objs = []
-        if len(states) > 1:
-            dummy_action = np.zeros(7)  # Assuming 7-DOF action space for robotic arm
-            for _ in range(len(states) - 1):
-                action_obj = Action(dummy_action)
-                action_objs.append(action_obj)
+            action_ref.append(Action(action))
         
         # Create LowLevelTrajectory
         traj = LowLevelTrajectory(
             _states=list(states),
-            _actions=action_objs,
+            _actions=action_ref[:-1],
             _is_demo=True,
             _train_task_idx=demo_idx,
             _raw_robosuite_states=None,  # Not available for user demos

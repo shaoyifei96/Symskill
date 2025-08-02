@@ -484,6 +484,18 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 new_params = new_params + new_vars_to_add
                 lifted_atom = LiftedAtom(eff, [obj0_var, obj1_var])
                 new_delete_effects.add(lifted_atom)
+                
+                
+        ## check check!!
+        delete_effect_vars = set()
+        for atom in new_delete_effects:
+            delete_effect_vars.update(atom.variables)
+        
+        # If there are variables in delete effects that aren't in parameters, add them
+        missing_vars = delete_effect_vars - set(new_params)
+        if missing_vars:
+            raise ValueError(f"NSRT has variables in delete effects that aren't in parameters: {missing_vars}")
+
         return new_params, new_delete_effects
     
     def _add_additional_remove_effects_operators(self) -> None:
@@ -510,8 +522,8 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
 
         updated_nsrts = set()
         for nsrt in self._nsrts:
-            new_delete_effects = nsrt.delete_effects
-            new_params = nsrt.parameters
+            new_delete_effects = set(nsrt.delete_effects)  # Create a copy to avoid shared reference bug
+            new_params = list(nsrt.parameters)  # Create a copy to avoid shared reference bug
             
             if len(nsrt.add_effects) == 1:
                 add_eff = list(nsrt.add_effects)[0]
@@ -537,6 +549,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         
         # Update self._nsrts with the modified NSRTs
         self._nsrts = updated_nsrts
+        
     def _add_base_motion_add_effects(self) -> None:
         """Add base motion add effects to the loaded operators.
         delete effects are added in _add_additional_remove_effects_operators """
@@ -547,6 +560,8 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 for pred, obj1_type, obj2_type in CFG.dict_contact_predicate_to_rel_pose_predicates.keys():
                     val_pred = CFG.dict_contact_predicate_to_rel_pose_predicates[pred, obj1_type, obj2_type]
                     # Handle multiple predicates in val_pred
+                    if len(val_pred) > 1:
+                        raise ValueError("Not implemented")  # TODO: handle multiple predicates
                     for single_pred in val_pred:
                         if "RobotBaseRelCovCluster" in single_pred.name:
                             task = single_pred.name.split("-")[1]
@@ -691,7 +706,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             dataset._trajectories = [dataset._trajectories[i] for i in keep_indices if i < len(dataset._trajectories)]
         elif CFG.robo_kitchen_task == "PnPCabToCounterTomato":
             # Use similar indices as PnPCabToCounter since it's the same basic action
-            keep_indices = [0, 1, 2]
+            keep_indices = [0, 1, 3, 4, 5]
             dataset._trajectories = [dataset._trajectories[i] for i in keep_indices if i < len(dataset._trajectories)]
         elif CFG.robo_kitchen_task == "PnPCounterToStove":
             keep_indices = [0, 1, 2, 3, 6, 7, 8, 9, 10, 11]
@@ -787,7 +802,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         # segmented_trajs_final = [
         #     segment_trajectory(ll_traj, final_predicates, atom_seq=atom_seq)
         #     for ll_traj, atom_seq in atom_dataset_final
-        trajs = dataset.trajectories
+        trajs = list(dataset.trajectories)  # Create a copy to avoid modifying original dataset
         # Remove trajectories with different segment counts in reverse order
         # to avoid index shifting problems
         for i in sorted(different_seg_count_trajs, reverse=True):
@@ -1007,6 +1022,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             # or CFG.robo_kitchen_task == "PnPCounterToStove":
             # or CFG.robo_kitchen_task == "PnPCounterToCab" \
             # or CFG.robo_kitchen_task == "PnPStoveToCounter" \
+            # or CFG.robo_kitchen_task == "PnPCabToCounterTomato" \
             n_bkps = 2
 
         for i, traj in enumerate(dataset.trajectories):
@@ -1065,14 +1081,23 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 algo = rpt.Dynp(model="l1", min_size=10, jump=3).fit(lin_vel)
                 if np.max(lin_vel) > CFG.motion_analysis_lin_vel_rot_vel_threshold: # if there is lin motion, use lin vel to find change points
                     logging.warning(f"Using LINEAR velocity to find change points for {max_motion_obj.name}")
-                    # data is 10 hz, so min size being 1 sec, jump being 0.3 sec
-                    my_bkps = algo.predict(n_bkps=n_bkps)
-                    # dynamic_threshold = np.mean(velocities[my_bkps])
+                    
+                    if CFG.robo_kitchen_task == "PnPCabToCounterTomato":
+                        # For tomato task, use simple threshold crossing for breakpoints
+                        threshold = 0.003
+                        above_threshold = np.where(lin_vel > threshold)[0]
+                        if len(above_threshold) > 0:
+                            first_motion = above_threshold[0]
+                            last_motion = above_threshold[-1]
+                            my_bkps = [first_motion, last_motion]
+                        else:
+                            my_bkps = algo.predict(n_bkps=n_bkps)
+                    else:
+                        # data is 10 hz, so min size being 1 sec, jump being 0.3 sec
+                        my_bkps = algo.predict(n_bkps=n_bkps)
+                    
+                    # Display and save the visualization
                     rpt.show.display(lin_vel, my_bkps, my_bkps, figsize=(10, 6))
-
-                    # save the figure
-                    # hopefully the signal has 2 change point, and the velocities above the first one are the ones we want
-                    # plot yline of the dynamic threshold
                     plt.savefig(f"feature_data/motion_analysis_traj{i}_obj_lin_{max_motion_obj.name}.png")
                     plt.close()
                 else:
@@ -1833,31 +1858,32 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
     def _add_base_ref_obj_precondition(self, ground_atom_dataset: List[GroundAtomTrajectory], relative_pose_dataset_dict: Dict[Tuple[Predicate, Type, Type, str], List[np.ndarray]],  obj_type_of_reference_best: Type, obj_type_contact_with_gripper: Type, robot_base_obj_type: Type, traj_all_objs_all: List[List[Object]]):
         # RelPosPred
         RelPoseBaseRefObjPred = Predicate("RobotBaseRelPosPred-" + CFG.robo_kitchen_task, [obj_type_of_reference_best, robot_base_obj_type], lambda state, objects: True)
-        RelPoseBaseContactObjPred = Predicate("RobotBaseRelPosPred-" + CFG.robo_kitchen_task, [obj_type_contact_with_gripper, robot_base_obj_type], lambda state, objects: True)
+        # RelPoseBaseContactObjPred = Predicate("RobotBaseRelPosPred-" + CFG.robo_kitchen_task, [obj_type_contact_with_gripper, robot_base_obj_type], lambda state, objects: True)
         # this having a object type since it will need to be used when other tasks load and use the same predicates
         for i, (ll_traj, atom_seq) in enumerate(ground_atom_dataset):
             if not ll_traj.states: continue # Skip empty trajectories
             obj_ref = [o for o in traj_all_objs_all[i] if o.type == obj_type_of_reference_best][0]
             obj_base = [o for o in ll_traj.states[0].data.keys() if o.type == robot_base_obj_type][0]
-            obj_contact = [o for o in ll_traj.states[0].data.keys() if o.type == obj_type_contact_with_gripper][0]
+            # obj_contact = [o for o in ll_traj.states[0].data.keys() if o.type == obj_type_contact_with_gripper][0]
             assert obj_ref is not None and obj_base is not None, "Reference or base object not found"
             skip_var =max(int(len(atom_seq) / 50),1)
             logging.debug(f"Processing trajectory {i+1}/{len(ground_atom_dataset)} with {len(atom_seq)} atoms, skipping every {skip_var} atoms.")
             for t in range(len(atom_seq)):# Add the predicate to every ground atom at this timestep
                 ground_atom_ref = GroundAtom(RelPoseBaseRefObjPred, [obj_ref, obj_base])
-                ground_atom_contact = GroundAtom(RelPoseBaseContactObjPred, [obj_contact, obj_base])
+                ground_atom_dataset[i][1][t].add(ground_atom_ref)
+                # ground_atom_contact = GroundAtom(RelPoseBaseContactObjPred, [obj_contact, obj_base])
                 # Check if there's an InContact predicate with obj_contact
-                has_contact_with_obj = False
-                for atom in atom_seq[t]:
-                    if atom.predicate.name == "InContact" and obj_contact in atom.objects:
-                        has_contact_with_obj = True
-                        break
+                # has_contact_with_obj = False
+                # for atom in atom_seq[t]:
+                #     if atom.predicate.name == "InContact" and obj_contact in atom.objects:
+                #         has_contact_with_obj = True
+                #         break
                 
                 # Add the reference object precondition
-                if has_contact_with_obj:
-                    ground_atom_dataset[i][1][t].add(ground_atom_ref)
-                else:
-                    ground_atom_dataset[i][1][t].add(ground_atom_contact)
+                # if has_contact_with_obj:
+                #     ground_atom_dataset[i][1][t].add(ground_atom_ref)
+                # else:
+                #     ground_atom_dataset[i][1][t].add(ground_atom_contact)
             for t in range(skip_var, len(atom_seq), skip_var): # Start from 1 to compare with t-1, skip every 4, for efficiency
                 state_t = ll_traj.states[t]
                 
@@ -1865,17 +1891,17 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                     state_t, obj_ref, obj_base,
                     CFG.trans_feat_name, CFG.quat_feat_name
                 )
-                rel_pose_at_contact_obj2_in_obj1_frame_contact = utils.calculate_relative_pose_from_state(
-                    state_t, obj_contact, obj_base,
-                    CFG.trans_feat_name, CFG.quat_feat_name
-                )
+                # rel_pose_at_contact_obj2_in_obj1_frame_contact = utils.calculate_relative_pose_from_state(
+                #     state_t, obj_contact, obj_base,
+                #     CFG.trans_feat_name, CFG.quat_feat_name
+                # )
 
                 if rel_pose_at_contact_obj2_in_obj1_frame_ref is not None:
                     key = (RelPoseBaseRefObjPred, obj_type_of_reference_best, robot_base_obj_type, "2in1")
                     relative_pose_dataset_dict[key].append(rel_pose_at_contact_obj2_in_obj1_frame_ref)
-                if rel_pose_at_contact_obj2_in_obj1_frame_contact is not None:
-                    key = (RelPoseBaseContactObjPred, obj_type_contact_with_gripper, robot_base_obj_type, "2in1")
-                    relative_pose_dataset_dict[key].append(rel_pose_at_contact_obj2_in_obj1_frame_contact)
+                # if rel_pose_at_contact_obj2_in_obj1_frame_contact is not None:
+                #     key = (RelPoseBaseContactObjPred, obj_type_contact_with_gripper, robot_base_obj_type, "2in1")
+                #     relative_pose_dataset_dict[key].append(rel_pose_at_contact_obj2_in_obj1_frame_contact)
 
         return ground_atom_dataset, relative_pose_dataset_dict
 
@@ -1987,6 +2013,8 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
 
         # Process the collected relative pose data
         for (pred, type1, type2, direction), data in relative_pose_dataset_dict.items():
+            if direction == "1in2":
+                continue
             feat_name = CFG.pose_feature_name # We are clustering relative SE(3) poses
             logging.debug(f"Clustering relative feature {feat_name} for ({type1.name}, {type2.name}) from {pred.name} with {len(data)} points.")
 
@@ -2480,6 +2508,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             o_type for o_type in all_objs_types
             if "finger" not in o_type.name
             and "base"   not in o_type.name
+            and "wrist"  not in o_type.name
         ]
         logging.info(f"After filtering, {len(all_objs_types)} objects remain") 
         if len(all_objs_types) <= 2:
