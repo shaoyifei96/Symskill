@@ -2708,12 +2708,50 @@ def all_ground_operators_given_partial(
         yield ground_op
 
 
+def _validate_object_relationships(choice: Sequence[Object]) -> bool:
+    """Validate that objects in the choice satisfy relationship constraints.
+    
+    For example, ensures that a door and cabinet belong to the same fixture
+    by checking that their object IDs match (extracted from object names).
+    """
+    
+    # Handle special case: if choice has 3+ objects and objects[0] and objects[2] 
+    # are the same type, skip objects[0] in constraint checking as it may be unrelated
+    if len(choice) >= 3 and choice[0].type == choice[2].type:
+        objects_to_check = choice[1:]
+    else:
+        objects_to_check = choice
+    
+    # Check relationship constraints for each object
+    for obj in objects_to_check:
+        obj_type_name = obj.type.name
+        
+        # If this object type has a related type constraint
+        if obj_type_name in CFG.related_object_types:
+            obj_id = obj.name.split("_")[-1]
+            related_type_name = CFG.related_object_types[obj_type_name]
+            
+            # Find the related object in the choice
+            for related_obj in objects_to_check:
+                if related_obj.type.name == related_type_name:
+                    related_obj_id = related_obj.name.split("_")[-1]
+                    
+                    # IDs must match for valid relationship
+                    if related_obj_id != obj_id:
+                        return False  # Constraint violated
+                    break  # Found matching related object
+    
+    return True  # All constraints satisfied
+
+
 def all_ground_nsrts(nsrt: NSRT,
                      objects: Collection[Object]) -> Iterator[_GroundNSRT]:
     """Get all possible groundings of the given NSRT with the given objects."""
     types = [p.type for p in nsrt.parameters]
     for choice in get_object_combinations(objects, types):
-        yield nsrt.ground(tuple(choice))
+        # Check if this object combination satisfies relationship constraints
+        if _validate_object_relationships(choice):
+            yield nsrt.ground(tuple(choice))
 
 
 def all_ground_nsrts_fd_translator(

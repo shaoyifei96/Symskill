@@ -1,6 +1,7 @@
 """A RoboKitchen-specific perceiver."""
 
 from typing import Set
+import numpy as np
 from predicators.settings import CFG
 from predicators.envs.robo_kitchen import RoboKitchenEnv
 from predicators.perception.base_perceiver import BasePerceiver
@@ -128,7 +129,7 @@ class RoboKitchenPerceiver(BasePerceiver):
         elif goal_desc == 'CookCheeseAndTomatoes':
             goal = {
                 GroundAtom(InContainer, [tomato, plate]),
-                # GroundAtom(InContainer, [cheese, plate]),
+                GroundAtom(InContainer, [cheese, plate]),
             }
         elif goal_desc == 'TurnOnSinkFaucet':
             goal = {
@@ -143,7 +144,7 @@ class RoboKitchenPerceiver(BasePerceiver):
                 GroundAtom(InContainer, [tomato, plate]),
             }
         else:
-            raise NotImplementedError(f"Unrecognized goal: {goal_desc}")
+            raise NotImplementedError(f"Unrecognized goal: {goal_desc} (This goal is what the algorithm sees online to convert each goal description to something it understands as relative pose predicates it met during training. e.g. InContainer(tomato, plate) -> RelPose(tomato, plate). Since no goal predicate is specified during training, so we need to save a goal dict for each goal description)")
 
         # convert task.goal to predicate goal if using clustering reprocess
         if  len(list(state)) > 0 and (CFG.reprocess_ground_atom_dataset_using_cluster_replacement or CFG.reprocess_ground_atom_dataset_using_cluster_predicates):
@@ -174,10 +175,49 @@ class RoboKitchenPerceiver(BasePerceiver):
                         rel_pose_pred = list(rel_pose_preds)[0]
                         # TODO: this is problematic. It's unable to get both tomato and cheese
                         type1_objs = [obj for obj in state if obj.type == rel_pose_pred.types[0]]
-                        type2_objs = [obj for obj in state if obj.type == rel_pose_pred.types[1]]
-                        type1_obj = type1_objs[0]
-                        type2_obj = type2_objs[0]
-                        rel_pose_pred_atom = GroundAtom(rel_pose_pred, [type1_obj, type2_obj])
+                        type2_objs = [obj for obj in state if obj.type == rel_pose_pred.types[1]] 
+                        # type 2 is the object in motion, such as door, or tomato, if object name has a _number at the end, and type_1 object also has a _number at the end, then try to match the object with the same _number at the end. if type 2 object has no _number at the end, then match with the object of type 1 that is closer.
+                        assert len(type1_objs) >= 1 and len(type2_objs) >= 1
+                        if len(type1_objs) == 1 and len(type2_objs) == 1:
+                            type1_obj_final = type1_objs[0]
+                            type2_obj_final = type2_objs[0]
+                        else:
+                            # start with type 2,
+                            goal_obj_2_name = g.entities[0].name # since predicate usually have the object as first entity
+                            # try to match the whole name first with number
+                            for type2_obj in type2_objs:
+                                if goal_obj_2_name in type2_obj.name:
+                                    type2_obj_final = type2_obj
+                                    break
+                            else:
+                                # try to match the name without _number at the end
+                                goal_obj_2_name_without_number = goal_obj_2_name.split("_")[0] if "_" in goal_obj_2_name and goal_obj_2_name.split("_")[-1].isdigit() else goal_obj_2_name
+                                for type2_obj in type2_objs:
+                                    type2_obj_name_without_number = type2_obj.name.split("_")[0] if "_" in type2_obj.name and type2_obj.name.split("_")[-1].isdigit() else type2_obj.name
+                                    if goal_obj_2_name_without_number in type2_obj_name_without_number:
+                                        type2_obj_final = type2_obj
+                                        break
+                        assert type2_obj_final is not None
+                        # try to match the object of type 1 that has the name number at the end 
+                        if type2_obj_final.name.split("_")[-1].isdigit():
+                            for type1_obj in type1_objs:
+                                if type1_obj.name.split("_")[-1].isdigit():
+                                    type1_obj_final = type1_obj
+                                    break
+                        else:
+                            # try to match the object of type 1 that is closer
+                            type1_obj_final = None
+                            min_dist = float("inf")
+                            for type1_obj in type1_objs:
+                                state_obj_pos = state.get(type1_obj, "translation")
+                                goal_obj_pos = state.get(type2_obj_final, "translation")
+                                dist = np.linalg.norm(state_obj_pos - goal_obj_pos)
+                                if dist < min_dist:
+                                    min_dist = dist
+                                    type1_obj_final = type1_obj
+                            assert type1_obj_final is not None
+                        # type2_obj = type2_objs[0]
+                        rel_pose_pred_atom = GroundAtom(rel_pose_pred, [type1_obj_final, type2_obj_final])
                         new_goal.add(rel_pose_pred_atom)
                     else:
                         # For predicates not in the conversion dict (like MicrowaveOn), keep as is

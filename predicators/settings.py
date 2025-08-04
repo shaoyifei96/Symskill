@@ -100,10 +100,10 @@ class GlobalSettings:
     # robo_kitchen_task = "TurnOffStove"
     # robo_kitchen_task = "TurnOnSinkFaucet"
     # robo_kitchen_task = "TurnOffSinkFaucet"
-
-    gt_ref_obj_type = {"OpenSingleDoor": ["cabinet_type", "surface_type"], 
-                       "CloseSingleDoor": ["cabinet_type", "surface_type"],
-                       "PnPCounterToCab": "surface_type",
+    
+    gt_ref_obj_type = {"OpenSingleDoor": "cabinet_type", 
+                       "CloseSingleDoor": "cabinet_type",
+                       "PnPCounterToCab": "cabinet_type",
                        "PnPCabToCounter": "counter_type",
                        "PnPCabToCounterTomato": "container_type",
                        "PnPStoveToCounter": "counter_type",
@@ -115,10 +115,16 @@ class GlobalSettings:
                        "TurnOnSinkFaucet": "sink_type",
                        "TurnOffSinkFaucet": "sink_type",}
 
+    related_object_types = {"cabinet_type":"door_type",
+                            "door_type":"cabinet_type"}
+
+
+
     # composite tasks (leaning needs to be done in sequence, see README)
     # robo_kitchen_task = "StoreFruit" # New task
     # robo_kitchen_task = "StoreFruitFull" # New task
-    # robo_kitchen_task = "CookCheeseAndTomatoes" # New task
+    robo_kitchen_task = "CookCheeseAndTomatoes" # New task
+    composite_tasks = set(["CookCheeseAndTomatoes", "StoreFruit", "StoreFruitFull"])
     # tasks that won't work with current approach
     # robo_kitchen_task = "TurnOnMicrowave" # this is not working, nothing is in motion in the dataset button just clicks
     # robo_kitchen_viz_debug = False # i think the use_gui flag covers this
@@ -968,7 +974,7 @@ class GlobalSettings:
                     "tools": 1000,
                     "stick_button": 1000,
                     "stick_button_move": 1000,
-                    "robo_kitchen": 100,
+                    "robo_kitchen": 10,
                 },
             )[args.get("env", "")],
             # In SeSamE, the maximum effort put into refining a single skeleton.

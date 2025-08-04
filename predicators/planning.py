@@ -1200,6 +1200,9 @@ def run_task_plan_once(
     objects = set(task.init)
     # print ("\033[95mInit atoms:\033[0m")
     # print (init_atoms)
+    if not CFG.relaxed_nsrt_learning:
+        # remove the relaxed version of each NSRT
+        nsrts = set([nsrt for nsrt in nsrts if not nsrt.name.endswith("m")])
 
     start_time = time.perf_counter()
 
@@ -1257,8 +1260,8 @@ def run_task_plan_once(
                 # if not goal_effect_check(plan_tuple[0], goal):
                 #     logging.debug(f"This plan doesn't achieve the goal(s)")
                 #     continue
-                if redundancy_check(plan_tuple[0], goal):
-                    continue
+                # if redundancy_check(plan_tuple[0], goal):
+                #     continue
                 plans.append(plan_tuple[0])
                 atoms_seqs.append(plan_tuple[1])
                 metrics_list.append(plan_tuple[2])
@@ -1341,20 +1344,20 @@ def run_task_plan_once(
             metrics = metrics_list[best_idx]
 
         # fix wrong move to init OR insert move to init
-        # if len(plan) > 2:
-        #     if not CFG.remove_inOrigin_pred:
-        #         atoms_seq = fix_wrong_move_to_init(plan, atoms_seq)
-        #     else:
-        #         move_to_init_nsrt = next((nsrt for nsrt in nsrts if nsrt.name == "ToInitialState"), None)
-        #         gripper_obj = next((obj for obj in objects if obj.type.name == "gripper_type"), None)
-        #         base_obj = next((obj for obj in objects if obj.type.name == "base_type"), None)
-        #         if move_to_init_nsrt is not None and gripper_obj is not None and base_obj is not None:
-        #             ground_move_to_init = move_to_init_nsrt.ground([gripper_obj, base_obj])
-        #             plan, atoms_seq = insert_between_tasks(plan, atoms_seq, ground_move_to_init)
-        #     logging.debug(f"Best Plan After Fix [{', '.join(nsrt.name for nsrt in plan)}]")
-        #     logging.debug(f"Best Plan Atoms Seq After Fix: ")
-        #     for i, atoms in enumerate(atoms_seq):
-        #         logging.debug(f"Step {i+1}: {', '.join(atom._str for atom in atoms)}")
+        if len(plan) > 2:
+            if not CFG.remove_inOrigin_pred:
+                atoms_seq = fix_wrong_move_to_init(plan, atoms_seq)
+            else:
+                move_to_init_nsrt = next((nsrt for nsrt in nsrts if nsrt.name == "ToInitialState"), None)
+                gripper_obj = next((obj for obj in objects if obj.type.name == "gripper_type"), None)
+                base_obj = next((obj for obj in objects if obj.type.name == "base_type"), None)
+                if move_to_init_nsrt is not None and gripper_obj is not None and base_obj is not None:
+                    ground_move_to_init = move_to_init_nsrt.ground([gripper_obj, base_obj])
+                    plan, atoms_seq = insert_between_tasks(plan, atoms_seq, ground_move_to_init)
+            logging.debug(f"Best Plan After Fix [{', '.join(nsrt.name for nsrt in plan)}]")
+            logging.debug(f"Best Plan Atoms Seq After Fix: ")
+            for i, atoms in enumerate(atoms_seq):
+                logging.debug(f"Step {i+1}: {', '.join(atom._str for atom in atoms)}")
 
         if len(plan) > max_horizon:
             raise PlanningFailure(

@@ -820,16 +820,145 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
             memory["pos_error_integral"] = np.zeros(2)
             memory["yaw_error_integral"] = 0.0
             
-            # Store initial state to track progress
-            # ref_obj, base = objects
-            # memory["initial_base_pos"] = state.get(base, "translation")
-            # memory["initial_base_quat"] = state.get(base, "quaternion")
+            # Add arm waypoints before moving base (borrowed from MoveToInitPoseOption)
+            ref_obj, base, to_obj = objects
+            
+            # Find gripper object in state
+            gripper = None
+            for obj in state.data:
+                if obj.type.name == "gripper_type":
+                    gripper = obj
+                    break
+            
+            if gripper is not None:
+                # Define arm waypoints in base frame to move arm to safe position first
+                arm_waypoints = [
+                    CFG.init_pose  # Final arm position
+                ]
+                memory["arm_waypoints"] = arm_waypoints
+                memory["current_arm_waypoint"] = 0
+                memory["num_arm_waypoints"] = len(arm_waypoints)
+                memory["phase"] = "arm_movement"  # Start with arm movement phase
+            else:
+                # If no gripper found, skip arm movement
+                memory["phase"] = "base_movement"
             
             return True
 
         def _RepositionBase_option_policy(state: State, memory: dict, objects: Sequence[Object], params: Array) -> Action:
-            ref_obj, base = objects
+            ref_obj, base, to_obj = objects
             
+            # Check which phase we're in
+            if memory.get("phase") == "arm_movement":
+                # Find gripper object in state
+                gripper = None
+                for obj in state.data:
+                    if obj.type.name == "gripper_type":
+                        gripper = obj
+                        break
+                
+                if gripper is None or memory["current_arm_waypoint"] >= memory["num_arm_waypoints"]:
+                    # Switch to base movement phase
+                    memory["phase"] = "base_movement"
+                else:
+                    # ARM MOVEMENT PHASE (borrowed from MoveToInitPoseOption)
+                    gripper_pos = state.get(gripper, "translation")
+                    gripper_quat = state.get(gripper, "quaternion")
+                    base_pos = state.get(base, "translation")
+                    base_quat = state.get(base, "quaternion")
+                    gripper_pos_in_base, gripper_rot_in_base = frame_transform(gripper_pos, gripper_quat, base_pos, R.from_quat(base_quat).as_matrix())
+                    gripper_quat_in_base = R.from_matrix(gripper_rot_in_base).as_quat()
+
+                    # Check if close to current waypoint
+                    if np.linalg.norm(np.concatenate([gripper_pos_in_base, gripper_quat_in_base], axis=0) - memory["arm_waypoints"][memory["current_arm_waypoint"]]) < 0.2:
+                        if memory["current_arm_waypoint"] < memory["num_arm_waypoints"] - 1:
+                            memory["current_arm_waypoint"] += 1
+
+                    K_pos = 2.0
+                    K_rot = 0.5
+
+                    target_pos = memory["arm_waypoints"][memory["current_arm_waypoint"]][:3]
+                    target_quat = memory["arm_waypoints"][memory["current_arm_waypoint"]][3:7]
+
+                    # Calculate world frame velocities
+                    pos_error_world = target_pos - gripper_pos_in_base
+                    linear_vel_base = K_pos * pos_error_world
+
+                    # Angular velocity
+                    target_rot = R.from_quat(target_quat)
+                    current_rot = R.from_quat(gripper_quat_in_base)
+                    error_rot = target_rot * current_rot.inv()
+                    angular_vel_base = K_rot * error_rot.as_rotvec()
+
+                    # Construct action for arm movement
+                    action = np.zeros(7, dtype=np.float32)
+                    action[:3] = linear_vel_base
+                    action[3:6] = angular_vel_base
+                    action[6] = -1.0  # Keep gripper open
+
+                    # Clip action
+                    action_low = np.array([-1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0], dtype=np.float32)
+                    action_high = np.array([1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0], dtype=np.float32)
+                    action = np.clip(action, action_low, action_high)
+
+                    return Action(action)
+            
+            elif memory.get("phase") == "final_arm_movement":
+                # FINAL ARM MOVEMENT PHASE (same as initial arm movement but reset waypoint tracking)
+                # Find gripper object in state
+                gripper = None
+                for obj in state.data:
+                    if obj.type.name == "gripper_type":
+                        gripper = obj
+                        break
+                
+                if gripper is None:
+                    # No gripper found, this shouldn't happen but handle gracefully
+                    return Action(np.zeros(7, dtype=np.float32))
+                
+                # ARM MOVEMENT PHASE (same logic as initial arm movement)
+                gripper_pos = state.get(gripper, "translation")
+                gripper_quat = state.get(gripper, "quaternion")
+                base_pos = state.get(base, "translation")
+                base_quat = state.get(base, "quaternion")
+                gripper_pos_in_base, gripper_rot_in_base = frame_transform(gripper_pos, gripper_quat, base_pos, R.from_quat(base_quat).as_matrix())
+                gripper_quat_in_base = R.from_matrix(gripper_rot_in_base).as_quat()
+
+                # Check if close to current waypoint
+                if np.linalg.norm(np.concatenate([gripper_pos_in_base, gripper_quat_in_base], axis=0) - memory["final_arm_waypoints"][memory["current_final_arm_waypoint"]]) < 0.2:
+                    if memory["current_final_arm_waypoint"] < memory["num_final_arm_waypoints"] - 1:
+                        memory["current_final_arm_waypoint"] += 1
+
+                K_pos = 2.0
+                K_rot = 0.5
+
+                target_pos = memory["final_arm_waypoints"][memory["current_final_arm_waypoint"]][:3]
+                target_quat = memory["final_arm_waypoints"][memory["current_final_arm_waypoint"]][3:7]
+
+                # Calculate world frame velocities
+                pos_error_world = target_pos - gripper_pos_in_base
+                linear_vel_base = K_pos * pos_error_world
+
+                # Angular velocity
+                target_rot = R.from_quat(target_quat)
+                current_rot = R.from_quat(gripper_quat_in_base)
+                error_rot = target_rot * current_rot.inv()
+                angular_vel_base = K_rot * error_rot.as_rotvec()
+
+                # Construct action for arm movement
+                action = np.zeros(7, dtype=np.float32)
+                action[:3] = linear_vel_base
+                action[3:6] = angular_vel_base
+                action[6] = -1.0  # Keep gripper open
+
+                # Clip action
+                action_low = np.array([-1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0], dtype=np.float32)
+                action_high = np.array([1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0], dtype=np.float32)
+                action = np.clip(action, action_low, action_high)
+
+                return Action(action)
+            
+            # BASE MOVEMENT PHASE (original code)
             # Calculate current relative pose using the same method as predicate construction
             # This gives the pose of the base in the reference object's frame
             current_rel_pose = calculate_relative_pose_from_state(
@@ -869,7 +998,7 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
             # PI gains
             Kp_pos = 3.0  # proportional gain for position
             Ki_pos = 0.2  # integral gain for position
-            Kp_rot = 2.0  # proportional gain for rotation
+            Kp_rot = 4.0  # proportional gain for rotation
             Ki_rot = 0.1  # integral gain for rotation
             
             # Linear velocities in reference object frame (PI control)
@@ -912,51 +1041,138 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
             return Action(action_7d)
 
         def _RepositionBase_option_terminal(state: State, memory: dict, objects: Sequence[Object], params: Array) -> bool:
-            ref_obj, base = objects
+            ref_obj, base, to_obj = objects
             
-            # Get reference object (should be the first object in objects)
-            ref_obj = objects[0]
+            # If still in arm movement phase, check arm completion
+            if memory.get("phase") == "arm_movement":
+                # Find gripper object in state
+                gripper = None
+                for obj in state.data:
+                    if obj.type.name == "gripper_type":
+                        gripper = obj
+                        break
+                
+                if gripper is None:
+                    # No gripper found, switch to base movement
+                    memory["phase"] = "base_movement"
+                    return False
+                
+                # Check if arm has reached the final waypoint
+                gripper_pos = state.get(gripper, "translation")
+                gripper_quat = state.get(gripper, "quaternion")
+                base_pos = state.get(base, "translation")
+                base_quat = state.get(base, "quaternion")
+                gripper_pos_in_base, gripper_rot_in_base = frame_transform(gripper_pos, gripper_quat, base_pos, R.from_quat(base_quat).as_matrix())
+                gripper_quat_in_base = R.from_matrix(gripper_rot_in_base).as_quat()
+                
+                # Check if reached final arm waypoint
+                final_waypoint_reached = np.linalg.norm(np.concatenate([gripper_pos_in_base, gripper_quat_in_base], axis=0) - memory["arm_waypoints"][-1]) < 0.1
+                
+                if final_waypoint_reached:
+                    # Switch to base movement phase
+                    memory["phase"] = "base_movement"
+                
+                # Don't terminate yet, need to complete base movement too
+                return False
             
-            # Calculate current relative pose using the same method as predicate construction
-            current_rel_pose = calculate_relative_pose_from_state(
-                state, ref_obj, base,
-                CFG.trans_feat_name, CFG.quat_feat_name
-            )
+            elif memory.get("phase") == "base_movement":
+                # BASE MOVEMENT PHASE TERMINATION (original code)
+                # Get reference object (should be the first object in objects)
+                ref_obj = objects[0]
+                
+                # Calculate current relative pose using the same method as predicate construction
+                current_rel_pose = calculate_relative_pose_from_state(
+                    state, ref_obj, base,
+                    CFG.trans_feat_name, CFG.quat_feat_name
+                )
+                
+                # Target position and orientation from memory
+                target_pos = memory["base_target_pos"]
+                target_quat = memory["base_target_quat"]
+                
+                # Position error in XY plane
+                pos_error = np.array([target_pos[0] - current_rel_pose[0], 
+                                     target_pos[1] - current_rel_pose[1]])
+                
+                # Convert quaternions to rotation objects
+                current_rot = R.from_quat(current_rel_pose[3:])
+                target_rot = R.from_quat(target_quat)
+                
+                # Get current and target euler angles (xyz)
+                current_euler = current_rot.as_euler("xyz")
+                target_euler = target_rot.as_euler("xyz")
+                
+                # Calculate yaw error
+                yaw_error = target_euler[2] - current_euler[2]
+                
+                # Normalize yaw error to [-pi, pi]
+                while yaw_error > np.pi:
+                    yaw_error -= 2 * np.pi
+                while yaw_error < -np.pi:
+                    yaw_error += 2 * np.pi
+                
+                # Define thresholds for position and orientation errors
+                pos_threshold = 0.01  # meters
+                rot_threshold = 0.01  # radians 0.5 deg
+                
+                # Check if position and orientation errors are below thresholds
+                pos_close = np.linalg.norm(pos_error) < pos_threshold
+                rot_close = abs(yaw_error) < rot_threshold
+                
+                # If base movement is complete, switch to final arm movement
+                if pos_close and rot_close:
+                    # Find gripper object to set up final arm movement
+                    gripper = None
+                    for obj in state.data:
+                        if obj.type.name == "gripper_type":
+                            gripper = obj
+                            break
+                    
+                    if gripper is not None:
+                        # Initialize final arm waypoints (same as initial arm waypoints)
+                        final_arm_waypoints = [
+                            CFG.init_pose  # Final arm position
+                        ]
+                        memory["final_arm_waypoints"] = final_arm_waypoints
+                        memory["current_final_arm_waypoint"] = 0
+                        memory["num_final_arm_waypoints"] = len(final_arm_waypoints)
+                        memory["phase"] = "final_arm_movement"
+                        return False  # Don't terminate yet, need to complete final arm movement
+                    else:
+                        # No gripper found, we can terminate
+                        return True
+                
+                # Base movement not yet complete
+                return False
             
-            # Target position and orientation from memory
-            target_pos = memory["base_target_pos"]
-            target_quat = memory["base_target_quat"]
+            elif memory.get("phase") == "final_arm_movement":
+                # FINAL ARM MOVEMENT PHASE TERMINATION
+                # Find gripper object in state
+                gripper = None
+                for obj in state.data:
+                    if obj.type.name == "gripper_type":
+                        gripper = obj
+                        break
+                
+                if gripper is None:
+                    # No gripper found, terminate
+                    return True
+                
+                # Check if arm has reached the final waypoint
+                gripper_pos = state.get(gripper, "translation")
+                gripper_quat = state.get(gripper, "quaternion")
+                base_pos = state.get(base, "translation")
+                base_quat = state.get(base, "quaternion")
+                gripper_pos_in_base, gripper_rot_in_base = frame_transform(gripper_pos, gripper_quat, base_pos, R.from_quat(base_quat).as_matrix())
+                gripper_quat_in_base = R.from_matrix(gripper_rot_in_base).as_quat()
+                
+                # Check if reached final arm waypoint
+                final_waypoint_reached = np.linalg.norm(np.concatenate([gripper_pos_in_base, gripper_quat_in_base], axis=0) - memory["final_arm_waypoints"][-1]) < 0.1
+                
+                return final_waypoint_reached
             
-            # Position error in XY plane
-            pos_error = np.array([target_pos[0] - current_rel_pose[0], 
-                                 target_pos[1] - current_rel_pose[1]])
-            
-            # Convert quaternions to rotation objects
-            current_rot = R.from_quat(current_rel_pose[3:])
-            target_rot = R.from_quat(target_quat)
-            
-            # Get current and target euler angles (xyz)
-            current_euler = current_rot.as_euler("xyz")
-            target_euler = target_rot.as_euler("xyz")
-            
-            # Calculate yaw error
-            yaw_error = target_euler[2] - current_euler[2]
-            
-            # Normalize yaw error to [-pi, pi]
-            while yaw_error > np.pi:
-                yaw_error -= 2 * np.pi
-            while yaw_error < -np.pi:
-                yaw_error += 2 * np.pi
-            
-            # Define thresholds for position and orientation errors
-            pos_threshold = 0.01  # meters
-            rot_threshold = 0.01  # radians 0.5 deg
-            
-            # Check if position and orientation errors are below thresholds
-            pos_close = np.linalg.norm(pos_error) < pos_threshold
-            rot_close = abs(yaw_error) < rot_threshold
-            
-            return pos_close and rot_close
+            # Should not reach here, but return False as safe default
+            return False
 
         """---------------------------------- RepositionBaseOption ends ----------------------------------"""
 
@@ -1036,7 +1252,7 @@ class RoboKitchenGroundTruthOptionFactory(GroundTruthOptionFactory):
 
         RepositionBase_option = ParameterizedOption(
             "RepositionBase_option",
-            types=[object_type, base],
+            types=[object_type, base, object_type],
             params_space=Box(-5, 5, (7,)),  # [x, y, z, qx, qy, qz, qw] for target base position and orientation
             policy=_RepositionBase_option_policy,
             initiable=_RepositionBase_option_initiable,

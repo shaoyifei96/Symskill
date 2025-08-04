@@ -128,6 +128,7 @@ class RoboKitchenEnv(BaseEnv):
         # PnPStoveToCounter
         "container": container_type,
         "obj_container": container_type,
+        "door_obj": thing_type, # opensingledoor data have door obj in the cabinet
     }
 
     tasks_extended = [
@@ -341,7 +342,7 @@ class RoboKitchenEnv(BaseEnv):
         elif task_name == "TurnOffSinkFaucet":
             return [self.object_name_to_object("sink_faucet_handle"), self.object_name_to_object("sink")]
         elif task_name == "CookCheeseAndTomatoes":
-            return [self.object_name_to_object("tomato"), self.object_name_to_object("cheese")]
+            return [self.object_name_to_object("tomato"), self.object_name_to_object("cheese"), self.object_name_to_object("plate")]
         elif task_name == "PnPCabToCounterTomato":
             return [self.object_name_to_object("tomato"), self.object_name_to_object("plate")]
         else:
@@ -610,7 +611,7 @@ class RoboKitchenEnv(BaseEnv):
             assert cheese is not None, "Expected exactly one cheese object"
             plate = self.object_name_to_object("plate")
             assert plate is not None, "Expected exactly one plate object"
-            if self._InContainer_holds(state, [tomato, plate]): #and self._InContainer_holds(state, [cheese, plate]):
+            if self._InContainer_holds(state, [tomato, plate]) and self._InContainer_holds(state, [cheese, plate]):
                 return True
         elif goal_desc == "PnPCabToCounterTomato":
             obj = self.object_name_to_object("tomato_1", test_time=True)
