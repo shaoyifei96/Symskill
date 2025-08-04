@@ -418,6 +418,49 @@ class _AbsoluteFeatureClusterClassifier(_UnaryClassifier):
                     f"Cluster-{self.feature_name}-ID{self.cluster_id}) <= {self.mahalanobis_threshold:.3f}")
         return vars_str, body_str
 
+@dataclass(frozen=True, eq=False, repr=False)
+class _DynamicRepositionClassifier(_BinaryClassifier):
+    """Dynamic classifier that selects appropriate cluster based on object types."""
+    
+    object1_type: Type  # object_type
+    object2_type: Type  # base_type  
+    # Map from (obj1_type_name, task) to the specific classifier
+    type_task_to_classifier: Dict[Tuple[str, str], _RelativeFeatureCovClusterClassifierTransRot]
+    # Store all the samplers for different combinations
+    type_task_to_sampler_data: Dict[Tuple[str, str], Tuple[np.ndarray, R]]
+    
+    def _classify_object(self, s: State, obj1: Object, obj2: Object) -> bool:
+        # Get the actual type of obj1 (the object we're positioning relative to)
+        obj1_type_name = obj1.type.name
+        
+        # Try to find a matching classifier for any task with this object type
+        for (type_name, task), classifier in self.type_task_to_classifier.items():
+            if type_name == obj1_type_name:
+                return classifier._classify_object(s, obj1, obj2)
+        
+        # If no specific classifier found, return False
+        return False
+    
+    def get_sampler_data_for_objects(self, obj1: Object) -> Optional[Tuple[np.ndarray, R]]:
+        """Get sampler data (trans_center, rot_center) for the given object type."""
+        obj1_type_name = obj1.type.name
+        
+        # Return the first matching sampler data for this object type
+        for (type_name, task), sampler_data in self.type_task_to_sampler_data.items():
+            if type_name == obj1_type_name:
+                return sampler_data
+        return None
+
+    def __str__(self) -> str:
+        return f"DynamicRepositionCluster[{self.object1_type.name}, {self.object2_type.name}]"
+    
+    def pretty_str(self) -> Tuple[str, str]:
+        name1 = f"?x0:{self.object1_type.name}"
+        name2 = f"?x1:{self.object2_type.name}"
+        vars_str = f"{name1}, {name2}"
+        body_str = f"DynamicRepositionTarget({name1}, {name2})"
+        return vars_str, body_str
+
 
 ################################################################################
 #                                 Approach                                     #
@@ -446,8 +489,8 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         for key, effects_to_delete in all_entries.items():
             if len(key) == 2: key = key[0]
             for eff in effects_to_delete:
-                if mode == "incontact" and key == entry_to_exclude and task_name == eff.name.split("-")[1]: # incontact predicate
-                    continue  # Skip the object that's currently in contact, because it will be deleted by the incontact predicate
+                # if mode == "incontact" and key == entry_to_exclude and task_name == eff.name.split("-")[1]: # incontact predicate
+                #     continue  # Skip the object that's currently in contact, because it will be deleted by the incontact predicate
                 # elif mode == "robotbase" and "RobotBaseRelPosPred" in key and key.split("-")[1] == entry_to_exclude.split("-")[1]: #and task_name == eff.name.split("-")[1]:
                 #     continue # robot base predicate
                 # do not exclude for robotbase, since all other robotbase predicates are deleted, the one at first parameter is added, so there is no conflict
@@ -455,7 +498,10 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 if mode == "robotbase":
                     delete_selectable_vars = new_params[1:] # 0 is new location, 1 is base, 2 is old location
                 else:
-                    delete_selectable_vars = new_params
+                    if new_params[0].type.name == "gripper_type": # remove the item param
+                        delete_selectable_vars = new_params[0:1] + new_params[2:] # 0 is gripper, 1 is new item
+                    else:
+                        delete_selectable_vars = new_params[1:] # 0 is new item, 1 is gripper
                 # Find the corresponding variables from NSRT parameters
                 obj0_var = None
                 obj1_var = None
@@ -504,16 +550,9 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
 
         return new_params, new_delete_effects
     
-    def _add_additional_remove_effects_operators(self) -> None:
+    def _add_additional_remove_effects_operators(self, available_object_types: Set[Type]) -> None:
         """Add additional remove/delete effects operators to the loaded operators."""
-        # Get a sample state to check which object types actually exist
-        env = get_or_create_env(CFG.env)
-        ob = env.reset(train_or_test="test", task_idx=0)
-        state = env.state_info_to_state(ob["state_info"])
-        available_object_types = set()
-        for obj in state:
-            available_object_types.add(obj.type.name)
-        logging.info(f"Object types found in sample state: {available_object_types}")
+        
 
         # Pre-process CFG.dict_contact_predicate_to_rel_pose_predicates to filter relevant entries
         incontact_entries = {}
@@ -556,7 +595,21 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         
         # Update self._nsrts with the modified NSRTs
         self._nsrts = updated_nsrts
-        
+    def _get_available_object_types(self) -> Tuple[Set[Type], Set[str]]:
+        env = get_or_create_env(CFG.env)
+        ob = env.reset(train_or_test="test", task_idx=0)
+        state = env.state_info_to_state(ob["state_info"])
+        object_type = Object("dummy_object", env.obj_name_to_type["dummy_object"]).type
+        available_object_types = set()
+        available_object_types_names = set()
+        available_object_types.add(object_type)
+        available_object_types_names.add(object_type.name)
+        for obj in state:
+            available_object_types.add(obj.type)
+            available_object_types_names.add(obj.type.name)
+        logging.info(f"Object types found in sample state: {available_object_types}")
+        return available_object_types, available_object_types_names
+    
     def _add_base_motion_add_effects(self) -> None:
         """Add base motion add effects to the loaded operators.
         delete effects are added in _add_additional_remove_effects_operators """
@@ -584,6 +637,8 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                     else:
                         reposition_target_pred = robot_base_clusters[0]
                         task = reposition_target_pred.name.split("-")[1]
+                        obj_contact_base_pred = [ v for k, v in CFG.dict_contact_predicate_to_rel_pose_predicates.items() if k[0] == "RobotBaseRelPosObjPred-"+task ]
+                        # assert len(obj_contact_base_pred) == 1, "Multiple RobotBaseRelPosObjPred predicates not implemented"
                         assert nsrt.parameters[1].type.name == obj2_type
                         for robot_base_location, pred_delete_effects in robot_base_locations_preds.items():
                             # if robot_base_location == obj1_type: # it is possible to move from the other cabinet location
@@ -644,10 +699,16 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                         CFG.dict_gt_goal_predicate_to_dummy_goal_predicates[key].update(value)
 
         # add base relative pose predicates as the base motion add effects
+
+        # Get a sample state to check which object types actually exist# Get a sample state to check which object types actually exist
+
+        all_available_object_types, all_available_object_types_names = self._get_available_object_types()
+
+
         if CFG.enable_base_ref_obj_precondition:     
             self._add_base_motion_add_effects() 
 
-        self._add_additional_remove_effects_operators()
+        self._add_additional_remove_effects_operators(all_available_object_types_names)
         
         if CFG.pretty_print_when_loading:  # pragma: no cover
             preds, _ = utils.extract_preds_and_types(self._nsrts)
@@ -1888,13 +1949,13 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
     def _add_base_ref_obj_precondition(self, ground_atom_dataset: List[GroundAtomTrajectory], relative_pose_dataset_dict: Dict[Tuple[Predicate, Type, Type, str], List[np.ndarray]],  obj_type_of_reference_best: Type, obj_type_contact_with_gripper: Type, robot_base_obj_type: Type, traj_all_objs_all: List[List[Object]]):
         # RelPosPred
         RelPoseBaseRefObjPred = Predicate("RobotBaseRelPosPred-" + CFG.robo_kitchen_task, [obj_type_of_reference_best, robot_base_obj_type], lambda state, objects: True)
-        # RelPoseBaseContactObjPred = Predicate("RobotBaseRelPosPred-" + CFG.robo_kitchen_task, [obj_type_contact_with_gripper, robot_base_obj_type], lambda state, objects: True)
+        RelPoseBaseContactObjPred = Predicate("RobotBaseRelPosPredObj-" + CFG.robo_kitchen_task, [obj_type_contact_with_gripper, robot_base_obj_type], lambda state, objects: True)
         # this having a object type since it will need to be used when other tasks load and use the same predicates
         for i, (ll_traj, atom_seq) in enumerate(ground_atom_dataset):
             if not ll_traj.states: continue # Skip empty trajectories
             obj_ref = [o for o in traj_all_objs_all[i] if o.type == obj_type_of_reference_best][0]
             obj_base = [o for o in ll_traj.states[0].data.keys() if o.type == robot_base_obj_type][0]
-            # obj_contact = [o for o in ll_traj.states[0].data.keys() if o.type == obj_type_contact_with_gripper][0]
+            obj_contact = [o for o in ll_traj.states[0].data.keys() if o.type == obj_type_contact_with_gripper][0]
             assert obj_ref is not None and obj_base is not None, "Reference or base object not found"
             skip_var =max(int(len(atom_seq) / 50),1)
             logging.debug(f"Processing trajectory {i+1}/{len(ground_atom_dataset)} with {len(atom_seq)} atoms, skipping every {skip_var} atoms.")
@@ -1902,6 +1963,8 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 ground_atom_ref = GroundAtom(RelPoseBaseRefObjPred, [obj_ref, obj_base])
                 ground_atom_dataset[i][1][t].add(ground_atom_ref)
                 # ground_atom_contact = GroundAtom(RelPoseBaseContactObjPred, [obj_contact, obj_base])
+                # ground_atom_dataset[i][1][t].add(ground_atom_contact)
+
                 # Check if there's an InContact predicate with obj_contact
                 # has_contact_with_obj = False
                 # for atom in atom_seq[t]:
@@ -1921,17 +1984,17 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                     state_t, obj_ref, obj_base,
                     CFG.trans_feat_name, CFG.quat_feat_name
                 )
-                # rel_pose_at_contact_obj2_in_obj1_frame_contact = utils.calculate_relative_pose_from_state(
-                #     state_t, obj_contact, obj_base,
-                #     CFG.trans_feat_name, CFG.quat_feat_name
-                # )
+                rel_pose_at_contact_obj2_in_obj1_frame_contact = utils.calculate_relative_pose_from_state(
+                    state_t, obj_contact, obj_base,
+                    CFG.trans_feat_name, CFG.quat_feat_name
+                )
 
                 if rel_pose_at_contact_obj2_in_obj1_frame_ref is not None:
                     key = (RelPoseBaseRefObjPred, obj_type_of_reference_best, robot_base_obj_type, "2in1")
                     relative_pose_dataset_dict[key].append(rel_pose_at_contact_obj2_in_obj1_frame_ref)
-                # if rel_pose_at_contact_obj2_in_obj1_frame_contact is not None:
-                #     key = (RelPoseBaseContactObjPred, obj_type_contact_with_gripper, robot_base_obj_type, "2in1")
-                #     relative_pose_dataset_dict[key].append(rel_pose_at_contact_obj2_in_obj1_frame_contact)
+                if rel_pose_at_contact_obj2_in_obj1_frame_contact is not None:
+                    key = (RelPoseBaseContactObjPred, obj_type_contact_with_gripper, robot_base_obj_type, "2in1")
+                    # relative_pose_dataset_dict[key].append(rel_pose_at_contact_obj2_in_obj1_frame_contact)
 
         return ground_atom_dataset, relative_pose_dataset_dict
 

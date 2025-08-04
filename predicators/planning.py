@@ -282,9 +282,11 @@ def task_plan_grounding(
     """
     ground_nsrts = []
     for nsrt in sorted(nsrts):
+        # logging.info(f"Grounding NSRT: {nsrt.name}")
         for ground_nsrt in utils.all_ground_nsrts(nsrt, objects):
             if allow_noops or (ground_nsrt.add_effects
                                | ground_nsrt.delete_effects):
+                # logging.info(f"Adding NSRT: {ground_nsrt.name}")
                 ground_nsrts.append(ground_nsrt)
     reachable_atoms = utils.get_reachable_atoms(ground_nsrts, init_atoms)
     reachable_nsrts = [
@@ -1210,12 +1212,12 @@ def run_task_plan_once(
         ground_nsrts, reachable_atoms = task_plan_grounding(
             init_atoms, objects, nsrts)
         assert task_planning_heuristic is not None
-        print ("DEBUGGGGGGGGGGGG: Init atoms:", init_atoms)
-        print ("DEBUGGGGGGGGGGGG: Goal:", goal)
-        print ("DEBUGGGGGGGGGGGG: Ground nsrts:", ground_nsrts)
-        print ("DEBUGGGGGGGGGGGG: Preds:", preds)
-        print ("DEBUGGGGGGGGGGGG: Objects:", objects)
-        print ("DEBUGGGGGGGGGGGG: Objects types:", types)
+        # print ("DEBUGGGGGGGGGGGG: Init atoms:", init_atoms)
+        # print ("DEBUGGGGGGGGGGGG: Goal:", goal)
+        # print ("DEBUGGGGGGGGGGGG: Ground nsrts:", ground_nsrts)
+        # print ("DEBUGGGGGGGGGGGG: Preds:", preds)
+        # print ("DEBUGGGGGGGGGGGG: Objects:", objects)
+        # print ("DEBUGGGGGGGGGGGG: Objects types:", types)
         heuristic = utils.create_task_planning_heuristic(
             task_planning_heuristic, init_atoms, goal, ground_nsrts, preds,
             objects)

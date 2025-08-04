@@ -7,7 +7,7 @@ from predicators.envs.robo_kitchen import RoboKitchenEnv
 from predicators.perception.base_perceiver import BasePerceiver
 from predicators.structs import EnvironmentTask, GroundAtom, Observation, \
     State, Task, Video
-
+import logging
 
 class RoboKitchenPerceiver(BasePerceiver):
     """A Kitchen-specific perceiver."""
@@ -176,6 +176,8 @@ class RoboKitchenPerceiver(BasePerceiver):
                         # TODO: this is problematic. It's unable to get both tomato and cheese
                         type1_objs = [obj for obj in state if obj.type == rel_pose_pred.types[0]]
                         type2_objs = [obj for obj in state if obj.type == rel_pose_pred.types[1]] 
+                        # print(f"DEBUG: type1_objs: {type1_objs}")
+                        # print(f"DEBUG: type2_objs: {type2_objs}")
                         # type 2 is the object in motion, such as door, or tomato, if object name has a _number at the end, and type_1 object also has a _number at the end, then try to match the object with the same _number at the end. if type 2 object has no _number at the end, then match with the object of type 1 that is closer.
                         assert len(type1_objs) >= 1 and len(type2_objs) >= 1
                         if len(type1_objs) == 1 and len(type2_objs) == 1:
@@ -186,7 +188,7 @@ class RoboKitchenPerceiver(BasePerceiver):
                             goal_obj_2_name = g.entities[0].name # since predicate usually have the object as first entity
                             # try to match the whole name first with number
                             for type2_obj in type2_objs:
-                                if goal_obj_2_name in type2_obj.name:
+                                if goal_obj_2_name == type2_obj.name:
                                     type2_obj_final = type2_obj
                                     break
                             else:
@@ -201,17 +203,18 @@ class RoboKitchenPerceiver(BasePerceiver):
                         # try to match the object of type 1 that has the name number at the end 
                         if type2_obj_final.name.split("_")[-1].isdigit():
                             for type1_obj in type1_objs:
-                                if type1_obj.name.split("_")[-1].isdigit():
+                                if type1_obj.name.split("_")[-1].isdigit() and type1_obj.name.split("_")[-1] == type2_obj_final.name.split("_")[-1]:
                                     type1_obj_final = type1_obj
                                     break
                         else:
                             # try to match the object of type 1 that is closer
                             type1_obj_final = None
                             min_dist = float("inf")
+                            goal_obj_pos = state.get(type2_obj_final, "translation")
                             for type1_obj in type1_objs:
                                 state_obj_pos = state.get(type1_obj, "translation")
-                                goal_obj_pos = state.get(type2_obj_final, "translation")
                                 dist = np.linalg.norm(state_obj_pos - goal_obj_pos)
+                                logging.info(f"best type1_obj_final: {type1_obj.name} for type2_obj_final: {type2_obj_final.name} with dist: {dist}")
                                 if dist < min_dist:
                                     min_dist = dist
                                     type1_obj_final = type1_obj

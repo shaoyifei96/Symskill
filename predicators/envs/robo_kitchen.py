@@ -129,6 +129,7 @@ class RoboKitchenEnv(BaseEnv):
         "container": container_type,
         "obj_container": container_type,
         "door_obj": thing_type, # opensingledoor data have door obj in the cabinet
+        "dummy_object": object_type,
     }
 
     tasks_extended = [
@@ -607,11 +608,13 @@ class RoboKitchenEnv(BaseEnv):
         elif goal_desc == "CookCheeseAndTomatoes":
             tomato = self.object_name_to_object("tomato_1", test_time=True)
             assert tomato is not None, "Expected exactly one tomato object"
-            cheese = self.object_name_to_object("cheese", test_time=True)
+            cheese = self.object_name_to_object("cheese_2", test_time=True)
             assert cheese is not None, "Expected exactly one cheese object"
-            plate = self.object_name_to_object("plate")
-            assert plate is not None, "Expected exactly one plate object"
-            if self._InContainer_holds(state, [tomato, plate]) and self._InContainer_holds(state, [cheese, plate]):
+            plate1 = self.object_name_to_object("plate_1", test_time=True)
+            assert plate1 is not None, "Expected exactly one plate object"
+            plate2 = self.object_name_to_object("plate_2", test_time=True)
+            assert plate2 is not None, "Expected exactly one plate object"
+            if self._InContainer_holds(state, [tomato, plate1]) and self._InContainer_holds(state, [cheese, plate2]):
                 return True
         elif goal_desc == "PnPCabToCounterTomato":
             obj = self.object_name_to_object("tomato_1", test_time=True)

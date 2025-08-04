@@ -21,11 +21,11 @@ class GlobalSettings:
     reprocess_ground_atom_dataset_using_cluster_predicates = False
     remove_inOrigin_pred = True
     robo_kitchen_obj_names = ["robot0_base", "gripper", "left_finger", "right_finger", "wrist"] # this stores the actual object names, determined by a mujoco id, such as "cabinet_10" (see how these are constructed in robocasa/kithcen.py)
-    #"cabinet", "plate", "tomato_1"] 
 
-    use_learnt_goal_predicates = False
+    relaxed_nsrt_learning = False
+    use_learnt_goal_predicates = True
     use_negated_goal_predicates = False
-    enable_base_ref_obj_precondition = False
+    enable_base_ref_obj_precondition = True
 
     use_cluster_center_as_attractor = False
 
@@ -42,7 +42,7 @@ class GlobalSettings:
     motion_analysis_lin_vel_rot_vel_threshold = 0.002 # lin vel min thresh, under this, use rot vel
     motion_analysis_contact_threshold = 0.04
     clustering_inv_cov_reg_lin = 0.7
-    clustering_inv_cov_reg_lin_low = 0.3
+    clustering_inv_cov_reg_lin_low = 0.6
     clustering_inv_cov_reg_rot_gripper = 0.5 
     clustering_inv_cov_reg_rot_base = 0.5 # base rotation is mostly just the same, so make it more wide
     clustering_inv_cov_reg_rot_low = 0.01  # much lower for obj obj rotation, stove needs much lower, 1e-4 works, not sure about this task!!!!
@@ -90,8 +90,8 @@ class GlobalSettings:
     # robo_kitchen_task = "OpenSingleDoor"
     # robo_kitchen_task = "CloseSingleDoor"
     # robo_kitchen_task = "PnPCounterToCab" 
-    robo_kitchen_task = "PnPCabToCounter" # error in finding ref frame, why is the wrong ref frame have lower error? #this has no plate discard
-    # robo_kitchen_task = "PnPCabToCounterTomato" # error in finding ref frame, why is the wrong ref frame have lower error? #this has no plate discard
+    # robo_kitchen_task = "PnPCabToCounter" # error in finding ref frame, why is the wrong ref frame have lower error? #this has no plate discard
+    # robo_kitchen_task = "PnPCabToCounterTomato" 
     # robo_kitchen_task = "PnPStoveToCounter"
     # robo_kitchen_task = "PnPCounterToStove"
     # robo_kitchen_task = "OpenDrawer"
@@ -115,8 +115,11 @@ class GlobalSettings:
                        "TurnOnSinkFaucet": "sink_type",
                        "TurnOffSinkFaucet": "sink_type",}
 
-    related_object_types = {"cabinet_type":"door_type",
-                            "door_type":"cabinet_type"}
+    related_object_types = {"door_type":"cabinet_type",
+                            "plate_type":"thing_type",
+                            }
+    # related_objects_dist_types = {"container_type":"thing_type"}
+    # related_object_dist = 0.4 # 0.4 m
 
 
 

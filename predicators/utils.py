@@ -66,6 +66,7 @@ from scipy.spatial.transform import Rotation
 from numpy.linalg import norm
 if TYPE_CHECKING:
     from predicators.envs import BaseEnv
+import random
 
 matplotlib.use("Agg")
 
@@ -1609,7 +1610,10 @@ def action_arrs_to_policy(
 def _get_entity_combinations(
         entities: Collection[ObjectOrVariable],
         types: Sequence[Type]) -> Iterator[List[ObjectOrVariable]]:
-    """Get all combinations of entities satisfying the given types sequence."""
+    """Get all combinations of entities satisfying the given types sequence.
+    
+    Note: Each entity will appear at most once in each combination.
+    """
     sorted_entities = sorted(entities)
     choices = []
     for vt in types:
@@ -1619,7 +1623,11 @@ def _get_entity_combinations(
                 this_choices.append(ent)
         choices.append(this_choices)
     for choice in itertools.product(*choices):
-        yield list(choice)
+        # Filter out combinations with duplicate entities
+        if len(set(choice)) == len(choice):
+            yield list(choice)
+        else:
+            logging.warning(f"Duplicate entities in combination: {choice}")
 
 
 def get_object_combinations(objects: Collection[Object],
@@ -2672,6 +2680,18 @@ def abstract(state: State,
                 vlm_atoms.add(GroundAtom(pred, choice))
         true_vlm_atoms = query_vlm_for_atom_vals(vlm_atoms, state, vlm)
         atoms |= true_vlm_atoms
+    
+    all_base_atoms = set()
+    for atom in atoms:
+        if "RobotBaseRelCovCluster" in atom.predicate.name:
+            all_base_atoms.add(atom)
+    # keep only the one base atom by choosing randomly
+    if len(all_base_atoms) > 1:
+        base_atom_keep = random.choice(list(all_base_atoms)) 
+        for atom in all_base_atoms:
+            if atom != base_atom_keep:
+                atoms.remove(atom)
+        # atoms.add(GroundAtom(base_atom_keep.predicate, (base_atom_keep.objects[0], base_atom_keep.objects[1])))
 
     return atoms
 
@@ -2717,8 +2737,15 @@ def _validate_object_relationships(choice: Sequence[Object]) -> bool:
     
     # Handle special case: if choice has 3+ objects and objects[0] and objects[2] 
     # are the same type, skip objects[0] in constraint checking as it may be unrelated
-    if len(choice) >= 3 and choice[0].type == choice[2].type:
-        objects_to_check = choice[1:]
+    if len(choice) >= 3 and choice[0].type == choice[2].type and choice[1].type.name == "base_type":
+        objects_to_check = choice[1:] #it is the reposition nsrt, which have objects[0] being target and [2]
+    elif choice[0].type.name == "gripper_type" or choice[1].type.name == "gripper_type":
+        objects_to_check = []
+        object_type_set = set()
+        for obj in choice:
+            if not obj.type.name in object_type_set:
+                objects_to_check.append(obj)
+                object_type_set.add(obj.type.name)
     else:
         objects_to_check = choice
     
@@ -3450,7 +3477,7 @@ def _create_pyperplan_task(
     pyperplan_state = _atoms_to_pyperplan_facts(init_atoms - static_atoms)
     pyperplan_goal = _atoms_to_pyperplan_facts(goal - static_atoms)
     pyperplan_operators = set()
-    print(f"DEBUG: Creating pyperplan task with {len(ground_ops)} ground operators")
+    # print(f"DEBUG: Creating pyperplan task with {len(ground_ops)} ground operators")
     for op in ground_ops:
         # Note: the pyperplan operator must include the objects, because hFF
         # uses the operator name in constructing the relaxed plan, and the
@@ -3464,10 +3491,10 @@ def _create_pyperplan_task(
         add_effects = op.add_effects
         delete_effects = op.delete_effects
         
-        print(f"DEBUG: Operator {name}")
-        print(f"  Preconditions: {len(preconditions)} (after removing static)")
-        print(f"  Add effects: {len(add_effects)}")
-        print(f"  Delete effects: {len(delete_effects)}")
+        # print(f"DEBUG: Operator {name}")
+        # print(f"  Preconditions: {len(preconditions)} (after removing static)")
+        # print(f"  Add effects: {len(add_effects)}")
+        # print(f"  Delete effects: {len(delete_effects)}")
         
         pyperplan_operator = _PyperplanOperator(
             name,
@@ -3481,9 +3508,9 @@ def _create_pyperplan_task(
     _validate_pyperplan_task(task)
     
     # Debug logging for lm_cut issues
-    print(f"DEBUG: Task has {len(task.facts)} facts, {len(task.operators)} operators")
-    print(f"DEBUG: Initial state has {len(task.initial_state)} facts")
-    print(f"DEBUG: Goal has {len(task.goals)} facts")
+    # print(f"DEBUG: Task has {len(task.facts)} facts, {len(task.operators)} operators")
+    # print(f"DEBUG: Initial state has {len(task.initial_state)} facts")
+    # print(f"DEBUG: Goal has {len(task.goals)} facts")
     
     return task
 
