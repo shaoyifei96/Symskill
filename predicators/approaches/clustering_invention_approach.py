@@ -147,7 +147,7 @@ class _RelativeFeatureCovClusterClassifierTransRot(_BinaryClassifier):
         # Use the pre-calculated threshold
         # is_classified = mahalanobis_dist_sq_trans <= self.mahalanobis_threshold_trans and mahalanobis_dist_sq_rot <= self.mahalanobis_threshold_rot
         # color = "\033[92m" if is_classified else "\033[91m"  # Green if True, Red if False
-        # print(f"{color}obj1: {obj1.name}, obj2: {obj2.name}, mahalanobis_dist_sq_trans: {mahalanobis_dist_sq_trans}, self.mahalanobis_threshold_trans: {self.mahalanobis_threshold_trans}, mahalanobis_dist_sq_rot: {mahalanobis_dist_sq_rot}, self.mahalanobis_threshold_rot: {self.mahalanobis_threshold_rot}\033[0m")
+        # print(f"{color} {obj1.name}, {obj2.name}, trans: {mahalanobis_dist_sq_trans},trans_thresh: {self.mahalanobis_threshold_trans}, rot: {mahalanobis_dist_sq_rot}, rot_thresh: {self.mahalanobis_threshold_rot}\033[0m")
         return mahalanobis_dist_sq_trans <= self.mahalanobis_threshold_trans and mahalanobis_dist_sq_rot <= self.mahalanobis_threshold_rot
 
     def __str__(self) -> str:
@@ -672,31 +672,58 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         goal_files = [main_folder + f for f in all_files if f.startswith(f"{CFG.env}__{CFG.approach}") and f.endswith("_gtgoal2dummy_preds.pkl")]
 
         for file in approach_files:
-            with open(file, "rb") as f:
-                loaded_nsrts = pkl.load(f)
-                self._nsrts.update(loaded_nsrts)
+            if CFG.robo_kitchen_task in CFG.composite_tasks:
+                with open(file, "rb") as f:
+                    loaded_nsrts = pkl.load(f)
+                    self._nsrts.update(loaded_nsrts)
+            else: # only load the NSRTs for the current task
+                if CFG.robo_kitchen_task in file:
+                    with open(file, "rb") as f:
+                        loaded_nsrts = pkl.load(f)
+                        self._nsrts.update(loaded_nsrts)
+
         from predicators.ground_truth_models import get_gt_nsrts
         gt_nsrts = get_gt_nsrts(CFG.env, self._initial_predicates, self._initial_options)
         
         self._nsrts = set(gt_nsrts).union(self._nsrts)
 
         for file in contact2rel_files:
-            with open(file, "rb") as f:
-                contact2rel_preds = pkl.load(f)
-                for key, value in contact2rel_preds.items():
-                    if key not in CFG.dict_contact_predicate_to_rel_pose_predicates:
-                        CFG.dict_contact_predicate_to_rel_pose_predicates[key] = value
-                    else:
-                        CFG.dict_contact_predicate_to_rel_pose_predicates[key].update(value)
+            if CFG.robo_kitchen_task in CFG.composite_tasks:
+                with open(file, "rb") as f:
+                    contact2rel_preds = pkl.load(f)
+                    for key, value in contact2rel_preds.items():
+                        if key not in CFG.dict_contact_predicate_to_rel_pose_predicates:
+                            CFG.dict_contact_predicate_to_rel_pose_predicates[key] = value
+                        else:
+                            CFG.dict_contact_predicate_to_rel_pose_predicates[key].update(value)
+            else:
+                if CFG.robo_kitchen_task in file:
+                    with open(file, "rb") as f:
+                        contact2rel_preds = pkl.load(f)
+                        for key, value in contact2rel_preds.items():
+                            if key not in CFG.dict_contact_predicate_to_rel_pose_predicates:
+                                CFG.dict_contact_predicate_to_rel_pose_predicates[key] = value
+                            else:
+                                CFG.dict_contact_predicate_to_rel_pose_predicates[key].update(value)
 
         for file in goal_files:
-            with open(file, "rb") as f:
-                gtgoal2dummy_preds = pkl.load(f)
-                for key, value in gtgoal2dummy_preds.items():
-                    if key not in CFG.dict_gt_goal_predicate_to_dummy_goal_predicates:
-                        CFG.dict_gt_goal_predicate_to_dummy_goal_predicates[key] = value
-                    else:
-                        CFG.dict_gt_goal_predicate_to_dummy_goal_predicates[key].update(value)
+            if CFG.robo_kitchen_task in CFG.composite_tasks:
+                with open(file, "rb") as f:
+                    gtgoal2dummy_preds = pkl.load(f)
+                    for key, value in gtgoal2dummy_preds.items():
+                        if key not in CFG.dict_gt_goal_predicate_to_dummy_goal_predicates:
+                            CFG.dict_gt_goal_predicate_to_dummy_goal_predicates[key] = value
+                        else:
+                            CFG.dict_gt_goal_predicate_to_dummy_goal_predicates[key].update(value)
+            else:
+                if CFG.robo_kitchen_task in file:
+                    with open(file, "rb") as f:
+                        gtgoal2dummy_preds = pkl.load(f)
+                        for key, value in gtgoal2dummy_preds.items():
+                            if key not in CFG.dict_gt_goal_predicate_to_dummy_goal_predicates:
+                                CFG.dict_gt_goal_predicate_to_dummy_goal_predicates[key] = value
+                            else:
+                                CFG.dict_gt_goal_predicate_to_dummy_goal_predicates[key].update(value)
 
         # add base relative pose predicates as the base motion add effects
 
@@ -1928,13 +1955,13 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         obj_type_contact_with_gripper = object_type_in_contact_with_gripper_longest_duration[0]
         obj_type_of_reference_best, min_reconstruction_error, list_of_reconstruction_errors = self._select_reference_object(contact_period_rel_trajs)
         # just 1 object does not support contacting with multiple objects 
-        obj_type_of_reference_best_text = CFG.gt_ref_obj_type[CFG.robo_kitchen_task]
-        for obj_type in all_objs_types:
-            if obj_type.name == obj_type_of_reference_best_text:
-                obj_type_of_reference_best = obj_type
-                break
-        assert obj_type_of_reference_best is not None, f"Reference object type not found in all_objs_types: {all_objs_types}"
+        # obj_type_of_reference_best_text = CFG.gt_ref_obj_type[CFG.robo_kitchen_task]
+        # for obj_type in all_objs_types:
+        #     if obj_type.name == obj_type_of_reference_best_text:
+        #         obj_type_of_reference_best = obj_type
+        #         break
         logging.error(f"Using ground truth reference object type: {obj_type_of_reference_best.name}")
+        assert obj_type_of_reference_best is not None, f"Reference object type not found in all_objs_types: {all_objs_types}"
         # assert obj_type_of_reference_best.name in gt_ref_obj_type, f"GT reference object type not matching correct solution, gt_ref_obj_type: {gt_ref_obj_type}, obj_type_of_reference_best: {obj_type_of_reference_best.name}"
         
         self._visualize_contact_period_trajectories(contact_period_rel_trajs, list_of_reconstruction_errors)
@@ -2187,12 +2214,12 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                     reg_term_trans = utils.compute_adaptive_reg_term(
                         cluster_cov_trans_raw,
                         base_reg=base_reg_trans,
-                        min_reg= 0.03 / 4 # reg adds the std, so divide by 4 to get almost 100% confidence
+                        min_reg= 0.001 / 4 # reg adds the std, so divide by 4 to get almost 100% confidence
                     )
                     reg_term_rot = utils.compute_adaptive_reg_term(
                         cluster_cov_rot_raw,
                         base_reg=base_reg_rot,
-                        min_reg=0.01 / 3
+                        min_reg=0.0005 / 3
                     )
                     cluster_cov_trans = cluster_cov_trans_raw + reg_term_trans
                     cluster_cov_rot = cluster_cov_rot_raw + reg_term_rot
@@ -2444,8 +2471,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             # there is only one object of each type in the trajectory since the code below is not designed to handle multiple objects of the same type
             # if there are two cabinets, the dictonary of contact_period rel traj will mess up
             # Check if there are multiple objects of the same type in the trajectory
-            # consider which object to keep, prefer the object closer to gripper
-            # If there are multiple objects of the same type, select the one closest to the gripper at the end of the trajectory
+            # consider which object to keep, prefer the object closer to gripper at the end of the trajectory
             for obj_type in all_objs_types:
                 objs_of_this_type = [o for o in traj_all_objs if o.type == obj_type]
                 if len(objs_of_this_type) > 1: # 0 or 1 is fine, no filtering needed
@@ -2588,7 +2614,11 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
     
     def _find_common_objects_types(self, ground_atom_dataset: List[GroundAtomTrajectory]) -> List[Type]:
         """Find common objects across all trajectories in the dataset."""
-        all_objs_types = set([obj.type for obj in ground_atom_dataset[0][0].states[0].data.keys()])
+        all_objs_types = set()
+        # Print each object name and type from the first trajectory
+        for obj in ground_atom_dataset[0][0].states[0].data.keys():
+            logging.info(f"Object name: {obj.name}, Object type: {obj.type.name}")
+            all_objs_types.add(obj.type)
         for traj, _ in ground_atom_dataset[1:]:  # Skip the first one we already processed
             if not traj.states:
                 continue  # Skip empty trajectories

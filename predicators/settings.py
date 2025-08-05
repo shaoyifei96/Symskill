@@ -23,9 +23,9 @@ class GlobalSettings:
     robo_kitchen_obj_names = ["robot0_base", "gripper", "left_finger", "right_finger", "wrist"] # this stores the actual object names, determined by a mujoco id, such as "cabinet_10" (see how these are constructed in robocasa/kithcen.py)
 
     relaxed_nsrt_learning = False
-    use_learnt_goal_predicates = True
+    use_learnt_goal_predicates = False
     use_negated_goal_predicates = False
-    enable_base_ref_obj_precondition = True
+    enable_base_ref_obj_precondition = False
 
     use_cluster_center_as_attractor = False
 
@@ -41,12 +41,13 @@ class GlobalSettings:
     predicate_candidates_method = "motion_analysis_contact"  # "low_speed" or "contact_clustering" or "motion_analysis_contact"
     motion_analysis_lin_vel_rot_vel_threshold = 0.002 # lin vel min thresh, under this, use rot vel
     motion_analysis_contact_threshold = 0.04
-    clustering_inv_cov_reg_lin = 0.7
-    clustering_inv_cov_reg_lin_low = 0.6
+    clustering_inv_cov_reg_lin = 0.5
+    clustering_inv_cov_reg_lin_low = 0.3
     clustering_inv_cov_reg_rot_gripper = 0.5 
     clustering_inv_cov_reg_rot_base = 0.5 # base rotation is mostly just the same, so make it more wide
-    clustering_inv_cov_reg_rot_low = 0.01  # much lower for obj obj rotation, stove needs much lower, 1e-4 works, not sure about this task!!!!
-    clustering_change_only = False
+    clustering_inv_cov_reg_rot_low = 0.001  # much lower for obj obj rotation, stove needs much lower, 1e-4 works, not sure about this task!!!!
+    clustering_change_only = False # this meaning clustering the pose just at contact or through the contacts while it is moving
+
     
     resample_in_cluster = True
 
@@ -87,11 +88,11 @@ class GlobalSettings:
 
     # robo_kitchen env parameters
     robo_kitchen_randomize_init_state = True  # not used
-    # robo_kitchen_task = "OpenSingleDoor"
+    robo_kitchen_task = "OpenSingleDoor"
     # robo_kitchen_task = "CloseSingleDoor"
     # robo_kitchen_task = "PnPCounterToCab" 
-    # robo_kitchen_task = "PnPCabToCounter" # error in finding ref frame, why is the wrong ref frame have lower error? #this has no plate discard
-    # robo_kitchen_task = "PnPCabToCounterTomato" 
+    # robo_kitchen_task = "PnPCabToCounter" # #this has no plate, cannot find a good ref
+    # robo_kitchen_task = "PnPCabToCounterTomato"  # we collected demo with plate
     # robo_kitchen_task = "PnPStoveToCounter"
     # robo_kitchen_task = "PnPCounterToStove"
     # robo_kitchen_task = "OpenDrawer"
@@ -100,13 +101,14 @@ class GlobalSettings:
     # robo_kitchen_task = "TurnOffStove"
     # robo_kitchen_task = "TurnOnSinkFaucet"
     # robo_kitchen_task = "TurnOffSinkFaucet"
-    
+
+    # for learning ref frame
     gt_ref_obj_type = {"OpenSingleDoor": "cabinet_type", 
                        "CloseSingleDoor": "cabinet_type",
                        "PnPCounterToCab": "cabinet_type",
-                       "PnPCabToCounter": "counter_type",
+                       "PnPCabToCounter": "cabinet_type", # can argue it is cabinet or counter, cabinet is better 
                        "PnPCabToCounterTomato": "container_type",
-                       "PnPStoveToCounter": "counter_type",
+                       "PnPStoveToCounter": "container_type",
                        "PnPCounterToStove": "container_type",
                        "OpenDrawer": "cabinet_type",
                        "CloseDrawer": "cabinet_type",
@@ -126,7 +128,7 @@ class GlobalSettings:
     # composite tasks (leaning needs to be done in sequence, see README)
     # robo_kitchen_task = "StoreFruit" # New task
     # robo_kitchen_task = "StoreFruitFull" # New task
-    robo_kitchen_task = "CookCheeseAndTomatoes" # New task
+    # robo_kitchen_task = "CookCheeseAndTomatoes" # New task
     composite_tasks = set(["CookCheeseAndTomatoes", "StoreFruit", "StoreFruitFull"])
     # tasks that won't work with current approach
     # robo_kitchen_task = "TurnOnMicrowave" # this is not working, nothing is in motion in the dataset button just clicks

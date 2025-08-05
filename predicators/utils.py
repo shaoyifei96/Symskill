@@ -1626,8 +1626,8 @@ def _get_entity_combinations(
         # Filter out combinations with duplicate entities
         if len(set(choice)) == len(choice):
             yield list(choice)
-        else:
-            logging.warning(f"Duplicate entities in combination: {choice}")
+        # else:
+            # logging.warning(f"Duplicate entities in combination: {choice}")
 
 
 def get_object_combinations(objects: Collection[Object],

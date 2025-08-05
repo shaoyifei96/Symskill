@@ -570,7 +570,7 @@ class RoboKitchenEnv(BaseEnv):
             if microwave is not None and self._MicrowaveOn_holds(state, [microwave]):
                 return True
         elif goal_desc == "CloseDrawer":
-            drawer_inner_boxes = self.object_name_to_objects("drawer_inner_box", test_time=True)
+            drawer_inner_boxes = self.object_name_to_objects("bottom", test_time=True)
             assert len(drawer_inner_boxes) == 1, "Expected exactly one drawer inner box object"
             drawer_inner_box = drawer_inner_boxes[0]
             drawer_cabinets = self.object_name_to_objects("drawer", test_time=True)
@@ -579,7 +579,7 @@ class RoboKitchenEnv(BaseEnv):
             if self._DrawerClosed_holds(state, [drawer_inner_box, drawer_cabinet]):
                 return True
         elif goal_desc == "OpenDrawer":
-            drawer_inner_boxes = self.object_name_to_objects("drawer_inner_box", test_time=True)
+            drawer_inner_boxes = self.object_name_to_objects("bottom", test_time=True)
             assert len(drawer_inner_boxes) == 1, "Expected exactly one drawer inner box object"
             drawer_inner_box = drawer_inner_boxes[0]
             drawer_cabinets = self.object_name_to_objects("drawer", test_time=True)
@@ -1615,7 +1615,11 @@ class RoboKitchenEnv(BaseEnv):
 
 
         # obj_name is name_id, we need to find if it is in cls.obj_name_to_type
-        obj_name_no_num = obj_name_no_pos_quat.split("_")[0] if "_" in obj_name_no_pos_quat and obj_name_no_pos_quat.split("_")[1].isdigit() else obj_name_no_pos_quat
+        if "_" in obj_name_no_pos_quat and obj_name_no_pos_quat.split("_")[-1].isdigit():
+            last_num_characters = len(obj_name_no_pos_quat.split("_")[-1]) + 1
+            obj_name_no_num = obj_name_no_pos_quat[:-last_num_characters]
+        else:
+            obj_name_no_num = obj_name_no_pos_quat
         if obj_name_no_num in cls.obj_name_to_type:
             return Object(obj_name_no_pos_quat, cls.obj_name_to_type[obj_name_no_num])
         else:
@@ -1951,9 +1955,9 @@ class RoboKitchenEnv(BaseEnv):
         
         # For a closed drawer, the Y displacement should be minimal
         # (drawers slide along Y-axis according to the XML)
-        drawer_close_thresh = 0.05  # meters - threshold for considering drawer closed
+        drawer_close_thresh = 0.23  # meters - threshold for considering drawer closed
         
-        return abs(rel_pos[1]) < drawer_close_thresh
+        return abs(rel_pos[1]) > drawer_close_thresh
     
     @classmethod
     def _DrawerOpen_holds(cls, state: State, objects: Sequence[Object]) -> bool:
@@ -1975,9 +1979,8 @@ class RoboKitchenEnv(BaseEnv):
         
         # For an open drawer, the Y displacement should be significant
         # (drawers slide along Y-axis according to the XML)
-        drawer_open_thresh = 0.2  # meters - threshold for considering drawer open
-        
-        return abs(rel_pos[1]) > drawer_open_thresh
+        drawer_open_thresh = 0.0  # meters - threshold for considering drawer open
+        return abs(rel_pos[1]) < drawer_open_thresh
     
     @classmethod
     def _InContainer_holds(cls, state: State, objects: Sequence[Object]) -> bool:

@@ -209,15 +209,23 @@ class RoboKitchenPerceiver(BasePerceiver):
                         else:
                             # try to match the object of type 1 that is closer
                             type1_obj_final = None
-                            min_dist = float("inf")
-                            goal_obj_pos = state.get(type2_obj_final, "translation")
-                            for type1_obj in type1_objs:
-                                state_obj_pos = state.get(type1_obj, "translation")
-                                dist = np.linalg.norm(state_obj_pos - goal_obj_pos)
-                                logging.info(f"best type1_obj_final: {type1_obj.name} for type2_obj_final: {type2_obj_final.name} with dist: {dist}")
-                                if dist < min_dist:
-                                    min_dist = dist
-                                    type1_obj_final = type1_obj
+                            all_containers = [obj.type.name == "container_type" for obj in type1_objs ]
+                            if all(all_containers): # special case for obj_container being the current container, container being the goal container
+                                # find the container whose name is container, 
+                                for type1_obj in type1_objs:
+                                    if type1_obj.name == "container":
+                                        type1_obj_final = type1_obj
+                                        break
+                            else:
+                                min_dist = float("inf")
+                                goal_obj_pos = state.get(type2_obj_final, "translation")
+                                for type1_obj in type1_objs:
+                                    state_obj_pos = state.get(type1_obj, "translation")
+                                    dist = np.linalg.norm(state_obj_pos - goal_obj_pos)
+                                    logging.info(f"best type1_obj_final: {type1_obj.name} for type2_obj_final: {type2_obj_final.name} with dist: {dist}")
+                                    if dist < min_dist:
+                                        min_dist = dist
+                                        type1_obj_final = type1_obj
                             assert type1_obj_final is not None
                         # type2_obj = type2_objs[0]
                         rel_pose_pred_atom = GroundAtom(rel_pose_pred, [type1_obj_final, type2_obj_final])
