@@ -2634,6 +2634,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             and "base"   not in o_type.name
             and "wrist"  not in o_type.name
             and "base" not in o_type.name
+            and "counter" not in o_type.name
         ]
         logging.info(f"After filtering, {len(all_objs_types)} objects remain") 
         if len(all_objs_types) <= 2:

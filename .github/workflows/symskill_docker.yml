@@ -32,25 +32,9 @@ jobs:
 
       - name: install ds_policy # this is part of the docker, but since code is updated, need to install it again
         run: | # already installed with pip install -e robocasa
-          ln -fs /usr/share/zoneinfo/America/New_York /etc/localtime && \
-          DEBIAN_FRONTEND=noninteractive TZ=America/New_York apt-get update && \
-          DEBIAN_FRONTEND=noninteractive TZ=America/New_York apt-get install -y tzdata && \
-          DEBIAN_FRONTEND=noninteractive TZ=America/New_York apt-get install -y libopencv-dev && \
-          apt-get install -y cmake && \
-          apt-get install -y build-essential && \
-          apt-get install -y libeigen3-dev && \
-          apt-get install -y libboost-dev && \
-          apt-get install -y libboost-program-options-dev && \
-          apt-get install -y time && \
           cd /root/ds_policy && \
-          rm -rf ds_policy/se3_lpvds/ && \
-          git fetch && \
-          git checkout se3_lpvds_decoupled && \
-          git pull --recurse-submodules && \
-          git submodule update --init --recursive && \
-          cd /root/ds_policy/ds_policy/se3_lpvds/src/lpvds/src/damm/build && \
-          cmake ../src && \
-          make 
+          git pull 
+
 
       - name: Install Symskill
         run: |

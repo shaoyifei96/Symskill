@@ -41,9 +41,9 @@ class GlobalSettings:
     predicate_candidates_method = "motion_analysis_contact"  # "low_speed" or "contact_clustering" or "motion_analysis_contact"
     motion_analysis_lin_vel_rot_vel_threshold = 0.002 # lin vel min thresh, under this, use rot vel
     motion_analysis_contact_threshold = 0.04
-    clustering_inv_cov_reg_lin = 0.5
-    clustering_inv_cov_reg_lin_low = 0.3
-    clustering_inv_cov_reg_rot_gripper = 0.5 
+    clustering_inv_cov_reg_lin = 4.0 # gripper object
+    clustering_inv_cov_reg_lin_low = 2.0 #object object
+    clustering_inv_cov_reg_rot_gripper = 5.0
     clustering_inv_cov_reg_rot_base = 0.5 # base rotation is mostly just the same, so make it more wide
     clustering_inv_cov_reg_rot_low = 0.001  # much lower for obj obj rotation, stove needs much lower, 1e-4 works, not sure about this task!!!!
     clustering_change_only = False # this meaning clustering the pose just at contact or through the contacts while it is moving
@@ -88,7 +88,7 @@ class GlobalSettings:
 
     # robo_kitchen env parameters
     robo_kitchen_randomize_init_state = True  # not used
-    robo_kitchen_task = "OpenSingleDoor"
+    # robo_kitchen_task = "OpenSingleDoor"
     # robo_kitchen_task = "CloseSingleDoor"
     # robo_kitchen_task = "PnPCounterToCab" 
     # robo_kitchen_task = "PnPCabToCounter" # #this has no plate, cannot find a good ref
@@ -98,7 +98,7 @@ class GlobalSettings:
     # robo_kitchen_task = "OpenDrawer"
     # robo_kitchen_task = "CloseDrawer"
     # robo_kitchen_task = "TurnOnStove"
-    # robo_kitchen_task = "TurnOffStove"
+    robo_kitchen_task = "TurnOffStove"
     # robo_kitchen_task = "TurnOnSinkFaucet"
     # robo_kitchen_task = "TurnOffSinkFaucet"
 
@@ -144,6 +144,7 @@ class GlobalSettings:
     robo_kitchen_contact_smoothing_window = 21
     robo_kitchen_policy_model = "node"  # "simple_ds" or "node"
     make_test_videos = False
+    make_failure_videos = False
     loglevel = 30
     if enable_meshcat:
         visualizer = MeshcatVisualizer(mode="se3_lpvds")

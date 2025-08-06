@@ -357,6 +357,9 @@ def _run_testing(env: BaseEnv, cogman: CogMan) -> Metrics:
     # predicates that the demonstrator needed to solve the task. No replacing is
     # done if the approach is oracle because the ground truth operators are
     # defined in terms of the original goal predicates.
+    metrics: Metrics = defaultdict(float)
+    if CFG.num_test_tasks == 0:
+        return metrics
     test_tasks = env.get_test_tasks()
     if CFG.approach != "oracle":
         test_tasks = [task.replace_goal_with_alt_goal() for task in test_tasks]
@@ -371,7 +374,6 @@ def _run_testing(env: BaseEnv, cogman: CogMan) -> Metrics:
     total_num_execution_failures = 0
 
     save_prefix = utils.get_config_path_str()
-    metrics: Metrics = defaultdict(float)
     curr_num_nodes_created = 0.0
     curr_num_nodes_expanded = 0.0
     replan_total_count = 0

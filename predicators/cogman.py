@@ -298,7 +298,7 @@ def run_episode_and_get_observations(
     traj = (observations, actions)
     solved = env.goal_reached()
     if not env._using_gui:
-        env.save_episode_video(f"episode_{cogman._episode_num}.mp4")
+        env.save_episode_video(f"episode_{cogman._episode_num}__{CFG.robo_kitchen_task}.mp4")
     return traj, solved, metrics
 
 

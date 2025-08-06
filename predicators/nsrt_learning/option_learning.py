@@ -676,7 +676,7 @@ class _DSOptionLearner(_OptionLearnerBase):
             quat = []  # quaternion trajectories
             omega = []  # angular velocity trajectories
             gripper_action = []  # gripper state trajectories if available
-            set_OOI_type_name = set()
+            set_ref_obj_type_name = set()
             set_gripper_or_obj_type_name = set()
 
 
@@ -699,7 +699,7 @@ class _DSOptionLearner(_OptionLearnerBase):
                     continue
 
                 OOI_type_name = OOI_obj.type.name
-                set_OOI_type_name.add(OOI_type_name)
+                set_ref_obj_type_name.add(OOI_type_name)
                 gripper_or_obj_type_name = gripper_or_obj.type.name
                 set_gripper_or_obj_type_name.add(gripper_or_obj_type_name)
 
@@ -751,9 +751,9 @@ class _DSOptionLearner(_OptionLearnerBase):
                 continue
 
             # if OOI type and gripper type are clear, use the relative cluster center as the attractor
-            assert len(set_OOI_type_name) == 1 and len(set_gripper_or_obj_type_name) == 1
+            assert len(set_ref_obj_type_name) == 1 and len(set_gripper_or_obj_type_name) == 1
             relative_cluster_attractor = None
-            dict_key = ("InContact", set_OOI_type_name.pop(), set_gripper_or_obj_type_name.pop())
+            dict_key = ("InContact", set_ref_obj_type_name.pop(), set_gripper_or_obj_type_name.pop())
             # TODO: Goal can be checked too
             if CFG.use_cluster_center_as_attractor:
                 if dict_key in CFG.dict_contact_predicate_to_rel_pose_predicates:
@@ -1190,7 +1190,9 @@ class _LearnedDSParameterizedOption(ParameterizedOption):
         # gripper in cluster predicates of the grounded NSRT.
         grounded_op = self.operator.ground(tuple(objects))
         memory["excluded_obj_names"] = _get_objects_clustered_with_gripper(grounded_op)
-        
+        memory["gripper_or_obj_pose_ref_frame_history"] = []
+        memory["mem_count"] = 12
+        memory["gripper_moved"] = False
         # === ACCESS FAILURE INFORMATION ===
         # The failure information from execution monitor is already available in memory!
         if CFG.resample_in_cluster:
@@ -1222,7 +1224,7 @@ class _LearnedDSParameterizedOption(ParameterizedOption):
         
         
         base = None
-        OOI_obj = None
+        ref_obj = None
         gripper_or_obj = None
         left_finger = None
         right_finger = None
@@ -1238,7 +1240,7 @@ class _LearnedDSParameterizedOption(ParameterizedOption):
         assert len(effect_objs) == 2
         for obj in effect_objs:
             if obj.type.name == self._ooi_type:
-                OOI_obj = obj
+                ref_obj = obj
 
         # Assume the only have one robot with one arm
         for obj in state.data:
@@ -1252,15 +1254,21 @@ class _LearnedDSParameterizedOption(ParameterizedOption):
                 right_finger = obj
             if obj.type.name == "wrist_type":
                 wrist = obj
-            if base and OOI_obj and gripper_or_obj and left_finger and right_finger and wrist:
+            if base and ref_obj and gripper_or_obj and left_finger and right_finger and wrist:
                 break
 
-        assert base and OOI_obj and gripper_or_obj and left_finger and right_finger and wrist
+        assert base and ref_obj and gripper_or_obj and left_finger and right_finger and wrist
 
-        gripper_or_obj_pose_OOI_frame = calculate_relative_pose_from_state(state, OOI_obj, gripper_or_obj, "translation", "quaternion")
+        gripper_or_obj_pose_ref_frame = calculate_relative_pose_from_state(state, ref_obj, gripper_or_obj, "translation", "quaternion")
+        # save to memory
+        memory["gripper_or_obj_pose_ref_frame_history"].append(gripper_or_obj_pose_ref_frame)
+        if len(memory["gripper_or_obj_pose_ref_frame_history"]) > memory["mem_count"]:
+            memory["gripper_or_obj_pose_ref_frame_history"].pop(0)
         left_right_finger_dist = calculate_relative_pose_from_state(state, left_finger, right_finger, "translation", "quaternion")
         left_right_finger_dist = np.linalg.norm(left_right_finger_dist[:3])
-
+        # memory["finger_dist_history"].append(left_right_finger_dist)
+        # if len(memory["finger_dist_history"]) > memory["mem_count"]:
+            # memory["finger_dist_history"].pop(0)
         # Add modulations for obstacles
         if CFG.robo_kitchen_modulation_mode == "ellipsoid":
             self._ds_policy.clear_modulations()
@@ -1276,21 +1284,21 @@ class _LearnedDSParameterizedOption(ParameterizedOption):
                 if excluded:
                     continue
                 bbox_points, (center, radii, quat_xyzw) = obstacle_info
-                relative_pose = calculate_relative_pose(state.get(OOI_obj, "translation"), state.get(OOI_obj, "quaternion"), center, quat_xyzw)
+                relative_pose = calculate_relative_pose(state.get(ref_obj, "translation"), state.get(ref_obj, "quaternion"), center, quat_xyzw)
                 ellipsoid_tuple = (relative_pose[:3], radii, R.from_quat(relative_pose[3:]).as_matrix())
                 self._ds_policy.add_ellipsoid_modulation(relative_pose[:3], radii, R.from_quat(relative_pose[3:]).as_matrix())
                 # Transform bbox_points to OOI_obj frame
                 # bbox_points are in world frame, transform each to OOI_obj frame
-                ooi_pos = state.get(OOI_obj, "translation")
-                ooi_quat = state.get(OOI_obj, "quaternion")
-                ooi_rot = R.from_quat(ooi_quat).as_matrix()
-                ooi_rot_inv = ooi_rot.T
-                ooi_pos = np.array(ooi_pos)
+                ref_pos = state.get(ref_obj, "translation")
+                ref_quat = state.get(ref_obj, "quaternion")
+                ref_rot = R.from_quat(ref_quat).as_matrix()
+                ref_rot_inv = ref_rot.T
+                ref_pos = np.array(ref_pos)
                 transformed_bbox_points = []
                 for pt in bbox_points:
                     pt = np.array(pt)
-                    rel_pt = pt - ooi_pos
-                    rel_pt = ooi_rot_inv @ rel_pt
+                    rel_pt = pt - ref_pos
+                    rel_pt = ref_rot_inv @ rel_pt
                     transformed_bbox_points.append(rel_pt)
                 transformed_bbox_points = np.array(transformed_bbox_points)
                 vis_obstacles.append({
@@ -1304,25 +1312,25 @@ class _LearnedDSParameterizedOption(ParameterizedOption):
                 CFG.visualizer.set_obstacles(vis_obstacles)
 
         # Get action from DS Policy
-        wrist_pose_OOI_frame = calculate_relative_pose_from_state(state, OOI_obj, wrist, "translation", "quaternion")
+        wrist_pose_ref_obj_frame = calculate_relative_pose_from_state(state, ref_obj, wrist, "translation", "quaternion")
         action = self._ds_policy.get_action(
-            np.concatenate([gripper_or_obj_pose_OOI_frame[:3], gripper_or_obj_pose_OOI_frame[3:]]),
+            np.concatenate([gripper_or_obj_pose_ref_frame[:3], gripper_or_obj_pose_ref_frame[3:]]),
             clf=True,
             alpha_V=10.0,
             lookahead=5,  # Use Control Lyapunov Function  # CLF parameter  # Number of steps to look ahead
-            wrist_pose=wrist_pose_OOI_frame,
+            wrist_pose=wrist_pose_ref_obj_frame,
         )
 
         # here we no longer assume motion is between gripper and OOI.
         # so if gripper_or_obj is not gripper, we need to compute the motion of gripper
 
-        OOI_rot = R.from_quat(state.get(OOI_obj, "quaternion")).as_matrix()
+        ref_obj_rot = R.from_quat(state.get(ref_obj, "quaternion")).as_matrix()
         base_rot = R.from_quat(state.get(base, "quaternion")).as_matrix()
-        pos_vel_OOI_frame = action[:3]
-        ang_vel_OOI_frame = action[3:6]
-        pos_vel_world_frame = OOI_rot @ pos_vel_OOI_frame
+        pos_vel_ref_frame = action[:3]
+        ang_vel_ref_frame = action[3:6]
+        pos_vel_world_frame = ref_obj_rot @ pos_vel_ref_frame
         pos_vel_base_frame = base_rot.T @ pos_vel_world_frame
-        ang_vel_world_frame = OOI_rot @ ang_vel_OOI_frame
+        ang_vel_world_frame = ref_obj_rot @ ang_vel_ref_frame
         ang_vel_base_frame = base_rot.T @ ang_vel_world_frame
 
         mag = np.linalg.norm(ang_vel_base_frame)
@@ -1335,15 +1343,16 @@ class _LearnedDSParameterizedOption(ParameterizedOption):
         action_arr[6] = self._gripper_action
 
         # print(f"left_right_finger_dist: {left_right_finger_dist}")
-        if left_right_finger_dist > 0.1:
+        if left_right_finger_dist > 0.1:# 0.1m is the threshold for gripper open
             gripper_state = -1.0  # open
         else:
             gripper_state = 1.0  # close
 
-        if self.prev_left_right_finger_dist is None \
-            or (gripper_state == self._gripper_action \
-            and np.abs(left_right_finger_dist - self.prev_left_right_finger_dist) < 1e-3):
+        if self.prev_left_right_finger_dist is not None and gripper_state == self._gripper_action and np.abs(left_right_finger_dist - self.prev_left_right_finger_dist) < 1e-3:
             # NOTE: this is a hack to prevent the option from getting stuck when the finger distance is close to 0.1
+            memory["gripper_moved"] = True
+
+        if memory["gripper_moved"]:
             action_low = np.array([-1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0], dtype=np.float32)
             action_high = np.array([1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0], dtype=np.float32)
         else:
@@ -1358,11 +1367,11 @@ class _LearnedDSParameterizedOption(ParameterizedOption):
 
         if CFG.visualizer:
             rel_gripper_visualizer_rot = np.array([[0, 0, 1], [1, 0, 0], [0, 1, 0]])  # NOTE: this is a "correction" term: to rotate gripper's frame to visualize in the way we want
-            rot_in_OOI_frame = R.from_quat(gripper_or_obj_pose_OOI_frame[3:]).as_matrix()
-            gripper_quat_in_visualizer_xyzw = R.from_matrix(rot_in_OOI_frame @ rel_gripper_visualizer_rot).as_quat()
+            rot_in_ref_obj_frame = R.from_quat(gripper_or_obj_pose_ref_frame[3:]).as_matrix()
+            gripper_quat_in_visualizer_xyzw = R.from_matrix(rot_in_ref_obj_frame @ rel_gripper_visualizer_rot).as_quat()
             gripper_quat_in_visualizer_wxyz = np.array([gripper_quat_in_visualizer_xyzw[3], gripper_quat_in_visualizer_xyzw[0], gripper_quat_in_visualizer_xyzw[1], gripper_quat_in_visualizer_xyzw[2]])
-            CFG.visualizer.update_robot_position(gripper_or_obj_pose_OOI_frame[:3], gripper_quat_in_visualizer_wxyz)
-            CFG.visualizer.update_robot_velocity(pos_vel_OOI_frame)
+            CFG.visualizer.update_robot_position(gripper_or_obj_pose_ref_frame[:3], gripper_quat_in_visualizer_wxyz)
+            CFG.visualizer.update_robot_velocity(pos_vel_ref_frame)
 
         return Action(action_arr)
 
@@ -1373,23 +1382,24 @@ class _LearnedDSParameterizedOption(ParameterizedOption):
         # Optimization: remember the most recent state and terminate early if
         # the state is repeated, since this option will never get unstuck.
         # Keep track of states in memory
-        mem_count = 8
 
-        if "state_history" not in memory:
-            memory["state_history"] = []
+        
+        # if "state_history" not in memory:
+        #     memory["state_history"] = []
 
-        # Add current state to history
-        memory["state_history"].append(state)
+        # # Add current state to history
+        # memory["state_history"].append(state)
 
-        # Keep only the last 10 states
-        if len(memory["state_history"]) > mem_count:
-            memory["state_history"].pop(0)
+        # # Keep only the last 10 states
+        # if len(memory["state_history"]) > mem_count:
+        #     memory["state_history"].pop(0)
 
         # Check if state has not changed for e.g. 10 steps
-        if len(memory["state_history"]) == mem_count:
-            if all(memory["state_history"][0].allclose(s) for s in memory["state_history"][1:]):
-                warnings.warn("Disabled effect-based terminal check, this is due to velocity-based ")
-                return True
+        if memory["gripper_moved"]: # do not end if gripper has not moved
+            if len(memory["gripper_or_obj_pose_ref_frame_history"]) == memory["mem_count"]:
+                if all(np.allclose(memory["gripper_or_obj_pose_ref_frame_history"][0], s, atol=1e-3) for s in memory["gripper_or_obj_pose_ref_frame_history"][1:]):
+                    # warnings.warn("Disabled effect-based terminal check, this is due to velocity-based ")
+                    return True
         # if terminate:
         #     return True
         memory["last_state"] = state

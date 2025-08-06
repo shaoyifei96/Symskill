@@ -90,9 +90,17 @@ def compute_adaptive_reg_term(cov, base_reg, min_reg=1e-20, max_reg=1.0, mode="t
         raise ValueError(f"Unknown mode: {mode}")
     
     # proportionality to cov: higher cov → higher reg
-    reg_strength = np.clip(base_reg * cov_magnitude, min_reg, max_reg)
+    # Calculate the initial reg_strength
+    # initial_reg = base_reg * cov_magnitude 
     
-    return np.eye(cov.shape[0]) * reg_strength
+    # # Check if we're using the minimum regularization
+    # if initial_reg <= min_reg:
+    #     logging.info(f"Using minimum regularization: {min_reg} (initial was {initial_reg})")
+    #     reg_strength = min_reg
+    # else:
+    #     reg_strength = np.clip(initial_reg, min_reg, max_reg)
+    
+    return cov * (base_reg) + np.eye(cov.shape[0]) * min_reg
 
 def check_dict_contact_predicate_to_rel_pose_predicates(atom: GroundAtom, state: State) -> bool:
     rel_pose_preds = CFG.dict_contact_predicate_to_rel_pose_predicates[(atom.predicate.name, atom.entities[0].type.name, atom.entities[1].type.name)]
