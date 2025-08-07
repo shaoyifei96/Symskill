@@ -1035,13 +1035,29 @@ class RoboKitchenEnv(BaseEnv):
                     # For single door
                     door_body_name = cabinet.door_name
                     # Compute bounding box points for the door panel body
-                    bbox_points = self._get_body_bbox_points(door_body_name, ignore_handle=False)
-                    obstacle_name = f'door_{id}'
+                    door_bbox_points = self._get_body_bbox_points(door_body_name, ignore_handle=False)
+                    door_obstacle_name = f'door_{id}'
+                    
+                    # Process door obstacle
+                    if door_bbox_points is not None:
+                        center, quat_xyzw, radii = self._fit_bbox_ellipsoid(door_bbox_points, door_obstacle_name)
+                        if CFG.robo_kitchen_visualize_bboxes:
+                            self._visualize_bbox_ellipsoid(door_bbox_points, center, quat_xyzw, radii, "door"+str(id))
+                    
+                    # Add cabinet bottom as separate obstacle
+                    bottom_geom_name = f"{cabinet.name}_bottom"
+                    bottom_bbox_points = self._get_geom_bbox_points(bottom_geom_name, ignore_handle=True)
+                    
+                    if bottom_bbox_points is not None:
+                        bottom_obstacle_name = f'cabinet_bottom_{id}'
+                        center, quat_xyzw, radii = self._fit_bbox_ellipsoid(bottom_bbox_points, bottom_obstacle_name)
+                        if CFG.robo_kitchen_visualize_bboxes:
+                            self._visualize_bbox_ellipsoid(bottom_bbox_points, center, quat_xyzw, radii, f"bottom_{id}")
+                    else:
+                        logging.warning(f"Bottom geom {bottom_geom_name} not found for cabinet {id}")
+                        
                 else:
                     logging.warning(f"door_{id}'s cabinet not found in fixtures")
-                center, quat_xyzw, radii = self._fit_bbox_ellipsoid(bbox_points, obstacle_name) # obstacle_name is what to store in CFG.robo_kitchen_obstacles
-                if CFG.robo_kitchen_visualize_bboxes:
-                    self._visualize_bbox_ellipsoid(bbox_points, center, quat_xyzw, radii, "door"+str(id)) # obj_name is only used for generating a color (doesn't matter)
         
         for obj_name in self._env_raw.obj_body_id:
             obstacle_name = obj_name # what to store in CFG.robo_kitchen_obstacles
@@ -1979,7 +1995,7 @@ class RoboKitchenEnv(BaseEnv):
         
         # For an open drawer, the Y displacement should be significant
         # (drawers slide along Y-axis according to the XML)
-        drawer_open_thresh = 0.0  # meters - threshold for considering drawer open
+        drawer_open_thresh = 0.05  # meters - threshold for considering drawer open
         return abs(rel_pos[1]) < drawer_open_thresh
     
     @classmethod
@@ -2015,59 +2031,19 @@ class RoboKitchenEnv(BaseEnv):
             self._video_frames = []
             self._frame_counter = 0
 
-    def _get_body_bbox_points(self, body_name: str, ignore_handle: bool = True):
-        """Return 8 world-coordinate bounding box corner points for the given MuJoCo body.
+    def _get_geom_bbox_points_from_indices(self, geom_indices: List[int], ignore_handle: bool = True):
+        """Return 8 world-coordinate bounding box corner points for the given geom indices.
 
         The bounding box is computed as an axis-aligned bounding box that encloses
-        all geoms that belong to the body. This works for visualization purposes
+        all specified geoms. This works for visualization purposes
         and does not assume any specific geom type (box / sphere / cylinder).
-        Returns None if the body is not found or contains no geoms.
+        Returns None if no valid geoms are provided.
         """
-        try:
-            model = self._env_raw.sim.model
-            data = self._env_raw.sim.data
-            target_body_id = model.body_name2id(body_name)
-        except Exception:
-            logging.warning(f"Body {body_name} not found in simulation model")
-            return None
-
-        # ------------------------------------------------------------------
-        # Gather all descendant body ids (including the target body itself).
-        # MuJoCo keeps a tree of bodies, where model.body_parentid gives the
-        # parent of a body (root's parent is -1). We include a geom if the
-        # body it is attached to is the target body or lies in its subtree.
-        # ------------------------------------------------------------------
-        parent = model.body_parentid
-
-        def _is_descendant(child_id: int, ancestor_id: int) -> bool:
-            """Return True iff ancestor_id is on the path from child to root.
-
-            Handles malformed parent arrays where the root body's parent id equals
-            itself (common in some MuJoCo models) to avoid infinite loops.
-            """
-            visited = set()
-            while child_id != -1:
-                if child_id == ancestor_id:
-                    return True
-                if child_id in visited:
-                    # Cycle detected (e.g.
-                    # parent[child_id] == child_id). Break to avoid infinite loop.
-                    break
-                visited.add(child_id)
-                next_id = parent[child_id]
-                if next_id == child_id:
-                    # Reached a self-parenting root
-                    break
-                child_id = next_id
-            return False
-
-        geom_indices = [
-            g for g in range(model.ngeom) if _is_descendant(model.geom_bodyid[g], target_body_id)
-        ]
-
         if len(geom_indices) == 0:
-            logging.warning(f"No geoms found for body {body_name} (including descendants)")
             return None
+
+        model = self._env_raw.sim.model
+        data = self._env_raw.sim.data
 
         min_xyz = np.array([np.inf, np.inf, np.inf])
         max_xyz = np.array([-np.inf, -np.inf, -np.inf])
@@ -2128,6 +2104,79 @@ class RoboKitchenEnv(BaseEnv):
         ]
 
         return bbox_points
+
+    def _get_geom_bbox_points(self, geom_name: str, ignore_handle: bool = True):
+        """Return 8 world-coordinate bounding box corner points for a single geom.
+
+        Args:
+            geom_name: Name of the geom to get bounding box for
+            ignore_handle: Whether to skip handle-related geoms (not applicable for single geom)
+        
+        Returns:
+            List of 8 corner points or None if geom not found
+        """
+        try:
+            model = self._env_raw.sim.model
+            geom_id = model.geom_name2id(geom_name)
+            return self._get_geom_bbox_points_from_indices([geom_id], ignore_handle)
+        except Exception:
+            logging.warning(f"Geom {geom_name} not found in simulation model")
+            return None
+
+    def _get_body_bbox_points(self, body_name: str, ignore_handle: bool = True):
+        """Return 8 world-coordinate bounding box corner points for the given MuJoCo body.
+
+        The bounding box is computed as an axis-aligned bounding box that encloses
+        all geoms that belong to the body. This works for visualization purposes
+        and does not assume any specific geom type (box / sphere / cylinder).
+        Returns None if the body is not found or contains no geoms.
+        """
+        try:
+            model = self._env_raw.sim.model
+            target_body_id = model.body_name2id(body_name)
+        except Exception:
+            logging.warning(f"Body {body_name} not found in simulation model")
+            return None
+
+        # ------------------------------------------------------------------
+        # Gather all descendant body ids (including the target body itself).
+        # MuJoCo keeps a tree of bodies, where model.body_parentid gives the
+        # parent of a body (root's parent is -1). We include a geom if the
+        # body it is attached to is the target body or lies in its subtree.
+        # ------------------------------------------------------------------
+        parent = model.body_parentid
+
+        def _is_descendant(child_id: int, ancestor_id: int) -> bool:
+            """Return True iff ancestor_id is on the path from child to root.
+
+            Handles malformed parent arrays where the root body's parent id equals
+            itself (common in some MuJoCo models) to avoid infinite loops.
+            """
+            visited = set()
+            while child_id != -1:
+                if child_id == ancestor_id:
+                    return True
+                if child_id in visited:
+                    # Cycle detected (e.g.
+                    # parent[child_id] == child_id). Break to avoid infinite loop.
+                    break
+                visited.add(child_id)
+                next_id = parent[child_id]
+                if next_id == child_id:
+                    # Reached a self-parenting root
+                    break
+                child_id = next_id
+            return False
+
+        geom_indices = [
+            g for g in range(model.ngeom) if _is_descendant(model.geom_bodyid[g], target_body_id)
+        ]
+
+        if len(geom_indices) == 0:
+            logging.warning(f"No geoms found for body {body_name} (including descendants)")
+            return None
+
+        return self._get_geom_bbox_points_from_indices(geom_indices, ignore_handle)
 
 
 def frame_transform(pos_in_init: np.ndarray, quat_in_init: np.ndarray, target_pos: np.ndarray, target_rot: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:

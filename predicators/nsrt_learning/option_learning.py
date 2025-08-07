@@ -1278,7 +1278,7 @@ class _LearnedDSParameterizedOption(ParameterizedOption):
                 # Skip objects that should be excluded because they are clustered with the gripper for this option execution.
                 excluded = False
                 for excluded_obj_name in memory.get("excluded_obj_names", set()):
-                    if obj_name_matching(obj_name, excluded_obj_name, consider_number=False):
+                    if obj_name_matching(obj_name, excluded_obj_name, consider_number=False) or "container" in obj_name:
                         excluded = True
                         break
                 if excluded:
