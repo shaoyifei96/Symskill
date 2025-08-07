@@ -41,7 +41,7 @@ class GlobalSettings:
     predicate_candidates_method = "motion_analysis_contact"  # "low_speed" or "contact_clustering" or "motion_analysis_contact"
     motion_analysis_lin_vel_rot_vel_threshold = 0.002 # lin vel min thresh, under this, use rot vel
     motion_analysis_contact_threshold = 0.04
-    clustering_inv_cov_reg_lin = 4.0 # gripper object
+    clustering_inv_cov_reg_lin = 6.0 # gripper object
     clustering_inv_cov_reg_lin_low = 2.0 #object object
     clustering_inv_cov_reg_rot_gripper = 5.0
     clustering_inv_cov_reg_rot_base = 0.5 # base rotation is mostly just the same, so make it more wide
@@ -144,7 +144,7 @@ class GlobalSettings:
     robo_kitchen_contact_smoothing_window = 21
     robo_kitchen_policy_model = "node"  # "simple_ds" or "node"
     make_test_videos = False
-    make_failure_videos = False
+    make_failure_videos = True
     loglevel = 30
     if enable_meshcat:
         visualizer = MeshcatVisualizer(mode="se3_lpvds")
