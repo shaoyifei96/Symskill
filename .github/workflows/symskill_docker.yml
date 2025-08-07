@@ -35,7 +35,7 @@ jobs:
           ln -fs /usr/share/zoneinfo/America/New_York /etc/localtime && \
           DEBIAN_FRONTEND=noninteractive TZ=America/New_York apt-get update && \
           DEBIAN_FRONTEND=noninteractive TZ=America/New_York apt-get install -y tzdata && \
-          DEBIAN_FRONTEND=noninteractive TZ=America/New_York apt-get install -y libopencv-dev && \ 
+          DEBIAN_FRONTEND=noninteractive TZ=America/New_York apt-get install -y libopencv-dev && \
           apt-get install -y cmake && \
           apt-get install -y build-essential && \
           apt-get install -y libeigen3-dev && \
