@@ -12,6 +12,7 @@ import h5py
 import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
+from scipy.spatial.transform import Rotation as R
 
 from predicators import utils
 from predicators.approaches import ApproachFailure, ApproachTimeout
@@ -31,6 +32,7 @@ from predicators.structs import Action, Dataset, LowLevelTrajectory, \
     ParameterizedOption, State, Task
 from robocasa.utils.dataset_registry import get_ds_path
 from PIL import Image
+import csv
 
 
 def create_demo_data(env: BaseEnv,
@@ -47,10 +49,13 @@ def create_demo_data(env: BaseEnv,
         robocasa_task: If provided, load demonstrations from robocasa dataset
                       instead of collecting new ones
     """
-    if robocasa_task is not None: # three cases here. 1. the ones robocasa provides needs processing (slow) 2. the ones robocasa provided and we processed, 3. the ones we collect
+    if robocasa_task is not None: # 4 cases here. 1. the ones robocasa provides needs processing (slow) 2. the ones robocasa provided and we processed, 3. the ones we collect
         if CFG.robo_kitchen_user_demo: # case 3
-            env._reset_initial_state(seed=0, train_or_test="train", task_name=robocasa_task)
-            dataset = create_demo_data_from_user_demo(env, CFG.path_to_user_demo, robocasa_task)
+            if robocasa_task in CFG.mocap_tasks:
+                dataset = create_demo_data_from_mocap(env, CFG.path_to_user_demo[robocasa_task], robocasa_task)
+            else:
+                env._reset_initial_state(seed=0, train_or_test="train", task_name=robocasa_task)
+                dataset = create_demo_data_from_user_demo(env, CFG.path_to_user_demo[robocasa_task], robocasa_task)
             return dataset
         else:
             if CFG.robo_kitchen_load_dataset:   # case 2
@@ -577,3 +582,338 @@ def create_demo_data_from_robocasa(env: RoboKitchenEnv,
                 # utils.save_video(right_video_save_name, frames_right)
 
     return Dataset(trajectories)
+
+
+def create_demo_data_from_mocap(env: RoboKitchenEnv,
+                               path_to_mocap: str,
+                               task_name: str) -> Dataset:
+    """Create offline datasets by loading mocap demonstrations.
+    
+    Args:
+        env: The environment to load demonstrations for
+        path_to_mocap: Path to the mocap data directory containing CSV files
+        task_name: Name of the task (e.g. 'yifei_open_lid', 'yifei_pour_pot')
+    
+    Returns:
+        Dataset containing the loaded mocap demonstrations
+    """
+    import csv
+    import numpy as np
+    from collections import defaultdict
+    
+    # Find all CSV files in the directory
+    mocap_files = glob.glob(os.path.join(path_to_mocap, "*.csv"))
+    mocap_files.sort()  # Sort to ensure consistent ordering
+    
+    if not mocap_files:
+        raise ValueError(f"No CSV files found in directory {path_to_mocap}")
+    
+    trajectories = []
+    
+    for demo_idx, mocap_file_path in enumerate(mocap_files):
+        # Show progress
+        if demo_idx >= CFG.num_train_tasks:
+            break
+        logging.info(f"Processing mocap demo {demo_idx+1} / {min(CFG.num_train_tasks, len(mocap_files))}")
+        
+        # Parse mocap CSV file
+        mocap_data = parse_mocap_csv(mocap_file_path)
+        
+        if not mocap_data['frames']:
+            logging.warning(f"Skipping {mocap_file_path}: no valid mocap data")
+            continue
+        
+        # Convert mocap data to states and actions
+        states = []
+        actions = []
+        
+        # Set initial environment state (you may need to customize this based on your environment)
+        env._reset_initial_state(seed=0, train_or_test="train", task_name="PnPCabToCounterTomato") 
+        # using tomato task since it is smallest with all objects
+        
+        # Process each timestep of mocap data
+        for frame_idx, frame_data in enumerate(mocap_data['frames']):
+            # Create state from mocap data
+            state = create_state_from_mocap_frame(frame_data)
+            states.append(state)
+            
+            # Create actions (if not the last frame)
+            if frame_idx < len(mocap_data['frames']) - 1:
+                next_frame_data = mocap_data['frames'][frame_idx + 1]
+                action = create_action_from_mocap_transition(frame_data, next_frame_data, mocap_data['objects'])
+                actions.append(action)
+        
+        # Create LowLevelTrajectory
+        traj = LowLevelTrajectory(
+            _states=states,
+            _actions=actions,
+            _is_demo=True,
+            _train_task_idx=demo_idx,
+            _raw_robosuite_states=None,  # Not available for mocap demos
+            _model_file=None,  # Not available for mocap demos
+            _ep_meta={'mocap_file': mocap_file_path, 'task_name': task_name}
+        )
+        trajectories.append(traj)
+    
+    return Dataset(trajectories)
+
+
+def parse_mocap_csv(csv_file_path: str) -> dict:
+    """Parse a mocap CSV file and extract structured data.
+    
+    Args:
+        csv_file_path: Path to the CSV file
+        
+    Returns:
+        Dictionary containing parsed mocap data with structure:
+        {
+            'metadata': {...},
+            'objects': [...],
+            'frames': [...]
+        }
+    """
+    with open(csv_file_path, 'r') as f:
+        reader = csv.reader(f)
+        rows = list(reader)
+    
+    # Parse metadata from first row
+    metadata = {}
+    header_row = rows[0]
+    for i in range(0, len(header_row), 2):
+        if i + 1 < len(header_row):
+            key = header_row[i]
+            value = header_row[i + 1]
+            metadata[key] = value
+    
+    # Parse object information
+    object_types = rows[2][2:]  # Skip first two cells (empty and "Time (Seconds)")
+    object_names = rows[3][2:]  # Skip first two cells (empty and "Name")  
+    object_ids = rows[4][2:]    # Skip first two cells (empty and ID header)
+    data_types = rows[5][2:]    # Skip first two cells (empty and data type header)
+    column_headers = rows[6][2:]  # Skip first two cells ("Frame" and "Time (Seconds)")
+    
+    # Group columns by object
+    objects = []
+    col_idx = 0  # This tracks the index in the data_values array (excluding Frame and Time)
+    current_object = None
+    
+    for i, (obj_type, obj_name, obj_id, data_type, col_header) in enumerate(zip(
+        object_types, object_names, object_ids, data_types, column_headers)):
+        
+        if current_object is None or current_object['name'] != obj_name:
+            # New object
+            if current_object is not None:
+                objects.append(current_object)
+            current_object = {
+                'name': obj_name,
+                'id': obj_id,
+                'type': obj_type,
+                'rotation_cols': [],
+                'position_cols': []
+            }
+        
+        # Add column info to current object
+        if data_type == 'Rotation':
+            current_object['rotation_cols'].append({'header': col_header, 'index': col_idx})
+        elif data_type == 'Position':
+            current_object['position_cols'].append({'header': col_header, 'index': col_idx})
+        
+        col_idx += 1
+    
+    # Don't forget the last object
+    if current_object is not None:
+        objects.append(current_object)
+    
+    # Parse frame data
+    frames = []
+    for row in rows[7:]:  # Skip header rows
+        if not row or not row[0]:  # Skip empty rows
+            continue
+        
+        frame_num = int(row[0])
+        timestamp = float(row[1])
+        data_values = [float(x) if x else 0.0 for x in row[2:]]
+        
+        frame_data = {
+            'frame': frame_num,
+            'time': timestamp,
+            'object_data': {}
+        }
+        
+        # Extract data for each object
+        for obj in objects:
+            obj_data = {
+                'rotation': [],
+                'position': []
+            }
+            
+            # Get rotation data (quaternion: X, Y, Z, W)
+            for col_info in obj['rotation_cols']:
+                if col_info['index'] < len(data_values):
+                    obj_data['rotation'].append(data_values[col_info['index']])
+            
+            # Get position data (X, Y, Z)
+            for col_info in obj['position_cols']:
+                if col_info['index'] < len(data_values):
+                    obj_data['position'].append(data_values[col_info['index']])
+            
+            frame_data['object_data'][obj['name']] = obj_data
+        
+        frames.append(frame_data)
+    
+    return {
+        'metadata': metadata,
+        'objects': objects,
+        'frames': frames
+    }
+
+
+def create_state_from_mocap_frame(frame_data: dict) -> State:
+    """Create a State object from mocap frame data.
+    
+    Args:
+        env: The environment
+        frame_data: Single frame of mocap data
+        objects: List of object definitions
+        
+    Returns:
+        State object representing the mocap frame
+    """
+    # This is a placeholder implementation - you'll need to customize this
+    # based on how your RoboKitchenEnv.state_info_to_state works
+    
+    # Create a mock observation dictionary with mocap data
+    obs = {}
+    
+    # Handle gripper and finger poses specially
+    gripper_data = None
+    finger_data = None
+    
+    # Map mocap objects to environment state representation
+    for obj_name, obj_data in frame_data['object_data'].items():
+        if obj_data['position'] and obj_data['rotation']:
+            # Position (x, y, z)
+            pos = np.array(obj_data['position'])
+            # Rotation quaternion (x, y, z, w)  
+            quat = np.array(obj_data['rotation'])
+            assert len(pos) == 3 and len(quat) == 4, f"Position and quaternion must have 3 and 4 elements respectively, but got {len(pos)} and {len(quat)} for {obj_name}"
+            
+            # Handle special cases for gripper and finger
+            if obj_name == "umi_body":
+                # Rename umi_body to gripper
+                gripper_data = {'pos': pos, 'quat': quat}
+                obs["gripper_pos_quat"] = np.concatenate([pos, quat])
+            elif obj_name == "umi_finger":
+                # Store finger data for symmetric processing
+                finger_data = {'pos': pos, 'quat': quat}
+            elif not obj_name.startswith("umi_"):
+                # Store other objects normally
+                obs[f"{obj_name}_pos_quat"] = np.concatenate([pos, quat])
+    
+    # Create symmetric left and right finger poses from single umi_finger marker
+    if finger_data is not None and gripper_data is not None:
+        # Assume the single finger marker represents the center between left and right fingers
+        finger_pos = finger_data['pos']
+        finger_quat = finger_data['quat']
+        gripper_pos = gripper_data['pos']
+        
+        # Calculate offset vector from gripper to finger (this represents the finger center)
+        finger_offset = finger_pos - gripper_pos
+        
+        # Create symmetric left and right finger positions
+        # Assume fingers are symmetric about the gripper's local y-axis
+        # We'll offset them by a small amount (e.g., 0.02m = 2cm) in the gripper's local x-axis
+        finger_separation = 0.02  # 2cm separation between fingers
+        
+        # Convert quaternion to rotation matrix to get local coordinate system
+        gripper_rot = R.from_quat([gripper_data['quat'][0], gripper_data['quat'][1], gripper_data['quat'][2], gripper_data['quat'][3]])  # x, y, z, w
+        gripper_rot_matrix = gripper_rot.as_matrix()
+        
+        # Local x-axis of gripper (for finger separation)
+        local_x_axis = gripper_rot_matrix[:, 0]
+        
+        # Calculate left and right finger positions
+        left_finger_pos = finger_pos - (finger_separation / 2) * local_x_axis
+        right_finger_pos = finger_pos + (finger_separation / 2) * local_x_axis
+        
+        # Both fingers have the same orientation as the original finger marker
+        obs["left_finger_pos_quat"] = np.concatenate([left_finger_pos, finger_quat])
+        obs["right_finger_pos_quat"] = np.concatenate([right_finger_pos, finger_quat])
+    
+    # Create empty contact set (mocap doesn't provide contact information)
+    contact_set = set()
+    
+    # Convert to State object using your environment's method
+    # You may need to modify this call based on your actual state representation
+    state = RoboKitchenEnv.observation_to_state_mocap(obs)
+    
+    return state
+
+
+def create_action_from_mocap_transition(current_frame: dict, next_frame: dict, objects: list) -> Action:
+    """Create an Action object from the transition between two mocap frames.
+    
+    Args:
+        current_frame: Current frame mocap data
+        next_frame: Next frame mocap data  
+        objects: List of object definitions
+        
+    Returns:
+        Action object representing the transition
+    """
+    # This is a placeholder implementation - you'll need to customize this
+    # based on your action space and how you want to represent mocap transitions
+    
+    # Calculate deltas between frames
+    deltas = {}
+    dt = next_frame['time'] - current_frame['time']
+    
+    for obj_name in current_frame['object_data'].keys():
+        if (obj_name in next_frame['object_data'] and 
+            current_frame['object_data'][obj_name]['position'] and
+            next_frame['object_data'][obj_name]['position']):
+            
+            curr_pos = np.array(current_frame['object_data'][obj_name]['position'])
+            next_pos = np.array(next_frame['object_data'][obj_name]['position'])
+            
+            # Velocity calculation
+            velocity = (next_pos - curr_pos) / dt if dt > 0 else np.zeros(3)
+            
+            # Map umi_body to gripper for consistency with state creation
+            if obj_name == 'umi_body':
+                deltas["gripper_velocity"] = velocity
+            elif obj_name == 'umi_finger':
+                # For the single finger marker, we'll use it as the center finger velocity
+                deltas["finger_velocity"] = velocity
+            else:
+                deltas[f"{obj_name}_velocity"] = velocity
+    
+    # Create action array - you'll need to define this based on your action space
+    # This is just a placeholder that concatenates velocities for gripper and finger
+    action_array = []
+    
+    # Add gripper velocity (3D)
+    if "gripper_velocity" in deltas:
+        action_array.extend(deltas["gripper_velocity"])
+    else:
+        action_array.extend([0.0, 0.0, 0.0])
+    
+    # Add finger velocity (3D) - this represents the center finger motion
+    # which can be used to infer symmetric left/right finger motions
+    if "finger_velocity" in deltas:
+        action_array.extend(deltas["finger_velocity"])
+    else:
+        action_array.extend([0.0, 0.0, 0.0])
+    
+    # Add a gripper closing/opening command (1D) - placeholder
+    # You might want to derive this from the distance between gripper and finger
+    gripper_command = 0.0  # Placeholder - you may want to calculate this differently
+    action_array.append(gripper_command)
+    
+    # Ensure we have exactly 7D action space (3D gripper + 3D finger + 1D gripper command)
+    if len(action_array) < 7:
+        action_array.extend([0.0] * (7 - len(action_array)))
+    elif len(action_array) > 7:
+        action_array = action_array[:7]
+    
+    return Action(np.array(action_array))

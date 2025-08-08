@@ -13,6 +13,15 @@ results_dir = "results"
 base_results_dir = "sym_skill_base_results"
 online_learning_cycle = None
 saved_approaches_dir = "saved_approaches"
+# clear saved appraoch folder
+for f in glob.glob(f"{saved_approaches_dir}/*"):
+    try:
+        if os.path.isfile(f) or os.path.islink(f):
+            os.remove(f)
+        elif os.path.isdir(f):
+            shutil.rmtree(f)
+    except Exception as e:
+        print(f"Failed to delete {f}. Reason: {e}")
 
 BASE_SIMULATED_ARGV = [
     'predicators/main.py',  # The first element of sys.argv is the script name
@@ -56,14 +65,14 @@ COMPOSITE_SIMULATED_ARGV = [
     "--execution_monitor", "expected_atoms_robocasa",
     # some flags to override settings.py to ensure consistency
     # "--num_train_tasks", "10",
-    "--num_test_tasks", "3",
+    "--num_test_tasks", "1",
     "--results_dir", results_dir,
     "--use_learnt_goal_predicates", "True",
     "--use_teleop", "False", #single stage task does not need motion of the base
     "--load_approach"
 ]
 COMPOSITE_TASK_NAMES = [
-    "StoreFruit",
+    "StoreFruitFull",
 ]
 
 

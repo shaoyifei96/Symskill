@@ -23,9 +23,11 @@ class GlobalSettings:
     robo_kitchen_obj_names = ["robot0_base", "gripper", "left_finger", "right_finger", "wrist"] # this stores the actual object names, determined by a mujoco id, such as "cabinet_10" (see how these are constructed in robocasa/kithcen.py)
 
     relaxed_nsrt_learning = False
-    use_learnt_goal_predicates = False
+    use_learnt_goal_predicates = True
     use_negated_goal_predicates = False
     enable_base_ref_obj_precondition = False
+
+    use_gt_ref_obj_type = True
 
     use_cluster_center_as_attractor = False
 
@@ -42,10 +44,10 @@ class GlobalSettings:
     motion_analysis_lin_vel_rot_vel_threshold = 0.002 # lin vel min thresh, under this, use rot vel
     motion_analysis_contact_threshold = 0.04
     clustering_inv_cov_reg_lin = 6.0 # gripper object
-    clustering_inv_cov_reg_lin_low = 2.0 #object object
+    clustering_inv_cov_reg_lin_low = 3.0 #object object
     clustering_inv_cov_reg_rot_gripper = 5.0
     clustering_inv_cov_reg_rot_base = 0.5 # base rotation is mostly just the same, so make it more wide
-    clustering_inv_cov_reg_rot_low = 0.001  # much lower for obj obj rotation, stove needs much lower, 1e-4 works, not sure about this task!!!!
+    clustering_inv_cov_reg_rot_low = 4.5  # much lower for obj obj rotation, stove needs much lower, 1e-4 works, not sure about this task!!!!
     clustering_change_only = False # this meaning clustering the pose just at contact or through the contacts while it is moving
 
     
@@ -98,9 +100,18 @@ class GlobalSettings:
     # robo_kitchen_task = "OpenDrawer"
     # robo_kitchen_task = "CloseDrawer"
     # robo_kitchen_task = "TurnOnStove"
-    robo_kitchen_task = "TurnOffStove"
+    # robo_kitchen_task = "TurnOffStove"
     # robo_kitchen_task = "TurnOnSinkFaucet"
     # robo_kitchen_task = "TurnOffSinkFaucet"
+
+    # composite tasks (leaning needs to be done in sequence, see README)
+    # robo_kitchen_task = "StoreFruit" # New task
+    # robo_kitchen_task = "StoreFruitFull" # New task
+    # robo_kitchen_task = "CookCheeseAndTomatoes" # New task
+
+    # hardware tasks    
+    # robo_kitchen_task = "mocap_open_lid"
+    robo_kitchen_task = "mocap_pour_pot"
 
     # for learning ref frame
     gt_ref_obj_type = {"OpenSingleDoor": "cabinet_type", 
@@ -125,16 +136,16 @@ class GlobalSettings:
 
 
 
-    # composite tasks (leaning needs to be done in sequence, see README)
-    # robo_kitchen_task = "StoreFruit" # New task
-    # robo_kitchen_task = "StoreFruitFull" # New task
-    # robo_kitchen_task = "CookCheeseAndTomatoes" # New task
+
     composite_tasks = set(["CookCheeseAndTomatoes", "StoreFruit", "StoreFruitFull"])
+    mocap_tasks = set(["mocap_open_lid", "mocap_pour_pot"])
     # tasks that won't work with current approach
     # robo_kitchen_task = "TurnOnMicrowave" # this is not working, nothing is in motion in the dataset button just clicks
     # robo_kitchen_viz_debug = False # i think the use_gui flag covers this
-    path_to_user_demo = "/home/yifei/Documents/task_planning_2/robocasa/robocasa/models/assets/demonstrations_private/2025-08-01-21-56-57"
-    if robo_kitchen_task == "PnPCabToCounterTomato":
+    path_to_user_demo = {"PnPCabToCounterTomato": "/home/yifei/Documents/task_planning_2/robocasa/robocasa/models/assets/demonstrations_private/2025-08-01-21-56-57",
+                         "mocap_open_lid": "/home/yifei/Documents/task_planning_2/real_data/yifei_open_lid/",
+                         "mocap_pour_pot": "/home/yifei/Documents/task_planning_2/real_data/yifei_pour_pot/"}
+    if robo_kitchen_task == "PnPCabToCounterTomato" or robo_kitchen_task in mocap_tasks:
         robo_kitchen_user_demo = True
     else:
         robo_kitchen_user_demo = False # if True, this has priority, if False, then load flag is considered
@@ -168,7 +179,7 @@ class GlobalSettings:
     # Note: num_train_tasks will be set dynamically based on robo_kitchen_task
     # This is handled in the get_arg_specific_settings method below
     # num_train_tasks = 10  # setting up later, this no longer used
-    num_test_tasks = 1
+    num_test_tasks = 0
     # Perform online learning for this many cycles or until this many
     # transitions have been collected, whichever happens first.
     num_online_learning_cycles = 10
@@ -894,6 +905,8 @@ class GlobalSettings:
             num_train_tasks = 25
         elif robo_kitchen_task == "PnPCabToCounterTomato":
             num_train_tasks = 6
+        elif robo_kitchen_task in cls.mocap_tasks:
+            num_train_tasks = 5
         else:
             # robo_kitchen_task == "PnPStoveToCounter" 
             num_train_tasks = 10

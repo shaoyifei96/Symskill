@@ -132,6 +132,19 @@ class RoboKitchenEnv(BaseEnv):
         "dummy_object": object_type,
     }
 
+    obj_name_to_type_mocap = {
+        # "handle": handle_type,
+        # "left_door_handle": handle_type,
+        # "right_door_handle": handle_type,
+        "mug": thing_type,
+        "pan": container_type,
+        "cab_door": door_type,
+        "lid": thing_type,
+        "gripper": gripper_type,
+        "left_finger": left_finger_type,
+        "right_finger": right_finger_type,
+    }
+
     tasks_extended = [
         "Lift",
         "Stack",
@@ -294,7 +307,7 @@ class RoboKitchenEnv(BaseEnv):
         self._env = None  # Will be created in reset
         self._env_raw = None
         self.task_selected = CFG.robo_kitchen_task
-        if self.task_selected not in self.tasks_extended:
+        if self.task_selected not in self.tasks_extended and self.task_selected not in CFG.mocap_tasks:
             raise ValueError(f"Task {self.task_selected} not supported")
         print(colored(f"Selected task: {self.task_selected}", "green"))
 
@@ -1614,11 +1627,13 @@ class RoboKitchenEnv(BaseEnv):
         return found_objects
     
     @classmethod
-    def object_name_to_object(cls, obj_name: str, test_time: bool = False) -> Object:
+    def object_name_to_object(cls, obj_name: str, test_time: bool = False, mocap_name: bool = False) -> Object:
         """
         Made public for perceiver.
         Use this function at test time only when you have the exact obj_name, i.e. with mujoco id. Returns name in CFG.robo_kitchen_obj_names.
         """
+        if mocap_name: 
+            test_time = True
         if not test_time:
             if obj_name in cls.obj_name_to_type:
                 return Object(obj_name, cls.obj_name_to_type[obj_name])
@@ -1636,10 +1651,15 @@ class RoboKitchenEnv(BaseEnv):
             obj_name_no_num = obj_name_no_pos_quat[:-last_num_characters]
         else:
             obj_name_no_num = obj_name_no_pos_quat
-        if obj_name_no_num in cls.obj_name_to_type:
-            return Object(obj_name_no_pos_quat, cls.obj_name_to_type[obj_name_no_num])
+        if mocap_name:
+            if obj_name_no_num in cls.obj_name_to_type_mocap:
+                return Object(obj_name_no_pos_quat, cls.obj_name_to_type_mocap[obj_name_no_num])
+            else:
+                return None
         else:
-            return None
+            if obj_name_no_num in cls.obj_name_to_type:
+                return Object(obj_name_no_pos_quat, cls.obj_name_to_type[obj_name_no_num])
+        return None
         
         # for robo_kitchen_obj_name in CFG.robo_kitchen_obj_names:
         #     robo_kitchen_obj_name_no_pos_quat = robo_kitchen_obj_name
@@ -1652,6 +1672,23 @@ class RoboKitchenEnv(BaseEnv):
         #         if obj_name_raw in cls.obj_name_to_type:
         #             return Object(robo_kitchen_obj_name, cls.obj_name_to_type[obj_name_raw])
         return None
+
+    @classmethod
+    def observation_to_state_mocap(cls, observation: dict) -> State:
+        """
+        Made public for perceiver.
+        Use this function at test time only when you have the exact mocap_name, i.e. with mujoco id. Returns name in CFG.robo_kitchen_obj_names.
+        """
+        state_dict = {}
+        for key, val in observation.items():
+            if key.endswith("_pos_quat"):
+                obj_name = key[:-9]
+                obj = cls.object_name_to_object(obj_name, mocap_name=True)
+                translation = np.array([val[0], val[1], val[2]])
+                quaternion = np.array([val[3], val[4], val[5], val[6]])
+                if obj is not None:
+                    state_dict[obj] = {"translation": translation, "quaternion": quaternion}
+        return utils.create_state_from_dict(state_dict)
 
     @classmethod
     def state_info_to_state(cls, state_info: Dict[str, Any], contact_set: set[Tuple[Object, Object]] = None) -> State:

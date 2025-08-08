@@ -488,11 +488,11 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         mode = "robotbase" if "RobotBaseRelCovCluster" in entry_to_exclude else "incontact"
         for key, effects_to_delete in all_entries.items():
             if len(key) == 2: key = key[0]
-            for eff in effects_to_delete:
-                # if mode == "incontact" and key == entry_to_exclude and task_name == eff.name.split("-")[1]: # incontact predicate
-                #     continue  # Skip the object that's currently in contact, because it will be deleted by the incontact predicate
-                # elif mode == "robotbase" and "RobotBaseRelPosPred" in key and key.split("-")[1] == entry_to_exclude.split("-")[1]: #and task_name == eff.name.split("-")[1]:
-                #     continue # robot base predicate
+            for eff in effects_to_delete: # these are necessary for staionary multitask, since if there are no two objects, it cannot ground if adding another detele parameter
+                if mode == "incontact" and key == entry_to_exclude: #and task_name == eff.name.split("-")[1]: # incontact predicate
+                    continue  # Skip the object that's currently in contact, because it will be deleted by the incontact predicate
+                elif mode == "robotbase" and "RobotBaseRelPosPred" in key and key.split("-")[1] == entry_to_exclude.split("-")[1]: #and task_name == eff.name.split("-")[1]:
+                    continue # robot base predicate
                 # do not exclude for robotbase, since all other robotbase predicates are deleted, the one at first parameter is added, so there is no conflict
 
                 if mode == "robotbase":
@@ -1190,7 +1190,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 velocities = [(vel, rot_vel) for _, vel, rot_vel in motion_data[i][max_motion_obj]]
                 lin_vel = np.array([vel for vel, _ in velocities])
                 rot_vel = np.array([rot_vel for _, rot_vel in velocities])
-                algo = rpt.Dynp(model="l1", min_size=10, jump=3).fit(lin_vel)
+                algo = rpt.Dynp(model="rbf", min_size=3, jump=1).fit(lin_vel)
                 if np.max(lin_vel) > CFG.motion_analysis_lin_vel_rot_vel_threshold: # if there is lin motion, use lin vel to find change points
                     logging.warning(f"Using LINEAR velocity to find change points for {max_motion_obj.name}")
                     
@@ -1214,7 +1214,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                     plt.close()
                 else:
                     logging.warning(f"Using ROTATIONAL velocity to find change points for {max_motion_obj.name}")
-                    algo = rpt.Dynp(model="l1", min_size=10, jump=3).fit(rot_vel)
+                    algo = rpt.Dynp(model="rbf", min_size=3, jump=1).fit(rot_vel)
                     my_bkps = algo.predict(n_bkps=n_bkps)
                     rpt.show.display(rot_vel, my_bkps, my_bkps, figsize=(10, 6))
                     plt.savefig(f"feature_data/motion_analysis_traj{i}_obj_rot_{max_motion_obj.name}.png")
@@ -2095,11 +2095,15 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                         atoms_new.append(grounded_pred)
                     ground_atom_dataset[i][1][j] = set(atoms_new)
 
-        if env.goal_predicates: 
+        if env.goal_predicates : 
             assert len(list(env.goal_predicates)) == 1
             #this for running testing tasks! During testing, the goal is not the ground truth goal, but translated to a rel pose goal. During test time, the goal does not have to be just 1
             goal_pred = list(env.goal_predicates)[0]
             pred_key = tuple([goal_pred.name] + [t.name for t in goal_pred.types])
+            CFG.dict_gt_goal_predicate_to_dummy_goal_predicates[pred_key] = set([DummyPredicate(f"{CFG.robo_kitchen_task}-goal", [obj_type_of_reference_best, obj_type_contact_with_gripper])])
+        elif CFG.robo_kitchen_task in CFG.mocap_tasks:
+            # mocap tasks are not using gt ref obj type, so no need to add goal predicates
+            pred_key = tuple([CFG.robo_kitchen_task + "-goal", obj_type_of_reference_best.name, obj_type_contact_with_gripper.name])
             CFG.dict_gt_goal_predicate_to_dummy_goal_predicates[pred_key] = set([DummyPredicate(f"{CFG.robo_kitchen_task}-goal", [obj_type_of_reference_best, obj_type_contact_with_gripper])])
         else:
             raise NotImplementedError("Environment goal predicates not found, did you forget to define it for the task? Check perceiver, and robo_kitchen")
