@@ -53,6 +53,7 @@ import matplotlib.colors as mcolors # Import colors for normalization
 import ruptures as rpt
 import os
 from ds_policy import DSPolicy, compute_vel_traj, UnifiedModelConfig
+from scipy.ndimage import uniform_filter1d
 ################################################################################
 #                          Programmatic classifiers                            #
 ################################################################################
@@ -1190,8 +1191,14 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 velocities = [(vel, rot_vel) for _, vel, rot_vel in motion_data[i][max_motion_obj]]
                 lin_vel = np.array([vel for vel, _ in velocities])
                 rot_vel = np.array([rot_vel for _, rot_vel in velocities])
-                algo = rpt.Dynp(model="rbf", min_size=3, jump=1).fit(lin_vel)
-                if np.max(lin_vel) > CFG.motion_analysis_lin_vel_rot_vel_threshold: # if there is lin motion, use lin vel to find change points
+                lin_vel_smooth = uniform_filter1d(lin_vel, size=5)    # ≈ 5 samples
+                rot_vel_smooth = uniform_filter1d(rot_vel, size=5)    # ≈ 5 samples
+                #add small noise to signal to make it more robust to noise
+                lin_vel_smooth = lin_vel_smooth + np.random.normal(0, 0.0001, lin_vel_smooth.shape)
+                rot_vel_smooth = rot_vel_smooth + np.random.normal(0, 0.0001, rot_vel_smooth.shape)
+
+                algo = rpt.Dynp(model="rbf", min_size=20, jump=10).fit(lin_vel_smooth)
+                if np.max(lin_vel_smooth) > CFG.motion_analysis_lin_vel_rot_vel_threshold: # if there is lin motion, use lin vel to find change points
                     logging.warning(f"Using LINEAR velocity to find change points for {max_motion_obj.name}")
                     
                     if CFG.robo_kitchen_task == "PnPCabToCounterTomato":
@@ -1209,14 +1216,14 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                         my_bkps = algo.predict(n_bkps=n_bkps)
                     
                     # Display and save the visualization
-                    rpt.show.display(lin_vel, my_bkps, my_bkps, figsize=(10, 6))
+                    rpt.show.display(lin_vel_smooth, my_bkps, my_bkps, figsize=(10, 6))
                     plt.savefig(f"feature_data/motion_analysis_traj{i}_obj_lin_{max_motion_obj.name}.png")
                     plt.close()
                 else:
                     logging.warning(f"Using ROTATIONAL velocity to find change points for {max_motion_obj.name}")
-                    algo = rpt.Dynp(model="rbf", min_size=3, jump=1).fit(rot_vel)
+                    algo = rpt.Dynp(model="rbf", min_size=20, jump=10).fit(rot_vel_smooth)
                     my_bkps = algo.predict(n_bkps=n_bkps)
-                    rpt.show.display(rot_vel, my_bkps, my_bkps, figsize=(10, 6))
+                    rpt.show.display(rot_vel_smooth, my_bkps, my_bkps, figsize=(10, 6))
                     plt.savefig(f"feature_data/motion_analysis_traj{i}_obj_rot_{max_motion_obj.name}.png")
                     plt.close()
                 if n_bkps == 1:
@@ -1955,11 +1962,12 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         obj_type_contact_with_gripper = object_type_in_contact_with_gripper_longest_duration[0]
         obj_type_of_reference_best, min_reconstruction_error, list_of_reconstruction_errors = self._select_reference_object(contact_period_rel_trajs)
         # just 1 object does not support contacting with multiple objects 
-        # obj_type_of_reference_best_text = CFG.gt_ref_obj_type[CFG.robo_kitchen_task]
-        # for obj_type in all_objs_types:
-        #     if obj_type.name == obj_type_of_reference_best_text:
-        #         obj_type_of_reference_best = obj_type
-        #         break
+        # if CFG.use_gt_ref_obj_type and CFG.robo_kitchen_task not in CFG.mocap_tasks: # mocap tasks are not using gt ref obj type
+        #     obj_type_of_reference_best_text = CFG.gt_ref_obj_type[CFG.robo_kitchen_task]
+        #     for obj_type in all_objs_types:
+        #         if obj_type.name == obj_type_of_reference_best_text:
+        #             obj_type_of_reference_best = obj_type
+        #             break
         logging.error(f"Using ground truth reference object type: {obj_type_of_reference_best.name}")
         assert obj_type_of_reference_best is not None, f"Reference object type not found in all_objs_types: {all_objs_types}"
         # assert obj_type_of_reference_best.name in gt_ref_obj_type, f"GT reference object type not matching correct solution, gt_ref_obj_type: {gt_ref_obj_type}, obj_type_of_reference_best: {obj_type_of_reference_best.name}"
