@@ -148,6 +148,8 @@ class RoboKitchenEnv(BaseEnv):
         "gripper": gripper_type,
         "left_finger": left_finger_type,
         "right_finger": right_finger_type,
+        "dishrack": cabinet_type,
+        "bowl": container_type,
     }
 
     tasks_extended = [
@@ -645,6 +647,7 @@ class RoboKitchenEnv(BaseEnv):
             assert plate is not None, "Expected exactly one plate object"
             if self._OnSurface_holds(state, [obj, plate]):
                 return True
+        
         else:
             raise ValueError(f"Goal description {goal_desc} not supported")
 
