@@ -55,7 +55,7 @@ COMPOSITE_SIMULATED_ARGV = [
     'predicators/main.py',  # The first element of sys.argv is the script name
     "--env", "robo_kitchen",
     "--relaxed_nsrt_learning", "True",
-    "--use_gui", # github action does not support gui
+    # "--use_gui", # github action does not support gui
     "--approach", "clustering_invention",
     "--seed", "0",
     "--bilevel_plan_without_sim", "True",
@@ -65,7 +65,7 @@ COMPOSITE_SIMULATED_ARGV = [
     "--execution_monitor", "expected_atoms_robocasa",
     # some flags to override settings.py to ensure consistency
     # "--num_train_tasks", "10",
-    "--num_test_tasks", "1",
+    "--num_test_tasks", "20",
     "--results_dir", results_dir,
     "--use_learnt_goal_predicates", "True",
     "--use_teleop", "False", #single stage task does not need motion of the base

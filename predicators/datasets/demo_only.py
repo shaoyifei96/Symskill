@@ -49,32 +49,33 @@ def create_demo_data(env: BaseEnv,
         robocasa_task: If provided, load demonstrations from robocasa dataset
                       instead of collecting new ones
     """
-    if robocasa_task is not None: # 4 cases here. 1. the ones robocasa provides needs processing (slow) 2. the ones robocasa provided and we processed, 3. the ones we collect
-        if CFG.robo_kitchen_user_demo: # case 3
-            if robocasa_task in CFG.mocap_tasks:
-                dataset = create_demo_data_from_mocap(env, CFG.path_to_user_demo[robocasa_task], robocasa_task)
+    if robocasa_task is not None:
+        # Try to load cached dataset first if enabled
+        if CFG.robo_kitchen_load_dataset:
+            dataset_fname = f"generated_datasets/robokitchen__{robocasa_task}__{CFG.num_train_tasks}.pkl"
+            if os.path.exists(dataset_fname):
+                with open(dataset_fname, "rb") as f:
+                    dataset = pkl.load(f)
+                return dataset
             else:
+                raise ValueError(f"Dataset not found at {dataset_fname}")
+        else:
+            # Create dataset from appropriate source
+            if CFG.robo_kitchen_user_demo and robocasa_task in CFG.mocap_tasks:
+                dataset = create_demo_data_from_mocap(env, CFG.path_to_user_demo[robocasa_task], robocasa_task)
+            elif CFG.robo_kitchen_user_demo: # sim demo collected using spacemouse
                 env._reset_initial_state(seed=0, train_or_test="train", task_name=robocasa_task)
                 dataset = create_demo_data_from_user_demo(env, CFG.path_to_user_demo[robocasa_task], robocasa_task)
-            return dataset
-        else:
-            if CFG.robo_kitchen_load_dataset:   # case 2
-                dataset_fname = f"generated_datasets/robokitchen__{robocasa_task}__{CFG.num_train_tasks}.pkl"
-                if os.path.exists(dataset_fname):
-                    with open(dataset_fname, "rb") as f:
-                        dataset = pkl.load(f)
-                    return dataset
-                else:
-                    raise ValueError(f"Dataset not found at {dataset_fname}")
-            else: # case 1 
-                # convert demos from raw demos to ones with observations, this also reads from a file, so it does not need the train task,
-                # only needs the task name
+            else:
                 dataset = create_demo_data_from_robocasa(env, known_options, robocasa_task)
-                if CFG.robo_kitchen_save_dataset:
-                    dataset_fname = f"generated_datasets/robokitchen__{robocasa_task}__{CFG.num_train_tasks}.pkl"
-                    with open(dataset_fname, "wb") as f:
-                        pkl.dump(dataset, f)
-                return dataset
+        
+        # Save dataset if enabled
+        if CFG.robo_kitchen_save_dataset:
+            dataset_fname = f"generated_datasets/robokitchen__{robocasa_task}__{CFG.num_train_tasks}.pkl"
+            with open(dataset_fname, "wb") as f:
+                pkl.dump(dataset, f)
+        
+        return dataset
 
 
 def _create_demo_data_with_loading(env: BaseEnv, train_tasks: List[Task],
@@ -628,7 +629,7 @@ def create_demo_data_from_mocap(env: RoboKitchenEnv,
         actions = []
         
         # Set initial environment state (you may need to customize this based on your environment)
-        env._reset_initial_state(seed=0, train_or_test="train", task_name="PnPCabToCounterTomato") 
+        # env._reset_initial_state(seed=0, train_or_test="train", task_name="PnPCabToCounterTomato") 
         # using tomato task since it is smallest with all objects
         
         # Process each timestep of mocap data
@@ -851,7 +852,9 @@ def create_state_from_mocap_frame(frame_data: dict) -> State:
 
 
 def create_action_from_mocap_transition(current_frame: dict, next_frame: dict, objects: list) -> Action:
-    """Create an Action object from the transition between two mocap frames.
+    """Create an Action object from the mocap data, for ds_policy, the first 6 elements are not used
+    the last element is the gripper command, which is average,
+    here just get the distance between the gripper and the finger, and assign to -1, 1
     
     Args:
         current_frame: Current frame mocap data
@@ -862,58 +865,15 @@ def create_action_from_mocap_transition(current_frame: dict, next_frame: dict, o
         Action object representing the transition
     """
     # This is a placeholder implementation - you'll need to customize this
-    # based on your action space and how you want to represent mocap transitions
-    
-    # Calculate deltas between frames
-    deltas = {}
-    dt = next_frame['time'] - current_frame['time']
-    
-    for obj_name in current_frame['object_data'].keys():
-        if (obj_name in next_frame['object_data'] and 
-            current_frame['object_data'][obj_name]['position'] and
-            next_frame['object_data'][obj_name]['position']):
-            
-            curr_pos = np.array(current_frame['object_data'][obj_name]['position'])
-            next_pos = np.array(next_frame['object_data'][obj_name]['position'])
-            
-            # Velocity calculation
-            velocity = (next_pos - curr_pos) / dt if dt > 0 else np.zeros(3)
-            
-            # Map umi_body to gripper for consistency with state creation
-            if obj_name == 'umi_body':
-                deltas["gripper_velocity"] = velocity
-            elif obj_name == 'umi_finger':
-                # For the single finger marker, we'll use it as the center finger velocity
-                deltas["finger_velocity"] = velocity
-            else:
-                deltas[f"{obj_name}_velocity"] = velocity
-    
-    # Create action array - you'll need to define this based on your action space
-    # This is just a placeholder that concatenates velocities for gripper and finger
-    action_array = []
-    
-    # Add gripper velocity (3D)
-    if "gripper_velocity" in deltas:
-        action_array.extend(deltas["gripper_velocity"])
-    else:
-        action_array.extend([0.0, 0.0, 0.0])
-    
-    # Add finger velocity (3D) - this represents the center finger motion
-    # which can be used to infer symmetric left/right finger motions
-    if "finger_velocity" in deltas:
-        action_array.extend(deltas["finger_velocity"])
-    else:
-        action_array.extend([0.0, 0.0, 0.0])
-    
-    # Add a gripper closing/opening command (1D) - placeholder
-    # You might want to derive this from the distance between gripper and finger
-    gripper_command = 0.0  # Placeholder - you may want to calculate this differently
-    action_array.append(gripper_command)
-    
+    # based on your action space and how you want to represent mocap transition
+    action_array = np.zeros(7)
+
     # Ensure we have exactly 7D action space (3D gripper + 3D finger + 1D gripper command)
-    if len(action_array) < 7:
-        action_array.extend([0.0] * (7 - len(action_array)))
-    elif len(action_array) > 7:
-        action_array = action_array[:7]
+    gripper_pos = current_frame['object_data']['umi_body']['position']
+    finger_pos = current_frame['object_data']['umi_finger']['position']
+    gripper_command = np.linalg.norm(np.array(gripper_pos) - np.array(finger_pos))
+    # print(f"gripper_command: {gripper_command}")
+    action_array[-1] = 1 if gripper_command < 0.063 else -1
+    assert len(action_array) == 7, f"Action array must have 7 elements, but got {len(action_array)}"
     
     return Action(np.array(action_array))

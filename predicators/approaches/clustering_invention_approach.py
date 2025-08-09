@@ -847,6 +847,12 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         elif CFG.robo_kitchen_task == "TurnOffSinkFaucet":
             keep_indices = [ 5, 7, 11, 17, 19, 21]
             dataset._trajectories = [dataset._trajectories[i] for i in keep_indices if i < len(dataset._trajectories)]
+        elif CFG.robo_kitchen_task == "MocapOpenLid":
+            keep_indices = [0, 1, 2, 3, 4, 5, 6, 7, 8]
+            dataset._trajectories = [dataset._trajectories[i] for i in keep_indices if i < len(dataset._trajectories)]
+        elif CFG.robo_kitchen_task == "mocap_pour_pot":
+            keep_indices = [0, 1, 2, 4]
+            dataset._trajectories = [dataset._trajectories[i] for i in keep_indices if i < len(dataset._trajectories)]
         # Clear caches before starting learning
         self._atom_dataset_cache = {}
         self._operator_complexity_cache = {}
@@ -1191,11 +1197,11 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 velocities = [(vel, rot_vel) for _, vel, rot_vel in motion_data[i][max_motion_obj]]
                 lin_vel = np.array([vel for vel, _ in velocities])
                 rot_vel = np.array([rot_vel for _, rot_vel in velocities])
-                lin_vel_smooth = uniform_filter1d(lin_vel, size=5)    # ≈ 5 samples
-                rot_vel_smooth = uniform_filter1d(rot_vel, size=5)    # ≈ 5 samples
+                lin_vel_smooth = uniform_filter1d(lin_vel, size=1)    # ≈ 5 samples
+                rot_vel_smooth = uniform_filter1d(rot_vel, size=1)    # ≈ 5 samples
                 #add small noise to signal to make it more robust to noise
-                lin_vel_smooth = lin_vel_smooth + np.random.normal(0, 0.0001, lin_vel_smooth.shape)
-                rot_vel_smooth = rot_vel_smooth + np.random.normal(0, 0.0001, rot_vel_smooth.shape)
+                lin_vel_smooth = lin_vel_smooth + np.random.normal(0, 0.0004, lin_vel_smooth.shape)
+                rot_vel_smooth = rot_vel_smooth + np.random.normal(0, 0.0004, rot_vel_smooth.shape)
 
                 algo = rpt.Dynp(model="rbf", min_size=20, jump=10).fit(lin_vel_smooth)
                 if np.max(lin_vel_smooth) > CFG.motion_analysis_lin_vel_rot_vel_threshold: # if there is lin motion, use lin vel to find change points
@@ -1962,12 +1968,12 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         obj_type_contact_with_gripper = object_type_in_contact_with_gripper_longest_duration[0]
         obj_type_of_reference_best, min_reconstruction_error, list_of_reconstruction_errors = self._select_reference_object(contact_period_rel_trajs)
         # just 1 object does not support contacting with multiple objects 
-        # if CFG.use_gt_ref_obj_type and CFG.robo_kitchen_task not in CFG.mocap_tasks: # mocap tasks are not using gt ref obj type
-        #     obj_type_of_reference_best_text = CFG.gt_ref_obj_type[CFG.robo_kitchen_task]
-        #     for obj_type in all_objs_types:
-        #         if obj_type.name == obj_type_of_reference_best_text:
-        #             obj_type_of_reference_best = obj_type
-        #             break
+        if CFG.use_gt_ref_obj_type and CFG.robo_kitchen_task not in CFG.mocap_tasks: # mocap tasks are not using gt ref obj type
+            obj_type_of_reference_best_text = CFG.gt_ref_obj_type[CFG.robo_kitchen_task]
+            for obj_type in all_objs_types:
+                if obj_type.name == obj_type_of_reference_best_text:
+                    obj_type_of_reference_best = obj_type
+                    break
         logging.error(f"Using ground truth reference object type: {obj_type_of_reference_best.name}")
         assert obj_type_of_reference_best is not None, f"Reference object type not found in all_objs_types: {all_objs_types}"
         # assert obj_type_of_reference_best.name in gt_ref_obj_type, f"GT reference object type not matching correct solution, gt_ref_obj_type: {gt_ref_obj_type}, obj_type_of_reference_best: {obj_type_of_reference_best.name}"

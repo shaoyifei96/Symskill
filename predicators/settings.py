@@ -90,7 +90,7 @@ class GlobalSettings:
 
     # robo_kitchen env parameters
     robo_kitchen_randomize_init_state = True  # not used
-    robo_kitchen_task = "OpenSingleDoor"
+    # robo_kitchen_task = "OpenSingleDoor"
     # robo_kitchen_task = "CloseSingleDoor"
     # robo_kitchen_task = "PnPCounterToCab" 
     # robo_kitchen_task = "PnPCabToCounter" # #this has no plate, cannot find a good ref
@@ -110,7 +110,7 @@ class GlobalSettings:
     # robo_kitchen_task = "CookCheeseAndTomatoes" # New task
 
     # hardware tasks    
-    # robo_kitchen_task = "mocap_open_lid"
+    robo_kitchen_task = "MocapOpenLid"
     # robo_kitchen_task = "mocap_pour_pot"
 
     # for learning ref frame
@@ -138,12 +138,12 @@ class GlobalSettings:
 
 
     composite_tasks = set(["CookCheeseAndTomatoes", "StoreFruit", "StoreFruitFull"])
-    mocap_tasks = set(["mocap_open_lid", "mocap_pour_pot"])
+    mocap_tasks = set(["MocapOpenLid", "mocap_pour_pot"])
     # tasks that won't work with current approach
     # robo_kitchen_task = "TurnOnMicrowave" # this is not working, nothing is in motion in the dataset button just clicks
     # robo_kitchen_viz_debug = False # i think the use_gui flag covers this
     path_to_user_demo = {"PnPCabToCounterTomato": "/home/yifei/Documents/task_planning_2/robocasa/robocasa/models/assets/demonstrations_private/2025-08-01-21-56-57",
-                         "mocap_open_lid": "/home/yifei/Documents/task_planning_2/real_data/yifei_open_lid/",
+                         "MocapOpenLid": "/home/yifei/Documents/task_planning_2/real_data/openlid_v2/",
                          "mocap_pour_pot": "/home/yifei/Documents/task_planning_2/real_data/yifei_pour_pot/"}
     if robo_kitchen_task == "PnPCabToCounterTomato" or robo_kitchen_task in mocap_tasks:
         robo_kitchen_user_demo = True
@@ -905,8 +905,8 @@ class GlobalSettings:
             num_train_tasks = 25
         elif robo_kitchen_task == "PnPCabToCounterTomato":
             num_train_tasks = 6
-        elif robo_kitchen_task in cls.mocap_tasks:
-            num_train_tasks = 5
+        elif robo_kitchen_task == "MocapOpenLid":
+            num_train_tasks = 9
         else:
             # robo_kitchen_task == "PnPStoveToCounter" 
             num_train_tasks = 10
