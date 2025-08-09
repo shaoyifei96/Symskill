@@ -848,6 +848,9 @@ class RoboKitchenEnv(BaseEnv):
             Predicate("SinkFaucetOn", [cls.sink_faucet_handle_type], cls._SinkFaucetOn_holds),
             Predicate("SinkFaucetOff", [cls.sink_faucet_handle_type], cls._SinkFaucetOff_holds),
             Predicate("InContainer", [cls.thing_type, cls.container_type], cls._InContainer_holds),
+            # below are hardware predicates
+            Predicate("LidOnDishrack", [cls.thing_type, cls.cabinet_type], cls._LidOnDishrack_holds),
+            Predicate("PourInPan", [cls.thing_type, cls.container_type], cls._PourInPan_holds),
         }
 
         return {p.name: p for p in preds}
@@ -1533,6 +1536,10 @@ class RoboKitchenEnv(BaseEnv):
             goal_preds = {self._pred_name_to_pred["SinkFaucetOff"]}
         elif goal_desc == "PnPCabToCounterTomato":
             goal_preds = {self._pred_name_to_pred["InContainer"]}
+        elif goal_desc == "MocapOpenLid": 
+            goal_preds = {self._pred_name_to_pred["LidOnDishrack"]}
+        else:
+            raise NotImplementedError(f"Goal description {goal_desc} not implemented for {CFG.robo_kitchen_task}")
         return goal_preds
 
     @property
@@ -2051,6 +2058,15 @@ class RoboKitchenEnv(BaseEnv):
         in_container_region = abs(obj_pos_in_container[0]) <= 0.1 and abs(obj_pos_in_container[1]) <= 0.1
         return in_container and in_container_region
     
+    @classmethod
+    def _LidOnDishrack_holds(cls, state: State, objects: Sequence[Object]) -> bool:
+        """Check if lid is on dishrack."""
+        return False # hardware, so we can run this task without checking this predicate
+    
+    @classmethod
+    def _PourInPan_holds(cls, state: State, objects: Sequence[Object]) -> bool:
+        """Check if object is in pan."""
+        return False
 
     def close(self) -> None:
         """Close the Robosuite environment."""
