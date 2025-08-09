@@ -2160,10 +2160,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             goal_pred = list(env.goal_predicates)[0]
             pred_key = tuple([goal_pred.name] + [t.name for t in goal_pred.types])
             CFG.dict_gt_goal_predicate_to_dummy_goal_predicates[pred_key] = set([DummyPredicate(f"{CFG.robo_kitchen_task}-goal", [obj_type_of_reference_best, obj_type_contact_with_gripper])])
-        elif CFG.robo_kitchen_task in CFG.mocap_tasks:
-            # mocap tasks are not using gt ref obj type, so no need to add goal predicates
-            pred_key = tuple([CFG.robo_kitchen_task + "-goal", obj_type_of_reference_best.name, obj_type_contact_with_gripper.name])
-            CFG.dict_gt_goal_predicate_to_dummy_goal_predicates[pred_key] = set([DummyPredicate(f"{CFG.robo_kitchen_task}-goal", [obj_type_of_reference_best, obj_type_contact_with_gripper])])
+
         else:
             raise NotImplementedError("Environment goal predicates not found, did you forget to define it for the task? Check perceiver, and robo_kitchen")
         for pred in predicates_to_monitor:
