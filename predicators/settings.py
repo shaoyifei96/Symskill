@@ -43,7 +43,7 @@ class GlobalSettings:
     # predicate_candidates_method = "contact_clustering"  # "low_speed" or "contact_clustering" or "motion_analysis_contact"
     predicate_candidates_method = "motion_analysis_contact"  # "low_speed" or "contact_clustering" or "motion_analysis_contact"
     motion_analysis_lin_vel_rot_vel_threshold = 0.002 # lin vel min thresh, under this, use rot vel
-    motion_analysis_contact_threshold = {"PnPCabToCounterTomato": 0.003, "MocapOpenLid": 0.02}
+    motion_analysis_contact_threshold = {"PnPCabToCounterTomato": 0.003, "MocapOpenLid": 0.02, "MocapPourWater": 0.02}
     clustering_inv_cov_reg_lin = 3.0 # gripper object
     clustering_inv_cov_reg_lin_low = 3.0 #object object
     clustering_inv_cov_reg_rot_gripper = 5.0
@@ -111,8 +111,8 @@ class GlobalSettings:
     # robo_kitchen_task = "CookCheeseAndTomatoes" # New task
 
     # hardware tasks    
-    robo_kitchen_task = "MocapOpenLid"
-    # robo_kitchen_task = "mocap_pour_pot"
+    # robo_kitchen_task = "MocapOpenLid"
+    robo_kitchen_task = "MocapPourWater"
     # robo_kitchen_task = "MocapTest"
 
     # for learning ref frame
@@ -128,7 +128,8 @@ class GlobalSettings:
                        "TurnOnStove": "stove_type",
                        "TurnOffStove": "stove_type",
                        "TurnOnSinkFaucet": "sink_type",
-                       "TurnOffSinkFaucet": "sink_type",}
+                       "TurnOffSinkFaucet": "sink_type",
+                       "MocapPourWater": "cookware_type"}
 
     related_object_types = {"door_type":"cabinet_type",
                             "plate_type":"thing_type",
@@ -140,13 +141,13 @@ class GlobalSettings:
 
 
     composite_tasks = set(["CookCheeseAndTomatoes", "StoreFruit", "StoreFruitFull"])
-    mocap_tasks = set(["MocapOpenLid", "mocap_pour_pot", "MocapTest"])
+    mocap_tasks = set(["MocapOpenLid", "MocapPourWater", "MocapTest"])
     # tasks that won't work with current approach
     # robo_kitchen_task = "TurnOnMicrowave" # this is not working, nothing is in motion in the dataset button just clicks
     # robo_kitchen_viz_debug = False # i think the use_gui flag covers this
     path_to_user_demo = {"PnPCabToCounterTomato": "/home/yifei/Documents/task_planning_2/robocasa/robocasa/models/assets/demonstrations_private/2025-08-01-21-56-57",
                          "MocapOpenLid": "/home/yifei/Documents/task_planning_2/real_data/openlid_v7/",
-                         "mocap_pour_pot": "/home/yifei/Documents/task_planning_2/real_data/yifei_pour_pot/",
+                         "MocapPourWater": "/home/yifei/Documents/task_planning_2/real_data/pour_water_v2/",
                          "MocapTest": "/home/yifei/Documents/task_planning_2/real_data/mocap_test/"}
     if robo_kitchen_task == "PnPCabToCounterTomato" or robo_kitchen_task in mocap_tasks:
         robo_kitchen_user_demo = True
@@ -910,6 +911,8 @@ class GlobalSettings:
             num_train_tasks = 6
         elif robo_kitchen_task == "MocapOpenLid":
             num_train_tasks = 8
+        elif robo_kitchen_task == "MocapPourWater":
+            num_train_tasks = 9
         elif robo_kitchen_task == "MocapTest":
             num_train_tasks = 2
         else:
