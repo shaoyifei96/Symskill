@@ -785,10 +785,10 @@ class _DSOptionLearner(_OptionLearnerBase):
             )
 
             # Configure DS Policy
-            unified_config = UnifiedModelConfig(mode="se3_lpvds", K_candidates=[3],
+            unified_config = UnifiedModelConfig(mode="se3_lpvds", K_candidates=[5],
                                                 enable_simple_ds_near_target=True,
                                                 simple_ds_pos_threshold=0.13,
-                                                simple_ds_ori_threshold=0.13,
+                                                simple_ds_ori_threshold=0.50,
                                                 simple_ds_attractor=relative_cluster_attractor,
                                                 K_pos=5,
                                                 K_ori=5)

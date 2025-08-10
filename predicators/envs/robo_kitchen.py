@@ -95,7 +95,8 @@ class RoboKitchenEnv(BaseEnv):
     sink_type = Type("sink_type", ["translation", "quaternion"], parent=object_type)
     container_type = Type("container_type", ["translation", "quaternion"], parent=object_type)
     counter_type = Type("counter_type", ["translation", "quaternion"], parent=object_type)
-
+    cookware_type = Type("cookware_type", ["translation", "quaternion"], parent=object_type)
+    
     obj_name_to_type = {
         # "handle": handle_type,
         # "left_door_handle": handle_type,
@@ -145,6 +146,7 @@ class RoboKitchenEnv(BaseEnv):
         "right_finger": right_finger_type,
         "dishrack": cabinet_type,
         "bowl": container_type,
+        "pan": cookware_type
     }
 
     tasks_extended = [
@@ -1538,6 +1540,8 @@ class RoboKitchenEnv(BaseEnv):
             goal_preds = {self._pred_name_to_pred["InContainer"]}
         elif goal_desc == "MocapOpenLid": 
             goal_preds = {self._pred_name_to_pred["LidOnDishrack"]}
+        elif goal_desc == "MocapPourWater":
+            goal_preds = {self._pred_name_to_pred["InContainer"]}
         elif goal_desc == "MocapTest":
             goal_preds = {self._pred_name_to_pred["LidOnDishrack"]}
         else:

@@ -1207,7 +1207,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 if np.max(lin_vel_smooth) > CFG.motion_analysis_lin_vel_rot_vel_threshold: # if there is lin motion, use lin vel to find change points
                     logging.warning(f"Using LINEAR velocity to find change points for {max_motion_obj.name}")
                     
-                    if CFG.robo_kitchen_task == "PnPCabToCounterTomato" or CFG.robo_kitchen_task == "MocapOpenLid":
+                    if CFG.robo_kitchen_task in CFG.motion_analysis_contact_threshold:
                         # For tomato task, use simple threshold crossing for breakpoints
                         threshold = CFG.motion_analysis_contact_threshold[CFG.robo_kitchen_task]
                         above_threshold = np.where(lin_vel_smooth > threshold)[0]
@@ -1968,7 +1968,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         obj_type_contact_with_gripper = object_type_in_contact_with_gripper_longest_duration[0]
         obj_type_of_reference_best, min_reconstruction_error, list_of_reconstruction_errors = self._select_reference_object(contact_period_rel_trajs)
         # just 1 object does not support contacting with multiple objects 
-        if CFG.use_gt_ref_obj_type and CFG.robo_kitchen_task not in CFG.mocap_tasks: # mocap tasks are not using gt ref obj type
+        if CFG.use_gt_ref_obj_type and CFG.robo_kitchen_task in CFG.gt_ref_obj_type: # mocap tasks are not using gt ref obj type
             obj_type_of_reference_best_text = CFG.gt_ref_obj_type[CFG.robo_kitchen_task]
             for obj_type in all_objs_types:
                 if obj_type.name == obj_type_of_reference_best_text:
