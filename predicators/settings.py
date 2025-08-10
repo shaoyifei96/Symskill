@@ -29,7 +29,8 @@ class GlobalSettings:
 
     use_gt_ref_obj_type = True
 
-    use_cluster_center_as_attractor = False
+    use_cluster_center_as_attractor = False # if True, use the cluster center as the attractor, otherwise use the average of the end points of the trajectory
+    # currently not used, both are computed and 
 
     init_pose = np.array([0.24844874, 0.00726439, 0.59251043, 0.98814909,  0.04089472, -0.14543901,  0.02713826])
 
@@ -42,7 +43,7 @@ class GlobalSettings:
     # predicate_candidates_method = "contact_clustering"  # "low_speed" or "contact_clustering" or "motion_analysis_contact"
     predicate_candidates_method = "motion_analysis_contact"  # "low_speed" or "contact_clustering" or "motion_analysis_contact"
     motion_analysis_lin_vel_rot_vel_threshold = 0.002 # lin vel min thresh, under this, use rot vel
-    motion_analysis_contact_threshold = 0.04
+    motion_analysis_contact_threshold = {"PnPCabToCounterTomato": 0.003, "MocapOpenLid": 0.02}
     clustering_inv_cov_reg_lin = 3.0 # gripper object
     clustering_inv_cov_reg_lin_low = 3.0 #object object
     clustering_inv_cov_reg_rot_gripper = 5.0
@@ -112,6 +113,7 @@ class GlobalSettings:
     # hardware tasks    
     robo_kitchen_task = "MocapOpenLid"
     # robo_kitchen_task = "mocap_pour_pot"
+    # robo_kitchen_task = "MocapTest"
 
     # for learning ref frame
     gt_ref_obj_type = {"OpenSingleDoor": "cabinet_type", 
@@ -138,18 +140,19 @@ class GlobalSettings:
 
 
     composite_tasks = set(["CookCheeseAndTomatoes", "StoreFruit", "StoreFruitFull"])
-    mocap_tasks = set(["MocapOpenLid", "mocap_pour_pot"])
+    mocap_tasks = set(["MocapOpenLid", "mocap_pour_pot", "MocapTest"])
     # tasks that won't work with current approach
     # robo_kitchen_task = "TurnOnMicrowave" # this is not working, nothing is in motion in the dataset button just clicks
     # robo_kitchen_viz_debug = False # i think the use_gui flag covers this
     path_to_user_demo = {"PnPCabToCounterTomato": "/home/yifei/Documents/task_planning_2/robocasa/robocasa/models/assets/demonstrations_private/2025-08-01-21-56-57",
-                         "MocapOpenLid": "/home/yifei/Documents/task_planning_2/real_data/openlid_v2/",
-                         "mocap_pour_pot": "/home/yifei/Documents/task_planning_2/real_data/yifei_pour_pot/"}
+                         "MocapOpenLid": "/home/yifei/Documents/task_planning_2/real_data/openlid_v7/",
+                         "mocap_pour_pot": "/home/yifei/Documents/task_planning_2/real_data/yifei_pour_pot/",
+                         "MocapTest": "/home/yifei/Documents/task_planning_2/real_data/mocap_test/"}
     if robo_kitchen_task == "PnPCabToCounterTomato" or robo_kitchen_task in mocap_tasks:
         robo_kitchen_user_demo = True
     else:
         robo_kitchen_user_demo = False # if True, this has priority, if False, then load flag is considered
-    robo_kitchen_load_dataset = True # this has priority, if False, then save flag is considered
+    robo_kitchen_load_dataset = False # this has priority, if False, then save flag is considered
     robo_kitchen_save_dataset = not robo_kitchen_load_dataset
     robo_kitchen_save_traj_by_segment = False
     robo_kitchen_contact_smoothing_window = 21
@@ -906,7 +909,9 @@ class GlobalSettings:
         elif robo_kitchen_task == "PnPCabToCounterTomato":
             num_train_tasks = 6
         elif robo_kitchen_task == "MocapOpenLid":
-            num_train_tasks = 9
+            num_train_tasks = 8
+        elif robo_kitchen_task == "MocapTest":
+            num_train_tasks = 2
         else:
             # robo_kitchen_task == "PnPStoveToCounter" 
             num_train_tasks = 10

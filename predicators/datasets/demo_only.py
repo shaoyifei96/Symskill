@@ -659,8 +659,120 @@ def create_demo_data_from_mocap(env: RoboKitchenEnv,
     return Dataset(trajectories)
 
 
+def parse_mocap_csv_simple(csv_file_path: str) -> dict:
+    """Parse a simplified mocap CSV file with format: sequence,stamp,topic,px,py,pz,qx,qy,qz,qw
+    
+    Args:
+        csv_file_path: Path to the CSV file
+        
+    Returns:
+        Dictionary containing parsed mocap data with structure:
+        {
+            'metadata': {},
+            'objects': [...],
+            'frames': [...]
+        }
+    """
+    import csv
+    import numpy as np
+    from collections import defaultdict
+    
+    with open(csv_file_path, 'r') as f:
+        reader = csv.DictReader(f)
+        rows = list(reader)
+    
+    if not rows:
+        return {'metadata': {}, 'objects': [], 'frames': []}
+    
+    # Group data by sequence number (frame)
+    frames_data = defaultdict(lambda: {'frame': None, 'time': None, 'object_data': {}})
+    object_names = set()
+    
+    for row in rows:
+        sequence = int(row['sequence'])
+        timestamp = float(row['stamp'])
+        topic = row['topic']
+        
+        # Extract object name from topic (e.g., "/natnet_ros/umi_body/pose" -> "umi_body")
+        if '/natnet_ros/' in topic and '/pose' in topic:
+            object_name = topic.replace('/natnet_ros/', '').replace('/pose', '')
+        else:
+            # Fallback parsing for other topic formats
+            parts = topic.split('/')
+            object_name = parts[-2] if len(parts) >= 2 else 'unknown'
+        
+        object_names.add(object_name)
+        
+        # Parse position and quaternion
+        position = [float(row['px']), float(row['py']), float(row['pz'])]
+        rotation = [float(row['qx']), float(row['qy']), float(row['qz']), float(row['qw'])]
+        
+        # Store frame data
+        frames_data[sequence]['frame'] = sequence
+        frames_data[sequence]['time'] = timestamp
+        frames_data[sequence]['object_data'][object_name] = {
+            'position': position,
+            'rotation': rotation
+        }
+    
+    # Create objects list (for compatibility with existing code)
+    objects = []
+    for obj_name in sorted(object_names):
+        objects.append({
+            'name': obj_name,
+            'id': obj_name,
+            'type': 'rigid_body',
+            'rotation_cols': [],  # Not used in simple format
+            'position_cols': []   # Not used in simple format
+        })
+    
+    # Convert frames data to list format, only including frames with all objects
+    frames = []
+    for sequence in sorted(frames_data.keys()):
+        frame_data = frames_data[sequence]
+        # Only include frames that have data for all objects
+        if len(frame_data['object_data']) == len(object_names):
+            frames.append(frame_data)
+        else:
+            logging.warning(f"Skipping frame {sequence} because it does not have data for all objects")
+    
+    return {
+        'metadata': {'format': 'simple'},
+        'objects': objects,
+        'frames': frames
+    }
+
+
 def parse_mocap_csv(csv_file_path: str) -> dict:
     """Parse a mocap CSV file and extract structured data.
+    
+    This function automatically detects the CSV format and uses the appropriate parser.
+    
+    Args:
+        csv_file_path: Path to the CSV file
+        
+    Returns:
+        Dictionary containing parsed mocap data with structure:
+        {
+            'metadata': {...},
+            'objects': [...],
+            'frames': [...]
+        }
+    """
+    # Detect CSV format by reading the first line
+    with open(csv_file_path, 'r') as f:
+        first_line = f.readline().strip()
+    
+    # Check if it's the simple format
+    if first_line.startswith('sequence,stamp,topic,px,py,pz,qx,qy,qz,qw'):
+        return parse_mocap_csv_simple(csv_file_path)
+    else:
+        # Use the original complex parser
+        return parse_mocap_csv_complex(csv_file_path)
+
+
+def parse_mocap_csv_complex(csv_file_path: str) -> dict:
+    """Parse a complex mocap CSV file with metadata and structured headers.
     
     Args:
         csv_file_path: Path to the CSV file

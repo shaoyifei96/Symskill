@@ -1593,6 +1593,8 @@ class RoboKitchenEnv(BaseEnv):
             goal_preds = {self._pred_name_to_pred["InContainer"]}
         elif goal_desc == "MocapOpenLid": 
             goal_preds = {self._pred_name_to_pred["LidOnDishrack"]}
+        elif goal_desc == "MocapTest":
+            goal_preds = {self._pred_name_to_pred["LidOnDishrack"]}
         else:
             raise NotImplementedError(f"Goal description {goal_desc} not implemented for {CFG.robo_kitchen_task}")
         return goal_preds
