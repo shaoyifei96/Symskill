@@ -686,11 +686,13 @@ class _DSOptionLearner(_OptionLearnerBase):
                 len_segs.append(len(segment.trajectory.states))
             print(len_segs)
             # Calculate the 50% of the maximum length as the minimum length threshold
-            min_length_threshold =  max(int(np.max(len_segs) * 0.3), 10)
+            min_length_threshold =  10#max(int(np.max(len_segs) * 0.3), 10)
 
 
             for j, (segment, var_to_obj) in enumerate(datastore):
-                if len(segment.trajectory.states) < min_length_threshold: continue
+                if len(segment.trajectory.states) < min_length_threshold: 
+                    logging.warning(f"NSRT {op.name} has segment length {len(segment.trajectory.states)} < {min_length_threshold}, ignoring segment")
+                    continue
                 OOI_obj, gripper_or_obj = find_two_objects(op, segment, var_to_obj, CFG.learn_option_between_gripper_obj)
                 # learning option between OOI and object, and then transform the frame to gripper frame does not work well
                 # so the option here is actually between gripper and OOI
@@ -750,26 +752,26 @@ class _DSOptionLearner(_OptionLearnerBase):
                 option_specs.append((None, list(op.parameters)))
                 continue
 
-            # if OOI type and gripper type are clear, use the relative cluster center as the attractor
+            # Compute both attractors at learning time
             assert len(set_ref_obj_type_name) == 1 and len(set_gripper_or_obj_type_name) == 1
+            
+            # 1. Compute cluster center attractor (for simple DS)
             relative_cluster_attractor = None
             dict_key = ("InContact", set_ref_obj_type_name.pop(), set_gripper_or_obj_type_name.pop())
-            # TODO: Goal can be checked too
-            if CFG.use_cluster_center_as_attractor:
-                if dict_key in CFG.dict_contact_predicate_to_rel_pose_predicates:
-                    relative_clusters = CFG.dict_contact_predicate_to_rel_pose_predicates[dict_key]
-                    if len(relative_clusters) == 1:
-                        relative_cluster_attractor = list(relative_clusters)[0]._classifier.cluster_center
-                    else:
-                        logging.warning(f"NSRT {op.name} has multiple relative cluster attractors for {dict_key}, using first one")
-                        relative_cluster_attractor = list(relative_clusters)[0]._classifier.cluster_center
-            else:
-                # Calculate average of end points from all trajectories
-                end_points_pos = np.array([traj[-1] for traj in x])
-                relative_cluster_attractor_pos = np.mean(end_points_pos, axis=0)
-                end_points_quat = np.array([quat[-1] for quat in quat])
-                relative_cluster_attractor_quat = R.from_quat(end_points_quat).mean().as_quat()
-                relative_cluster_attractor = np.concatenate([relative_cluster_attractor_pos, relative_cluster_attractor_quat])
+            if dict_key in CFG.dict_contact_predicate_to_rel_pose_predicates:
+                relative_clusters = CFG.dict_contact_predicate_to_rel_pose_predicates[dict_key]
+                if len(relative_clusters) == 1:
+                        relative_cluster_attractor = np.concatenate([list(relative_clusters)[0]._classifier.trans_center, list(relative_clusters)[0]._classifier.rot_center.as_quat()])  
+                else:
+                    logging.warning(f"NSRT {op.name} has multiple relative cluster attractors for {dict_key}, using first one")
+                    relative_cluster_attractor = np.concatenate([list(relative_clusters)[0]._classifier.trans_center, list(relative_clusters)[0]._classifier.rot_center.as_quat()]) # TODO: check if this is correct
+            
+            # 2. Compute average endpoint attractor (for main DS)
+            end_points_pos = np.array([traj[-1] for traj in x])
+            average_endpoint_pos = np.mean(end_points_pos, axis=0)
+            end_points_quat = np.array([quat[-1] for quat in quat])
+            average_endpoint_quat = R.from_quat(end_points_quat).mean().as_quat()
+            average_endpoint_attractor = np.concatenate([average_endpoint_pos, average_endpoint_quat])
 
 
             plot_DSPolicy_input_data(
@@ -779,14 +781,15 @@ class _DSOptionLearner(_OptionLearnerBase):
                 visualize=True, 
                 save_path=f"./feature_data/option_traj_{op.name}_gripper_in_{OOI_type_name}_frame.png", 
                 OOI_type=OOI_type_name,
-                relative_cluster_attractor=relative_cluster_attractor,
+                relative_cluster_attractor=average_endpoint_attractor,
             )
 
             # Configure DS Policy
             unified_config = UnifiedModelConfig(mode="se3_lpvds", K_candidates=[3],
                                                 enable_simple_ds_near_target=True,
-                                                simple_ds_pos_threshold=0.1,
-                                                simple_ds_ori_threshold=0.1,
+                                                simple_ds_pos_threshold=0.13,
+                                                simple_ds_ori_threshold=0.13,
+                                                simple_ds_attractor=relative_cluster_attractor,
                                                 K_pos=5,
                                                 K_ori=5)
             # pos_config = PositionModelConfig(mode="none")
@@ -794,7 +797,7 @@ class _DSOptionLearner(_OptionLearnerBase):
 
             # Create DSPolicy
             ds_policy = DSPolicy(
-                x=x, x_dot=x_dot, quat=quat, omega=omega, gripper=gripper_or_obj, unified_config=unified_config, dt=dt, switch=False, relative_cluster_attractor=relative_cluster_attractor
+                x=x, x_dot=x_dot, quat=quat, omega=omega, gripper=gripper_or_obj, unified_config=unified_config, dt=dt, switch=False, relative_cluster_attractor=average_endpoint_attractor, simple_ds_attractor=relative_cluster_attractor
             )
             ds_policy.plot_position_vector_field(save_path=f"./feature_data/DS_vector_field_{op.name}_gripper_in_{OOI_type_name}_frame.png")
 

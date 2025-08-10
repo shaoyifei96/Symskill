@@ -848,7 +848,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             keep_indices = [ 5, 7, 11, 17, 19, 21]
             dataset._trajectories = [dataset._trajectories[i] for i in keep_indices if i < len(dataset._trajectories)]
         elif CFG.robo_kitchen_task == "MocapOpenLid":
-            keep_indices = [0, 1, 2, 3, 4, 5, 6, 7, 8]
+            keep_indices = [0, 1, 2, 3, 4, 5, 6, 7]
             dataset._trajectories = [dataset._trajectories[i] for i in keep_indices if i < len(dataset._trajectories)]
         elif CFG.robo_kitchen_task == "mocap_pour_pot":
             keep_indices = [0, 1, 2, 4]
@@ -1197,20 +1197,20 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 velocities = [(vel, rot_vel) for _, vel, rot_vel in motion_data[i][max_motion_obj]]
                 lin_vel = np.array([vel for vel, _ in velocities])
                 rot_vel = np.array([rot_vel for _, rot_vel in velocities])
-                lin_vel_smooth = uniform_filter1d(lin_vel, size=1)    # ≈ 5 samples
-                rot_vel_smooth = uniform_filter1d(rot_vel, size=1)    # ≈ 5 samples
+                lin_vel_smooth = uniform_filter1d(lin_vel, size=4)    # ≈ 5 samples
+                rot_vel_smooth = uniform_filter1d(rot_vel, size=4)    # ≈ 5 samples
                 #add small noise to signal to make it more robust to noise
-                lin_vel_smooth = lin_vel_smooth + np.random.normal(0, 0.0004, lin_vel_smooth.shape)
-                rot_vel_smooth = rot_vel_smooth + np.random.normal(0, 0.0004, rot_vel_smooth.shape)
+                lin_vel_smooth = lin_vel_smooth + np.random.normal(0, 0.0008, lin_vel_smooth.shape)
+                rot_vel_smooth = rot_vel_smooth + np.random.normal(0, 0.0008, rot_vel_smooth.shape)
 
-                algo = rpt.Dynp(model="rbf", min_size=20, jump=10).fit(lin_vel_smooth)
+                algo = rpt.Dynp(model="l2", min_size=20, jump=10).fit(lin_vel_smooth)
                 if np.max(lin_vel_smooth) > CFG.motion_analysis_lin_vel_rot_vel_threshold: # if there is lin motion, use lin vel to find change points
                     logging.warning(f"Using LINEAR velocity to find change points for {max_motion_obj.name}")
                     
-                    if CFG.robo_kitchen_task == "PnPCabToCounterTomato":
+                    if CFG.robo_kitchen_task == "PnPCabToCounterTomato" or CFG.robo_kitchen_task == "MocapOpenLid":
                         # For tomato task, use simple threshold crossing for breakpoints
-                        threshold = 0.003
-                        above_threshold = np.where(lin_vel > threshold)[0]
+                        threshold = CFG.motion_analysis_contact_threshold[CFG.robo_kitchen_task]
+                        above_threshold = np.where(lin_vel_smooth > threshold)[0]
                         if len(above_threshold) > 0:
                             first_motion = above_threshold[0]
                             last_motion = above_threshold[-1]
@@ -1227,7 +1227,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                     plt.close()
                 else:
                     logging.warning(f"Using ROTATIONAL velocity to find change points for {max_motion_obj.name}")
-                    algo = rpt.Dynp(model="rbf", min_size=20, jump=10).fit(rot_vel_smooth)
+                    algo = rpt.Dynp(model="l2", min_size=20, jump=10).fit(rot_vel_smooth)
                     my_bkps = algo.predict(n_bkps=n_bkps)
                     rpt.show.display(rot_vel_smooth, my_bkps, my_bkps, figsize=(10, 6))
                     plt.savefig(f"feature_data/motion_analysis_traj{i}_obj_rot_{max_motion_obj.name}.png")
