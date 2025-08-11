@@ -147,9 +147,9 @@ class _RelativeFeatureCovClusterClassifierTransRot(_BinaryClassifier):
             mahalanobis_dist_sq_rot = mahalanobis_dist_sq_rot.item()
 
         # Use the pre-calculated threshold
-        # is_classified = mahalanobis_dist_sq_trans <= self.mahalanobis_threshold_trans and mahalanobis_dist_sq_rot <= self.mahalanobis_threshold_rot
-        # color = "\033[92m" if is_classified else "\033[91m"  # Green if True, Red if False
-        # print(f"{color} {obj1.name}, {obj2.name}, trans: {mahalanobis_dist_sq_trans},trans_thresh: {self.mahalanobis_threshold_trans}, rot: {mahalanobis_dist_sq_rot}, rot_thresh: {self.mahalanobis_threshold_rot}\033[0m")
+        is_classified = mahalanobis_dist_sq_trans <= self.mahalanobis_threshold_trans and mahalanobis_dist_sq_rot <= self.mahalanobis_threshold_rot
+        color = "\033[92m" if is_classified else "\033[91m"  # Green if True, Red if False
+        print(f"{color} {obj1.name}, {obj2.name}, trans: {mahalanobis_dist_sq_trans},trans_thresh: {self.mahalanobis_threshold_trans}, rot: {mahalanobis_dist_sq_rot}, rot_thresh: {self.mahalanobis_threshold_rot}\033[0m")
         return mahalanobis_dist_sq_trans <= self.mahalanobis_threshold_trans and mahalanobis_dist_sq_rot <= self.mahalanobis_threshold_rot
 
     def __str__(self) -> str:
@@ -732,8 +732,9 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
 
         # Get a sample state to check which object types actually exist# Get a sample state to check which object types actually exist
 
-        all_available_object_types, all_available_object_types_names = self._get_available_object_types()
+        # all_available_object_types, all_available_object_types_names = self._get_available_object_types()
 
+        all_available_object_types_names = ["thing_type", "gripper_type", "container_type", "left_finger_type", "right_finger_type", "robot_base_type", "wrist_type"]
 
         if CFG.enable_base_ref_obj_precondition:     
             self._add_base_motion_add_effects() 
@@ -1959,48 +1960,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             logging.warning("Gripper type not found. Cannot generate contact-based predicates.")
             return {}, {} # Return empty dicts if gripper type is not found
 
-        # Combine InContact and goal predicates for atom dataset creation
-        if CFG.predefined_goal_predicates:
-            goal_predicates = CFG.goal_predicates
-        else:
-            goal_predicates = {DummyPredicate("goal")} # Dummy predicate, won't be evaluated in create_ground_atom_dataset
-        if CFG.remove_inOrigin_pred:
-            predicates_to_monitor = {in_contact_pred} | goal_predicates
-        else:
-            predicates_to_monitor = {in_contact_pred, in_origin_pred} | goal_predicates
-        ground_atom_dataset = utils.create_ground_atom_dataset(dataset.trajectories, predicates_to_monitor)
-
-        relative_pose_dataset_dict = defaultdict(list) # Maps (atom_pred, type1, type2) -> List[rel_pose]
-
-        # other obj -> obj_contact_with_gripper's relative pose trajectory in obj's frame
-        # {other_obj: list[list]}, each sub-list is a trajectory
-        contact_period_rel_trajs = {}
-        goal_reached_states = []
-        # Find objects that are common across all trajectories in the dataset
-        all_objs = set(ground_atom_dataset[0][0].states[0].data.keys())
-        for traj, _ in ground_atom_dataset[1:]:  # Skip the first one we already processed
-            if not traj.states:
-                continue  # Skip empty trajectories
-            traj_objs = set(traj.states[0].data.keys())
-            all_objs = all_objs.intersection(traj_objs)  # Keep only objects present in all trajectories
-        all_objs = list(all_objs)  # Convert back to list for further processing
-        all_objs = [o for o in all_objs if "finger" not in o.name.lower()]
-        all_objs = [o for o in all_objs if "robot0" not in o.name.lower()]
-        
-        logging.info(f"After filtering, {len(all_objs)} objects remain")
-
-        quat_feat_name = "quaternion"
-        trans_feat_name = "translation"
-        pose_feat_name = "pose"
-
-        # 1. process of making contact: how to get to grasp (gripper obj centric DS with goal of cluster in step 2)
-        # Atom dataset auto split these
-        # 2. process of held contact: how to grasp(gripper obj centric cluster) (Obj Obj frame DS)
-        # 2.1 gripper obj centric: Already doing with clustering change only flag off
-        # 2.2 obj obj frame:(using goal predicate to find the other object)
-        # 3. instant of removed contact: achieving relative pose between two object (obj obj frame cluster goal )
-        # done
-        logging.info("Extracting relative poses ...")
+       
         if CFG.predicate_candidates_method == "motion_analysis_contact":
             self._update_incontact_predicate_using_motion_analysis(dataset, in_contact_pred, gripper_type)
         learnt_goal_predicates = self.load_learnt_goals()
@@ -2009,7 +1969,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         relative_pose_dataset_dict, traj_all_objs_all, contact_period_rel_trajs, goal_reached_states, object_type_in_contact_with_gripper_longest_duration, ground_atom_dataset = self._extract_relative_pose_data(ground_atom_dataset, all_objs_types, gripper_type, in_contact_pred, in_origin_pred)
         # single out the object with in contact with gripper for longest duration
         # Ensure all trajectories have the same object with longest contact duration
-        assert len(set(object_type_in_contact_with_gripper_longest_duration)) == 1, "All trajectories should have the same object with longest contact/motion duration"
+        assert len(set(object_type_in_contact_with_gripper_longest_duration)) == 1, f"All trajectories should have the same object with longest contact/motion duration. {object_type_in_contact_with_gripper_longest_duration}"
         obj_type_contact_with_gripper = object_type_in_contact_with_gripper_longest_duration[0]
         obj_type_of_reference_best, min_reconstruction_error, list_of_reconstruction_errors = self._select_reference_object(contact_period_rel_trajs)
         # just 1 object does not support contacting with multiple objects 
@@ -2019,7 +1979,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 if obj_type.name == obj_type_of_reference_best_text:
                     obj_type_of_reference_best = obj_type
                     break
-        logging.error(f"Using ground truth reference object type: {obj_type_of_reference_best.name}")
+            logging.error(f"Using ground truth reference object type: {obj_type_of_reference_best.name}")
         assert obj_type_of_reference_best is not None, f"Reference object type not found in all_objs_types: {all_objs_types}"
         # assert obj_type_of_reference_best.name in gt_ref_obj_type, f"GT reference object type not matching correct solution, gt_ref_obj_type: {gt_ref_obj_type}, obj_type_of_reference_best: {obj_type_of_reference_best.name}"
         

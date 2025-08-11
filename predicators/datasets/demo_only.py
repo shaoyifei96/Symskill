@@ -71,6 +71,7 @@ def create_demo_data(env: BaseEnv,
         
         # Save dataset if enabled
         if CFG.robo_kitchen_save_dataset:
+            os.makedirs("generated_datasets", exist_ok=True)
             dataset_fname = f"generated_datasets/robokitchen__{robocasa_task}__{CFG.num_train_tasks}.pkl"
             with open(dataset_fname, "wb") as f:
                 pkl.dump(dataset, f)
@@ -952,13 +953,17 @@ def create_state_from_mocap_frame(frame_data: dict) -> State:
         # Both fingers have the same orientation as the original finger marker
         obs["left_finger_pos_quat"] = np.concatenate([left_finger_pos, finger_quat])
         obs["right_finger_pos_quat"] = np.concatenate([right_finger_pos, finger_quat])
+        
+        # Add wrist object - typically at the same position as gripper but can be slightly offset
+        # For simplicity, we'll use the same position and orientation as the gripper
+        obs["wrist_pos_quat"] = np.concatenate([gripper_pos, gripper_data['quat']])
     
     # Create empty contact set (mocap doesn't provide contact information)
     contact_set = set()
     
     # Convert to State object using your environment's method
     # You may need to modify this call based on your actual state representation
-    state = RoboKitchenEnv.observation_to_state_mocap(obs)
+    state = RoboKitchenEnv.state_info_to_state(obs, contact_set)
     
     return state
 

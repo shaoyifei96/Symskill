@@ -43,20 +43,23 @@ class GlobalSettings:
     # predicate_candidates_method = "contact_clustering"  # "low_speed" or "contact_clustering" or "motion_analysis_contact"
     predicate_candidates_method = "motion_analysis_contact"  # "low_speed" or "contact_clustering" or "motion_analysis_contact"
     motion_analysis_lin_vel_rot_vel_threshold = 0.002 # lin vel min thresh, under this, use rot vel
-    motion_analysis_contact_threshold = {"PnPCabToCounterTomato": 0.003, "MocapOpenLid": 0.02, "MocapPourWater": 0.02}
-    clustering_inv_cov_reg_lin = 3.0 # gripper object
-    clustering_inv_cov_reg_lin_low = 3.0 #object object
-    clustering_inv_cov_reg_rot_gripper = 5.0
+    motion_analysis_contact_threshold = {"PnPCabToCounterTomato": 0.003, 
+                                         "MocapOpenLid": 0.02, 
+                                         "MocapPourWater": 0.02,
+                                         "MocapPnPBanana": 0.01}  # under this, use contact clustering
+    clustering_inv_cov_reg_lin = 4.0 # gripper object
+    clustering_inv_cov_reg_lin_low = 5.0 #object object
+    clustering_inv_cov_reg_rot_gripper = 6.0
     clustering_inv_cov_reg_rot_base = 0.5 # base rotation is mostly just the same, so make it more wide
-    clustering_inv_cov_reg_rot_low = 4.0  # much lower for obj obj rotation, stove needs much lower, 1e-4 works, not sure about this task!!!!
+    clustering_inv_cov_reg_rot_low = 5.0  # much lower for obj obj rotation, stove needs much lower, 1e-4 works, not sure about this task!!!!
     clustering_change_only = False # this meaning clustering the pose just at contact or through the contacts while it is moving
 
     
-    resample_in_cluster = True
+    resample_in_cluster = False
 
     clustering_moving_average_window = 5
     clustering_debug = True
-    enable_meshcat = False
+    enable_meshcat = True
     clustering_se3_trans_weight = 10.0  # 0.05 m # 10 times differnece
     clustering_se3_rot_weight = 5.0  # 30 deg = 0.5236 rad
     clustering_feature_constancy_percentile = 10  # of total number of data points = 13782
@@ -112,7 +115,12 @@ class GlobalSettings:
 
     # hardware tasks    
     # robo_kitchen_task = "MocapOpenLid"
-    robo_kitchen_task = "MocapPourWater"
+    # robo_kitchen_task = "MocapPourWater"
+    # robo_kitchen_task = "MocapPnPBanana"
+    # robo_kitchen_task = "MocapOpenLidPourWater"  # New task combining both actions
+    robo_kitchen_task = "MocapOpenLidPnPBanana"  # New task combining both actions
+
+    
     # robo_kitchen_task = "MocapTest"
 
     # for learning ref frame
@@ -140,15 +148,16 @@ class GlobalSettings:
 
 
 
-    composite_tasks = set(["CookCheeseAndTomatoes", "StoreFruit", "StoreFruitFull"])
-    mocap_tasks = set(["MocapOpenLid", "MocapPourWater", "MocapTest"])
+    composite_tasks = set(["CookCheeseAndTomatoes", "StoreFruit", "StoreFruitFull", "MocapOpenLidPourWater", "MocapOpenLidPnPBanana"])
+    mocap_tasks = set(["MocapOpenLid", "MocapPourWater", "MocapTest", "MocapOpenLidPourWater", "MocapPnPBanana", "MocapOpenLidPnPBanana"])
     # tasks that won't work with current approach
     # robo_kitchen_task = "TurnOnMicrowave" # this is not working, nothing is in motion in the dataset button just clicks
     # robo_kitchen_viz_debug = False # i think the use_gui flag covers this
     path_to_user_demo = {"PnPCabToCounterTomato": "/home/yifei/Documents/task_planning_2/robocasa/robocasa/models/assets/demonstrations_private/2025-08-01-21-56-57",
-                         "MocapOpenLid": "/home/yifei/Documents/task_planning_2/real_data/openlid_v7/",
+                         "MocapOpenLid": "/home/figueroa-lab-12n/Documents/task_planning/scripts/openlid_v7/",
                          "MocapPourWater": "/home/yifei/Documents/task_planning_2/real_data/pour_water_v2/",
-                         "MocapTest": "/home/yifei/Documents/task_planning_2/real_data/mocap_test/"}
+                         "MocapTest": "/home/yifei/Documents/task_planning_2/real_data/mocap_test/",
+                         "MocapPnPBanana": "/home/figueroa-lab-12n/Documents/task_planning/scripts/banana_in_pod/"}
     if robo_kitchen_task == "PnPCabToCounterTomato" or robo_kitchen_task in mocap_tasks:
         robo_kitchen_user_demo = True
     else:

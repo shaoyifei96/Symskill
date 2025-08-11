@@ -28,7 +28,8 @@ from predicators.utils import OptionExecutionFailure, calculate_relative_pose_fr
 
 from ds_policy import DSPolicy, UnifiedModelConfig, PositionModelConfig, QuaternionModelConfig, transform_frame, compute_vel_traj
 from scipy.spatial.transform import Rotation as R
-
+import select
+import sys
 
 def create_option_learner(action_space: Box) -> _OptionLearnerBase:
     """Create an option learner given its name."""
@@ -785,12 +786,12 @@ class _DSOptionLearner(_OptionLearnerBase):
             )
 
             # Configure DS Policy
-            unified_config = UnifiedModelConfig(mode="se3_lpvds", K_candidates=[5],
+            unified_config = UnifiedModelConfig(mode="se3_lpvds", K_candidates=[3],
                                                 enable_simple_ds_near_target=True,
-                                                simple_ds_pos_threshold=0.13,
+                                                simple_ds_pos_threshold=0.15,
                                                 simple_ds_ori_threshold=0.50,
                                                 simple_ds_attractor=relative_cluster_attractor,
-                                                K_pos=5,
+                                                K_pos=6.5,
                                                 K_ori=5)
             # pos_config = PositionModelConfig(mode="none")
             # quat_config = QuaternionModelConfig(mode="simple")
@@ -1260,7 +1261,7 @@ class _LearnedDSParameterizedOption(ParameterizedOption):
             if base and ref_obj and gripper_or_obj and left_finger and right_finger and wrist:
                 break
 
-        assert base and ref_obj and gripper_or_obj and left_finger and right_finger and wrist
+        assert base and ref_obj and gripper_or_obj and left_finger and right_finger and wrist, f"Cannot find all required objects in state: state = {state}"
 
         gripper_or_obj_pose_ref_frame = calculate_relative_pose_from_state(state, ref_obj, gripper_or_obj, "translation", "quaternion")
         # save to memory
@@ -1351,9 +1352,15 @@ class _LearnedDSParameterizedOption(ParameterizedOption):
         else:
             gripper_state = 1.0  # close
 
-        if self.prev_left_right_finger_dist is not None and gripper_state == self._gripper_action and np.abs(left_right_finger_dist - self.prev_left_right_finger_dist) < 1e-3:
-            # NOTE: this is a hack to prevent the option from getting stuck when the finger distance is close to 0.1
-            memory["gripper_moved"] = True
+        # if self.prev_left_right_finger_dist is not None and gripper_state == self._gripper_action and np.abs(left_right_finger_dist - self.prev_left_right_finger_dist) < 1e-3:
+        #     # NOTE: this is a hack to prevent the option from getting stuck when the finger distance is close to 0.1
+        #     memory["gripper_moved"] = True
+        
+        if memory['time_step'] > 35:
+            memory["gripper_moved"] = True  # force to move after 60 steps
+        else:
+            # print(memory["time_step"])
+            pass
 
         if memory["gripper_moved"]:
             action_low = np.array([-1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0], dtype=np.float32)
@@ -1398,11 +1405,25 @@ class _LearnedDSParameterizedOption(ParameterizedOption):
         #     memory["state_history"].pop(0)
 
         # Check if state has not changed for e.g. 10 steps
-        if memory["gripper_moved"]: # do not end if gripper has not moved
+        if memory["time_step"] > 300:
             if len(memory["gripper_or_obj_pose_ref_frame_history"]) == memory["mem_count"]:
-                if all(np.allclose(memory["gripper_or_obj_pose_ref_frame_history"][0], s, atol=1e-3) for s in memory["gripper_or_obj_pose_ref_frame_history"][1:]):
+                if all(np.allclose(memory["gripper_or_obj_pose_ref_frame_history"][0], s, atol=1.2e-3) for s in memory["gripper_or_obj_pose_ref_frame_history"][1:]):
                     # warnings.warn("Disabled effect-based terminal check, this is due to velocity-based ")
                     return True
+                    # # Initialize terminal ready flag if not exists
+                    # if "terminal_ready" not in memory:
+                    #     memory["terminal_ready"] = True
+                    #     print(f"\nOption '{self.name}' is ready to terminate (gripper position converged).")
+                    #     print("Press Enter in the terminal to switch to next policy...")
+                    
+                    # # Non-blocking check for user input
+
+                    # if select.select([sys.stdin], [], [], 0) == ([sys.stdin], [], []):
+                    #     sys.stdin.readline()  # consume the input
+                    #     return True
+                    
+                    # Continue running until user presses enter
+                    # return False
         # if terminate:
         #     return True
         memory["last_state"] = state

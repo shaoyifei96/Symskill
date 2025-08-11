@@ -1,3 +1,4 @@
+
 """A Kitchen environment wrapping robosuite kitchen."""
 
 import copy
@@ -42,13 +43,10 @@ logging.getLogger("jax._src.cache_key").setLevel(logging.ERROR)
 logging.getLogger("jax").setLevel(logging.ERROR)
 
 # Constants from demo files
-MAX_CARTESIAN_DISPLACEMENT = 3.0
-MAX_ROTATION_DISPLACEMENT = 3.0
+MAX_CARTESIAN_DISPLACEMENT = 0.8
+MAX_ROTATION_DISPLACEMENT = 1.0
 
 # gripper - base offset in base frame
-
-init_delta_gripper_base = np.array([ 0.24262412, -0.00722384,  0.58795444])
-init_delta_gripper_base_rot = np.array([ 0.99227682,  0.03468661, -0.11850566,  0.01183061])
 
 # q1 = np.array([x1, y1, z1, w1])  # First quaternion
 # q2 = np.array([x2, y2, z2, w2])  # Second quaternion
@@ -101,7 +99,8 @@ class RoboKitchenEnv(BaseEnv):
     container_type = Type("container_type", ["translation", "quaternion"], parent=object_type)
     counter_type = Type("counter_type", ["translation", "quaternion"], parent=object_type)
     cookware_type = Type("cookware_type", ["translation", "quaternion"], parent=object_type)
-    
+    lid_type = Type("lid_type", ["translation", "quaternion"], parent=object_type)
+
     obj_name_to_type = {
         # "handle": handle_type,
         # "left_door_handle": handle_type,
@@ -130,28 +129,20 @@ class RoboKitchenEnv(BaseEnv):
         "plate": container_type,
         "tomato": thing_type,
         "cheese": thing_type,
-        "pan": container_type,
+        # "pan": container_type,
         # PnPStoveToCounter
         "container": container_type,
         "obj_container": container_type,
         "door_obj": thing_type, # opensingledoor data have door obj in the cabinet
         "dummy_object": object_type,
-    }
-
-    obj_name_to_type_mocap = {
-        # "handle": handle_type,
-        # "left_door_handle": handle_type,
-        # "right_door_handle": handle_type,
+        # Mocap objects (previously in obj_name_to_type_mocap)
         "mug": thing_type,
-        "pan": container_type,
         "cab_door": door_type,
-        "lid": thing_type,
-        "gripper": gripper_type,
-        "left_finger": left_finger_type,
-        "right_finger": right_finger_type,
+        "lid": lid_type,
         "dishrack": cabinet_type,
         "bowl": container_type,
-        "pan": cookware_type
+        "pan": cookware_type,
+        "banana": thing_type,
     }
 
     tasks_extended = [
@@ -446,7 +437,7 @@ class RoboKitchenEnv(BaseEnv):
             # For now just use OpenSingleDoor as the default task
             task_name = self.task_selected
             # check if task_name is in available_tasks
-            if task_name not in ALL_KITCHEN_ENVIRONMENTS:
+            if task_name not in ALL_KITCHEN_ENVIRONMENTS and task_name not in CFG.mocap_tasks:
                 raise ValueError(f"Task {task_name} not supported")
             goal_description = task_name
             seed = task_idx
@@ -651,7 +642,7 @@ class RoboKitchenEnv(BaseEnv):
                 return True
         
         else:
-            raise ValueError(f"Goal description {goal_desc} not supported")
+            return False
 
     def _reset_initial_state(self,
                                seed: int,
@@ -849,20 +840,20 @@ class RoboKitchenEnv(BaseEnv):
 
         # Get poses from motion capture
         # Handle Pose
-        door_pose_msg = self._hw_interface.get_door_pose(wait_for_message=False, timeout=2.0)
-        # transform the handle pose to the base frame
-        door_pose_msg = self._hw_interface.transform_pose(door_pose_msg, self._robot_base_frame)
-        pos = door_pose_msg.pose.position
-        quat = door_pose_msg.pose.orientation
-        state_info["door_pos_quat"] = np.concatenate(([pos.x, pos.y, pos.z], [quat.x, quat.y, quat.z, quat.w]))
+        # door_pose_msg = self._hw_interface.get_door_pose(wait_for_message=False, timeout=2.0)
+        # # transform the handle pose to the base frame
+        # door_pose_msg = self._hw_interface.transform_pose(door_pose_msg, self._robot_base_frame)
+        # pos = door_pose_msg.pose.position
+        # quat = door_pose_msg.pose.orientation
+        # state_info["door_pos_quat"] = np.concatenate(([pos.x, pos.y, pos.z], [quat.x, quat.y, quat.z, quat.w]))
 
         # Cabinet Pose
-        cabinet_pose_msg = self._hw_interface.get_cabinet_pose(wait_for_message=False, timeout=2.0)
-        # transform the cabinet pose to the base frame
-        cabinet_pose_msg = self._hw_interface.transform_pose(cabinet_pose_msg, self._robot_base_frame)
-        pos = cabinet_pose_msg.pose.position
-        quat = cabinet_pose_msg.pose.orientation
-        state_info["cabinet_pos_quat"] = np.concatenate(([pos.x, pos.y, pos.z], [quat.x, quat.y, quat.z, quat.w]))
+        # cabinet_pose_msg = self._hw_interface.get_cabinet_pose(wait_for_message=False, timeout=2.0)
+        # # transform the cabinet pose to the base frame
+        # cabinet_pose_msg = self._hw_interface.transform_pose(cabinet_pose_msg, self._robot_base_frame)
+        # pos = cabinet_pose_msg.pose.position
+        # quat = cabinet_pose_msg.pose.orientation
+        # state_info["cabinet_pos_quat"] = np.concatenate(([pos.x, pos.y, pos.z], [quat.x, quat.y, quat.z, quat.w]))
 
         # Gripper Alternate Pose (Mocap)
         gripper_alt_pose_msg = self._hw_interface.get_gripper_alt_pose(wait_for_message=False, timeout=2.0)
@@ -872,48 +863,111 @@ class RoboKitchenEnv(BaseEnv):
         quat = gripper_alt_pose_msg.pose.orientation
         state_info["gripper_pos_quat"] = np.concatenate(([pos.x, pos.y, pos.z], [quat.x, quat.y, quat.z, quat.w]))
 
-        try:
-            bottom_surface_pose_lookup = self._hw_interface.tf_listener.lookupTransform(
-                "mocap_world",
-                "bottom",
-                rospy.Time(0)
-            )
-            bottom_surface_pose_msg = PoseStamped()
-            bottom_surface_pose_msg.header.frame_id = self._robot_base_frame
-            bottom_surface_pose_msg.pose.position.x = bottom_surface_pose_lookup[0][0]
-            bottom_surface_pose_msg.pose.position.y = bottom_surface_pose_lookup[0][1]
-            bottom_surface_pose_msg.pose.position.z = bottom_surface_pose_lookup[0][2]
-            bottom_surface_pose_msg.pose.orientation.x = bottom_surface_pose_lookup[1][0]
-            bottom_surface_pose_msg.pose.orientation.y = bottom_surface_pose_lookup[1][1]
-            bottom_surface_pose_msg.pose.orientation.z = bottom_surface_pose_lookup[1][2]
-            bottom_surface_pose_msg.pose.orientation.w = bottom_surface_pose_lookup[1][3]
-        except (tf.LookupException, tf.ConnectivityException, tf.ExtrapolationException) as e:
-            rospy.logwarn(f"Failed to get bottom surface pose: {e}")
-            bottom_surface_pose_msg = None
+        # try:
+        #     bottom_surface_pose_lookup = self._hw_interface.tf_listener.lookupTransform(
+        #         "mocap_world",
+        #         "bottom",
+        #         rospy.Time(0)
+        #     )
+        #     bottom_surface_pose_msg = PoseStamped()
+        #     bottom_surface_pose_msg.header.frame_id = self._robot_base_frame
+        #     bottom_surface_pose_msg.pose.position.x = bottom_surface_pose_lookup[0][0]
+        #     bottom_surface_pose_msg.pose.position.y = bottom_surface_pose_lookup[0][1]
+        #     bottom_surface_pose_msg.pose.position.z = bottom_surface_pose_lookup[0][2]
+        #     bottom_surface_pose_msg.pose.orientation.x = bottom_surface_pose_lookup[1][0]
+        #     bottom_surface_pose_msg.pose.orientation.y = bottom_surface_pose_lookup[1][1]
+        #     bottom_surface_pose_msg.pose.orientation.z = bottom_surface_pose_lookup[1][2]
+        #     bottom_surface_pose_msg.pose.orientation.w = bottom_surface_pose_lookup[1][3]
+        # except (tf.LookupException, tf.ConnectivityException, tf.ExtrapolationException) as e:
+        #     rospy.logwarn(f"Failed to get bottom surface pose: {e}")
+        #     bottom_surface_pose_msg = None
         # transform the bottom surface pose to the base frame
-        bottom_surface_pose_msg = self._hw_interface.transform_pose(bottom_surface_pose_msg, self._robot_base_frame)
-        pos = bottom_surface_pose_msg.pose.position
-        quat = bottom_surface_pose_msg.pose.orientation
-        state_info["bottom_pos_quat"] = np.concatenate(([pos.x, pos.y, pos.z], [quat.x, quat.y, quat.z, quat.w]))
+        # bottom_surface_pose_msg = self._hw_interface.transform_pose(bottom_surface_pose_msg, self._robot_base_frame)
+        # pos = bottom_surface_pose_msg.pose.position
+        # quat = bottom_surface_pose_msg.pose.orientation
+        # state_info["bottom_pos_quat"] = np.concatenate(([pos.x, pos.y, pos.z], [quat.x, quat.y, quat.z, quat.w]))
 
 
         state_info["robot0_base_pos_quat"] = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0])
 
         gripper_positions = self._hw_interface.get_gripper_positions()
-        state_info["left_finger_pos_quat"] = np.array([-gripper_positions[0], 0.0, 0.0, 0.0, 0.0, 0.0, 1.0])
-        state_info["right_finger_pos_quat"] = np.array([gripper_positions[1], 0.0, 0.0, 0.0, 0.0, 0.0, 1.0])
+        if gripper_positions is not None:
+            state_info["left_finger_pos_quat"] = np.array([-gripper_positions[0], 0.0, 0.0, 0.0, 0.0, 0.0, 1.0])
+            state_info["right_finger_pos_quat"] = np.array([gripper_positions[1], 0.0, 0.0, 0.0, 0.0, 0.0, 1.0])
         
-        # Get object pose (if relevant for the task)
-        obj_msg = self._hw_interface.get_object_pose()
-        obj_msg = self._hw_interface.transform_pose(obj_msg, self._robot_base_frame)
-        assert obj_msg is not None, "No object pose message received"
-        pos = obj_msg.pose.position
-        quat = obj_msg.pose.orientation
-        state_info["obj_pos_quat"] = np.concatenate(([pos.x, pos.y, pos.z], [quat.x, quat.y, quat.z, quat.w]))
+        # Add wrist object - use gripper position and orientation for hardware interface
+        # This ensures DS policy has all required objects
+        gripper_pos = state_info["gripper_pos_quat"][:3]
+        gripper_quat = state_info["gripper_pos_quat"][3:]
+        state_info["wrist_pos_quat"] = np.concatenate([gripper_pos, gripper_quat])
+        
+        # Get new mocap object poses - only include if we have valid data
+        # Bowl pose
+        bowl_msg = self._hw_interface.get_bowl_pose(wait_for_message=False, timeout=2.0)
+        if bowl_msg is not None:
+            bowl_msg = self._hw_interface.transform_pose(bowl_msg, self._robot_base_frame)
+            if bowl_msg is not None:
+                pos = bowl_msg.pose.position
+                quat = bowl_msg.pose.orientation
+                state_info["bowl_pos_quat"] = np.concatenate(([pos.x, pos.y, pos.z], [quat.x, quat.y, quat.z, quat.w]))
+
+        # Lid pose
+        lid_msg = self._hw_interface.get_lid_pose(wait_for_message=False, timeout=2.0)
+        if lid_msg is not None:
+            lid_msg = self._hw_interface.transform_pose(lid_msg, self._robot_base_frame)
+            if lid_msg is not None:
+                pos = lid_msg.pose.position
+                quat = lid_msg.pose.orientation
+                state_info["lid_pos_quat"] = np.concatenate(([pos.x, pos.y, pos.z], [quat.x, quat.y, quat.z, quat.w]))
+
+        # Pan pose
+        pan_msg = self._hw_interface.get_pan_pose(wait_for_message=False, timeout=2.0)
+        if pan_msg is not None:
+            pan_msg = self._hw_interface.transform_pose(pan_msg, self._robot_base_frame)
+            if pan_msg is not None:
+                pos = pan_msg.pose.position
+                quat = pan_msg.pose.orientation
+                state_info["pan_pos_quat"] = np.concatenate(([pos.x, pos.y, pos.z], [quat.x, quat.y, quat.z, quat.w]))
+
+        # Dishrack pose
+        dishrack_msg = self._hw_interface.get_dishrack_pose(wait_for_message=False, timeout=2.0)
+        if dishrack_msg is not None:
+            dishrack_msg = self._hw_interface.transform_pose(dishrack_msg, self._robot_base_frame)
+            if dishrack_msg is not None:
+                pos = dishrack_msg.pose.position
+                quat = dishrack_msg.pose.orientation
+                state_info["dishrack_pos_quat"] = np.concatenate(([pos.x, pos.y, pos.z], [quat.x, quat.y, quat.z, quat.w]))
+
+        # Mug pose
+        mug_msg = self._hw_interface.get_mug_pose(wait_for_message=False, timeout=2.0)
+        if mug_msg is not None:
+            mug_msg = self._hw_interface.transform_pose(mug_msg, self._robot_base_frame)
+            if mug_msg is not None:
+                pos = mug_msg.pose.position
+                quat = mug_msg.pose.orientation
+                state_info["mug_pos_quat"] = np.concatenate(([pos.x, pos.y, pos.z], [quat.x, quat.y, quat.z, quat.w]))
+
+
+        # banana pose
+        banana_msg = self._hw_interface.get_banana_pose(wait_for_message=False, timeout=2.0)
+        if banana_msg is not None:
+            banana_msg = self._hw_interface.transform_pose(banana_msg, self._robot_base_frame)
+            if banana_msg is not None:
+                pos = banana_msg.pose.position
+                quat = banana_msg.pose.orientation
+                state_info["banana_pos_quat"] = np.concatenate(([pos.x, pos.y, pos.z], [quat.x, quat.y, quat.z, quat.w]))
+        # Get object pose (if relevant for the task) - only include if we have valid data
+        # obj_msg = self._hw_interface.get_object_pose()
+        # if obj_msg is not None:
+        #     obj_msg = self._hw_interface.transform_pose(obj_msg, self._robot_base_frame)
+        #     if obj_msg is not None:
+        #         pos = obj_msg.pose.position
+        #         quat = obj_msg.pose.orientation
+        #         state_info["obj_pos_quat"] = np.concatenate(([pos.x, pos.y, pos.z], [quat.x, quat.y, quat.z, quat.w]))
 
         contact_set = set()
 
-        self.objects_of_interest = self.get_objects_of_interest(task_name)
+        # self.objects_of_interest = self.get_objects_of_interest(task_name)
 
         return state_info
     @classmethod
@@ -948,6 +1002,7 @@ class RoboKitchenEnv(BaseEnv):
             # below are hardware predicates
             Predicate("LidOnDishrack", [cls.thing_type, cls.cabinet_type], cls._LidOnDishrack_holds),
             Predicate("PourInPan", [cls.thing_type, cls.container_type], cls._PourInPan_holds),
+            Predicate("InCookware", [cls.thing_type, cls.cookware_type], cls._InCookware_holds),
         }
 
         return {p.name: p for p in preds}
@@ -1033,11 +1088,11 @@ class RoboKitchenEnv(BaseEnv):
         # Visualize robot arm spheres each step (GUI only)
         # self._visualize_robot_arm_spheres()
         # Video frame saving logic (only if GUI is not enabled)
-        if not self._using_gui:
-            self._frame_counter += 1
-            # Save a frame from the center camera
-            frame = self._env.sim.render(camera_name="robot0_agentview_center", height=512, width=768)
-            self._video_frames.append(frame)
+        # if not self._using_gui:
+        #     self._frame_counter += 1
+        #     # Save a frame from the center camera
+        #     frame = self._env.sim.render(camera_name="robot0_agentview_center", height=512, width=768)
+        #     self._video_frames.append(frame)
         return self._copy_observation(self._current_observation)
 
     def reset(self, train_or_test: str, task_idx: int) -> Observation:
@@ -1599,6 +1654,12 @@ class RoboKitchenEnv(BaseEnv):
             goal_preds = {self._pred_name_to_pred["InContainer"]}
         elif goal_desc == "MocapTest":
             goal_preds = {self._pred_name_to_pred["LidOnDishrack"]}
+        elif goal_desc == "MocapOpenLidPourWater":
+            goal_preds = {self._pred_name_to_pred["InContainer"]}
+        elif goal_desc == "MocapPnPBanana":
+            goal_preds = {self._pred_name_to_pred["InCookware"]}
+        elif goal_desc == "MocapOpenLidPnPBanana":
+            goal_preds = {self._pred_name_to_pred["InCookware"]}
         else:
             raise NotImplementedError(f"Goal description {goal_desc} not implemented for {CFG.robo_kitchen_task}")
         return goal_preds
@@ -1698,13 +1759,11 @@ class RoboKitchenEnv(BaseEnv):
         return found_objects
     
     @classmethod
-    def object_name_to_object(cls, obj_name: str, test_time: bool = False, mocap_name: bool = False) -> Object:
+    def object_name_to_object(cls, obj_name: str, test_time: bool = False) -> Object:
         """
         Made public for perceiver.
         Use this function at test time only when you have the exact obj_name, i.e. with mujoco id. Returns name in CFG.robo_kitchen_obj_names.
         """
-        if mocap_name: 
-            test_time = True
         if not test_time:
             if obj_name in cls.obj_name_to_type:
                 return Object(obj_name, cls.obj_name_to_type[obj_name])
@@ -1715,21 +1774,16 @@ class RoboKitchenEnv(BaseEnv):
         if obj_name.endswith("pos_quat"):
             obj_name_no_pos_quat = obj_name[:-9]
 
-
         # obj_name is name_id, we need to find if it is in cls.obj_name_to_type
         if "_" in obj_name_no_pos_quat and obj_name_no_pos_quat.split("_")[-1].isdigit():
             last_num_characters = len(obj_name_no_pos_quat.split("_")[-1]) + 1
             obj_name_no_num = obj_name_no_pos_quat[:-last_num_characters]
         else:
             obj_name_no_num = obj_name_no_pos_quat
-        if mocap_name:
-            if obj_name_no_num in cls.obj_name_to_type_mocap:
-                return Object(obj_name_no_pos_quat, cls.obj_name_to_type_mocap[obj_name_no_num])
-            else:
-                return None
-        else:
-            if obj_name_no_num in cls.obj_name_to_type:
-                return Object(obj_name_no_pos_quat, cls.obj_name_to_type[obj_name_no_num])
+            
+        if obj_name_no_num in cls.obj_name_to_type:
+            return Object(obj_name_no_pos_quat, cls.obj_name_to_type[obj_name_no_num])
+        
         return None
         
         # for robo_kitchen_obj_name in CFG.robo_kitchen_obj_names:
@@ -1745,25 +1799,7 @@ class RoboKitchenEnv(BaseEnv):
         return None
 
     @classmethod
-    def observation_to_state_mocap(cls, observation: dict) -> State:
-        """
-        Made public for perceiver.
-        Use this function at test time only when you have the exact mocap_name, i.e. with mujoco id. Returns name in CFG.robo_kitchen_obj_names.
-        """
-        state_dict = {}
-        for key, val in observation.items():
-            if key.endswith("_pos_quat"):
-                obj_name = key[:-9]
-                obj = cls.object_name_to_object(obj_name, mocap_name=True)
-                translation = np.array([val[0], val[1], val[2]])
-                quaternion = np.array([val[3], val[4], val[5], val[6]])
-                if obj is not None:
-                    state_dict[obj] = {"translation": translation, "quaternion": quaternion}
-        return utils.create_state_from_dict(state_dict)
-
-    @classmethod
     def state_info_to_state(cls, state_info: Dict[str, Any], contact_set: set[Tuple[Object, Object]] = None) -> State:
-
         if hasattr(CFG, "load_approach") and CFG.load_approach:
             cls.door_open_thresh = cls.online_door_open_thresh  # rad
             cls.door_close_thresh = cls.online_door_close_thresh  # rad
@@ -2123,7 +2159,11 @@ class RoboKitchenEnv(BaseEnv):
     def _LidOnDishrack_holds(cls, state: State, objects: Sequence[Object]) -> bool:
         """Check if lid is on dishrack."""
         return False # hardware, so we can run this task without checking this predicate
-    
+    @classmethod
+    def _InCookware_holds(cls, state: State, objects: Sequence[Object]) -> bool:
+        """Check if object is in cookware."""
+        return False # hardware, so we can run this task without checking this predicate
+
     @classmethod
     def _PourInPan_holds(cls, state: State, objects: Sequence[Object]) -> bool:
         """Check if object is in pan."""

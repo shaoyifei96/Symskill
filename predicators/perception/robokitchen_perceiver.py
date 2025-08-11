@@ -17,6 +17,7 @@ class RoboKitchenPerceiver(BasePerceiver):
         return "robo_kitchen"
 
     def reset(self, env_task: EnvironmentTask) -> Task:
+        print(f"DEBUG: init_obs: {env_task.init_obs}")
         state = self._observation_to_state(env_task.init_obs)
 
         pred_name_to_pred = RoboKitchenEnv.create_predicates()
@@ -29,12 +30,14 @@ class RoboKitchenPerceiver(BasePerceiver):
         OnSurface = pred_name_to_pred["OnSurface"]
         OnCounter = pred_name_to_pred["OnCounter"]
         InContainer = pred_name_to_pred["InContainer"]
+        InCookware = pred_name_to_pred["InCookware"]
         KnobTurnedOn = pred_name_to_pred["KnobTurnedOn"]
         MicrowaveOn = pred_name_to_pred["MicrowaveOn"]
         StoveOn = pred_name_to_pred["StoveOn"]
         StoveOff = pred_name_to_pred["StoveOff"]
         SinkFaucetOn = pred_name_to_pred["SinkFaucetOn"]
         SinkFaucetOff = pred_name_to_pred["SinkFaucetOff"]
+        LidOnDishrack = pred_name_to_pred["LidOnDishrack"]
 
         # handle = RoboKitchenEnv.object_name_to_object("handle")
         # left_handle = RoboKitchenEnv.object_name_to_object("left_door_handle")
@@ -58,6 +61,10 @@ class RoboKitchenPerceiver(BasePerceiver):
         obj_container = RoboKitchenEnv.object_name_to_object("obj_container")
         sink_faucet_handle = RoboKitchenEnv.object_name_to_object("sink_faucet_handle")
         sink = RoboKitchenEnv.object_name_to_object("sink")
+        lid = RoboKitchenEnv.object_name_to_object("lid")
+        dish_rack = RoboKitchenEnv.object_name_to_object("dishrack")
+        banana = RoboKitchenEnv.object_name_to_object("banana")
+        pan = RoboKitchenEnv.object_name_to_object("pan")
 
         goal_desc = env_task.goal_description
         if goal_desc == 'OpenSingleDoor':
@@ -143,14 +150,39 @@ class RoboKitchenPerceiver(BasePerceiver):
             goal = {
                 GroundAtom(InContainer, [tomato, plate]),
             }
+        elif goal_desc == 'MocapOpenLid':
+            goal = {
+                GroundAtom(LidOnDishrack, [lid, dish_rack]),
+            }
+        elif goal_desc == 'MocapPourWater':
+            goal = {
+                GroundAtom(InContainer, [tomato, plate]),
+            }
+        elif goal_desc == 'MocapOpenLidPourWater':
+            goal = {
+                # GroundAtom(LidOnDishrack, [lid, dish_rack]),
+                GroundAtom(InContainer, [tomato, plate]),
+            }
+        elif goal_desc == 'MocapPnPBanana':
+            goal = {
+                GroundAtom(InCookware, [banana, pan]),
+            }
+        elif goal_desc == 'MocapOpenLidPnPBanana':
+            goal = {
+                GroundAtom(InCookware, [banana, pan]),
+            }
         else:
             raise NotImplementedError(f"Unrecognized goal: {goal_desc} (This goal is what the algorithm sees online to convert each goal description to something it understands as relative pose predicates it met during training. e.g. InContainer(tomato, plate) -> RelPose(tomato, plate). Since no goal predicate is specified during training, so we need to save a goal dict for each goal description)")
 
         # convert task.goal to predicate goal if using clustering reprocess
+        for key, value in CFG.dict_gt_goal_predicate_to_dummy_goal_predicates.items():
+            print(f"DEBUG: key: {key}, value: {value}")
+            for val in value:
+                print(type(val ))
         if  len(list(state)) > 0 and (CFG.reprocess_ground_atom_dataset_using_cluster_replacement or CFG.reprocess_ground_atom_dataset_using_cluster_predicates):
             new_goal = set()
             for g in goal:
-                if "goal" in g.predicate.name:
+                if not isinstance(g, str) and"goal" in g.predicate.name:
                     raise NotImplementedError("Not implemented properly! when saving goal, it is not converted to the right types")
                     # Build key based on number of entities
                     if len(g.entities) == 1:
@@ -167,7 +199,7 @@ class RoboKitchenPerceiver(BasePerceiver):
                         gt_goal_key = (g.predicate.name, g.entities[0].type.name)
                     else:
                         gt_goal_key = (g.predicate.name, g.entities[0].type.name, g.entities[1].type.name)
-                    
+
                     # Check if this predicate needs conversion (only for 2-entity predicates currently)
                     if gt_goal_key in CFG.dict_gt_goal_predicate_to_dummy_goal_predicates:
                         dummy_goal_pred = list(CFG.dict_gt_goal_predicate_to_dummy_goal_predicates[gt_goal_key])[0]
@@ -179,7 +211,7 @@ class RoboKitchenPerceiver(BasePerceiver):
                         # print(f"DEBUG: type1_objs: {type1_objs}")
                         # print(f"DEBUG: type2_objs: {type2_objs}")
                         # type 2 is the object in motion, such as door, or tomato, if object name has a _number at the end, and type_1 object also has a _number at the end, then try to match the object with the same _number at the end. if type 2 object has no _number at the end, then match with the object of type 1 that is closer.
-                        assert len(type1_objs) >= 1 and len(type2_objs) >= 1
+                        assert len(type1_objs) >= 1 and len(type2_objs) >= 1, f"Expected at least one object of type {rel_pose_pred.types[0].name} and {rel_pose_pred.types[1].name}, but found {len(type1_objs)} and {len(type2_objs)} respectively. State objects: {[obj.name for obj in state]}"
                         if len(type1_objs) == 1 and len(type2_objs) == 1:
                             type1_obj_final = type1_objs[0]
                             type2_obj_final = type2_objs[0]

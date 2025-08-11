@@ -76,9 +76,16 @@ class ROSHardwareInterface:
         self.gripper_state_topic = gripper_state_topic or rospy.get_param("~gripper_state_topic", "/franka_gripper/joint_states")
         # Motion Capture Subscriber
         self.door_pose_topic = rospy.get_param("~door_pose_topic", "/natnet_ros/Door/pose") # Check type! Assuming PoseStamped
-        self.cabinet_pose_topic = rospy.get_param("~cabinet_pose_topic", "/natnet_ros/Cabinet/pose") # Check type! Assuming PoseStamped
+        # self.cabinet_pose_topic = rospy.get_param("~cabinet_pose_topic", "/natnet_ros/Cabinet/pose") # Check type! Assuming PoseStamped
         self.object_pose_topic = rospy.get_param("~object_pose_topic", "/natnet_ros/musturd/pose") # Check type! Assuming PoseStamped
         self.gripper_alt_pose_topic = rospy.get_param("~gripper_alt_pose_topic", "/natnet_ros/franka_gripper/pose") # Check type! Assuming PoseStamped
+        # New mocap object topics
+        self.bowl_pose_topic = rospy.get_param("~bowl_pose_topic", "/natnet_ros/bowl/pose")
+        self.lid_pose_topic = rospy.get_param("~lid_pose_topic", "/natnet_ros/lid/pose")
+        self.pan_pose_topic = rospy.get_param("~pan_pose_topic", "/natnet_ros/pan/pose")
+        self.dishrack_pose_topic = rospy.get_param("~dishrack_pose_topic", "/natnet_ros/dishrack/pose")
+        self.mug_pose_topic = rospy.get_param("~mug_pose_topic", "/natnet_ros/mug/pose")
+        self.banana_pose_topic = rospy.get_param("~banana_pose_topic", "/natnet_ros/banana/pose")
 
         # --- ROS Communication ---
         self.tf_listener = tf.TransformListener()
@@ -91,12 +98,26 @@ class ROSHardwareInterface:
         self._current_cabinet_pose_msg: Optional[PoseStamped] = None
         self._current_object_pose_msg: Optional[PoseStamped] = None
         self._current_gripper_alt_pose_msg: Optional[PoseStamped] = None
+        # New mocap object pose messages
+        self._current_bowl_pose_msg: Optional[PoseStamped] = None
+        self._current_lid_pose_msg: Optional[PoseStamped] = None
+        self._current_pan_pose_msg: Optional[PoseStamped] = None
+        self._current_dishrack_pose_msg: Optional[PoseStamped] = None
+        self._current_mug_pose_msg: Optional[PoseStamped] = None
+        self._current_banana_pose_msg: Optional[PoseStamped] = None
 
         # Subscribers
         self._door_pose_sub = rospy.Subscriber(self.door_pose_topic, PoseStamped, self._door_pose_callback, queue_size=1)
-        self._cabinet_pose_sub = rospy.Subscriber(self.cabinet_pose_topic, PoseStamped, self._cabinet_pose_callback, queue_size=1)
+        # self._cabinet_pose_sub = rospy.Subscriber(self.cabinet_pose_topic, PoseStamped, self._cabinet_pose_callback, queue_size=1)
         self._object_pose_sub = rospy.Subscriber(self.object_pose_topic, PoseStamped, self._object_pose_callback, queue_size=1)
         self._gripper_alt_pose_sub = rospy.Subscriber(self.gripper_alt_pose_topic, PoseStamped, self._gripper_alt_pose_callback, queue_size=1)
+        # New mocap object subscribers
+        self._bowl_pose_sub = rospy.Subscriber(self.bowl_pose_topic, PoseStamped, self._bowl_pose_callback, queue_size=1)
+        self._lid_pose_sub = rospy.Subscriber(self.lid_pose_topic, PoseStamped, self._lid_pose_callback, queue_size=1)
+        self._pan_pose_sub = rospy.Subscriber(self.pan_pose_topic, PoseStamped, self._pan_pose_callback, queue_size=1)
+        self._dishrack_pose_sub = rospy.Subscriber(self.dishrack_pose_topic, PoseStamped, self._dishrack_pose_callback, queue_size=1)
+        self._mug_pose_sub = rospy.Subscriber(self.mug_pose_topic, PoseStamped, self._mug_pose_callback, queue_size=1)
+        self._banana_pose_sub = rospy.Subscriber(self.banana_pose_topic, PoseStamped, self._banana_pose_callback, queue_size=1)
 
         self._ee_pose_sub = rospy.Subscriber(self.ee_pose_topic, PoseStamped, self._ee_pose_callback, queue_size=1)
         self._gripper_state_sub = rospy.Subscriber(self.gripper_state_topic, JointState, self._gripper_state_callback, queue_size=1)
@@ -134,6 +155,31 @@ class ROSHardwareInterface:
     def _gripper_alt_pose_callback(self, msg: PoseStamped):
         """Store the latest gripper alternate pose message."""
         self._current_gripper_alt_pose_msg = msg
+
+    # New mocap object callbacks
+    def _bowl_pose_callback(self, msg: PoseStamped):
+        """Store the latest bowl pose message."""
+        self._current_bowl_pose_msg = msg
+
+    def _lid_pose_callback(self, msg: PoseStamped):
+        """Store the latest lid pose message."""
+        self._current_lid_pose_msg = msg
+
+    def _pan_pose_callback(self, msg: PoseStamped):
+        """Store the latest pan pose message."""
+        self._current_pan_pose_msg = msg
+
+    def _dishrack_pose_callback(self, msg: PoseStamped):
+        """Store the latest dishrack pose message."""
+        self._current_dishrack_pose_msg = msg
+
+    def _mug_pose_callback(self, msg: PoseStamped):
+        """Store the latest mug pose message."""
+        self._current_mug_pose_msg = msg
+
+    def _banana_pose_callback(self, msg: PoseStamped):
+        """Store the latest banana pose message."""
+        self._current_banana_pose_msg = msg
 
     def _ee_pose_callback(self, msg: PoseStamped):
         """Store the latest end-effector pose message."""
@@ -275,6 +321,97 @@ class ROSHardwareInterface:
         Returns the latest received object PoseStamped message from mocap.
         """
         return self._current_object_pose_msg
+
+    # New getter methods for mocap objects
+    def get_bowl_pose(self, wait_for_message: bool = True, timeout: float = 5.0) -> Optional[PoseStamped]:
+        """
+        Returns the latest received bowl PoseStamped message from mocap.
+        """
+        if wait_for_message and self._current_bowl_pose_msg is None:
+            rospy.loginfo_throttle(1.0, f"Waiting for first message on {self.bowl_pose_topic}...")
+            wait_start_time = rospy.Time.now()
+            wait_duration = rospy.Duration(timeout)
+            while self._current_bowl_pose_msg is None and (rospy.Time.now() - wait_start_time) < wait_duration and not rospy.is_shutdown():
+                rospy.sleep(0.05)
+            if self._current_bowl_pose_msg is None:
+                rospy.logerr(f"Timeout waiting for message on {self.bowl_pose_topic}")
+                return None
+        return self._current_bowl_pose_msg
+
+    def get_lid_pose(self, wait_for_message: bool = True, timeout: float = 5.0) -> Optional[PoseStamped]:
+        """
+        Returns the latest received lid PoseStamped message from mocap.
+        """
+        if wait_for_message and self._current_lid_pose_msg is None:
+            rospy.loginfo_throttle(1.0, f"Waiting for first message on {self.lid_pose_topic}...")
+            wait_start_time = rospy.Time.now()
+            wait_duration = rospy.Duration(timeout)
+            while self._current_lid_pose_msg is None and (rospy.Time.now() - wait_start_time) < wait_duration and not rospy.is_shutdown():
+                rospy.sleep(0.05)
+            if self._current_lid_pose_msg is None:
+                rospy.logerr(f"Timeout waiting for message on {self.lid_pose_topic}")
+                return None
+        return self._current_lid_pose_msg
+
+    def get_pan_pose(self, wait_for_message: bool = True, timeout: float = 5.0) -> Optional[PoseStamped]:
+        """
+        Returns the latest received pan PoseStamped message from mocap.
+        """
+        if wait_for_message and self._current_pan_pose_msg is None:
+            rospy.loginfo_throttle(1.0, f"Waiting for first message on {self.pan_pose_topic}...")
+            wait_start_time = rospy.Time.now()
+            wait_duration = rospy.Duration(timeout)
+            while self._current_pan_pose_msg is None and (rospy.Time.now() - wait_start_time) < wait_duration and not rospy.is_shutdown():
+                rospy.sleep(0.05)
+            if self._current_pan_pose_msg is None:
+                rospy.logerr(f"Timeout waiting for message on {self.pan_pose_topic}")
+                return None
+        return self._current_pan_pose_msg
+
+    def get_dishrack_pose(self, wait_for_message: bool = True, timeout: float = 5.0) -> Optional[PoseStamped]:
+        """
+        Returns the latest received dishrack PoseStamped message from mocap.
+        """
+        if wait_for_message and self._current_dishrack_pose_msg is None:
+            rospy.loginfo_throttle(1.0, f"Waiting for first message on {self.dishrack_pose_topic}...")
+            wait_start_time = rospy.Time.now()
+            wait_duration = rospy.Duration(timeout)
+            while self._current_dishrack_pose_msg is None and (rospy.Time.now() - wait_start_time) < wait_duration and not rospy.is_shutdown():
+                rospy.sleep(0.05)
+            if self._current_dishrack_pose_msg is None:
+                rospy.logerr(f"Timeout waiting for message on {self.dishrack_pose_topic}")
+                return None
+        return self._current_dishrack_pose_msg
+
+    def get_mug_pose(self, wait_for_message: bool = True, timeout: float = 5.0) -> Optional[PoseStamped]:
+        """
+        Returns the latest received mug PoseStamped message from mocap.
+        """
+        if wait_for_message and self._current_mug_pose_msg is None:
+            rospy.loginfo_throttle(1.0, f"Waiting for first message on {self.mug_pose_topic}...")
+            wait_start_time = rospy.Time.now()
+            wait_duration = rospy.Duration(timeout)
+            while self._current_mug_pose_msg is None and (rospy.Time.now() - wait_start_time) < wait_duration and not rospy.is_shutdown():
+                rospy.sleep(0.05)
+            if self._current_mug_pose_msg is None:
+                rospy.logerr(f"Timeout waiting for message on {self.mug_pose_topic}")
+                return None
+        return self._current_mug_pose_msg
+
+    def get_banana_pose(self, wait_for_message: bool = True, timeout: float = 5.0) -> Optional[PoseStamped]:
+        """
+        Returns the latest received banana PoseStamped message from mocap.
+        """
+        if wait_for_message and self._current_banana_pose_msg is None:
+            rospy.loginfo_throttle(1.0, f"Waiting for first message on {self.banana_pose_topic}...")
+            wait_start_time = rospy.Time.now()
+            wait_duration = rospy.Duration(timeout)
+            while self._current_banana_pose_msg is None and (rospy.Time.now() - wait_start_time) < wait_duration and not rospy.is_shutdown():
+                rospy.sleep(0.05)
+            if self._current_banana_pose_msg is None:
+                rospy.logerr(f"Timeout waiting for message on {self.banana_pose_topic}")
+                return None
+        return self._current_banana_pose_msg
             
 
     # --- Robot Commands ---
@@ -380,6 +517,17 @@ class ROSHardwareInterface:
         if hasattr(self, '_ee_pose_sub'): self._ee_pose_sub.unregister()
         if hasattr(self, '_gripper_state_sub'): self._gripper_state_sub.unregister()
         if hasattr(self, 'twist_pub'): self.twist_pub.unregister()
+        # Unregister mocap subscribers
+        if hasattr(self, '_door_pose_sub'): self._door_pose_sub.unregister()
+        if hasattr(self, '_object_pose_sub'): self._object_pose_sub.unregister()
+        if hasattr(self, '_gripper_alt_pose_sub'): self._gripper_alt_pose_sub.unregister()
+        # Unregister new mocap subscribers
+        if hasattr(self, '_bowl_pose_sub'): self._bowl_pose_sub.unregister()
+        if hasattr(self, '_lid_pose_sub'): self._lid_pose_sub.unregister()
+        if hasattr(self, '_pan_pose_sub'): self._pan_pose_sub.unregister()
+        if hasattr(self, '_dishrack_pose_sub'): self._dishrack_pose_sub.unregister()
+        if hasattr(self, '_mug_pose_sub'): self._mug_pose_sub.unregister()
+        if hasattr(self, '_banana_pose_sub'): self._banana_pose_sub.unregister()
         # Note: Does not shut down the rospy node itself, as other parts of
         # the application might still be using ROS.
 

@@ -30,6 +30,7 @@ from predicators.structs import NSRT, AbstractPolicy, DefaultState, \
     ParameterizedOption, Predicate, State, STRIPSOperator, Task, Type, \
     _GroundNSRT, _GroundSTRIPSOperator, _Option
 from predicators.utils import EnvironmentFailure, _TaskPlanningHeuristic
+import time
 
 _NOT_CAUSES_FAILURE = "NotCausesFailure"
 
@@ -293,6 +294,7 @@ def task_plan_grounding(
         nsrt for nsrt in ground_nsrts
         if nsrt.preconditions.issubset(reachable_atoms)
     ]
+    
     return reachable_nsrts, reachable_atoms
 
 
@@ -1280,17 +1282,24 @@ def run_task_plan_once(
             # Calculate similarity scores based on matching operators
             similarities = []
             steps = []
+            min_idx = None
+            min_len = float('inf')
             for i in range(len(plans)):
                 plan = plans[i]
                 # Make plans same length by keeping tail of longer one
-                min_len = min(len(previous_plan), len(plan))
-                tail1 = previous_plan[-min_len:]
-                tail2 = plan[-min_len:]
-                score = sum(1 for nsrt1, nsrt2 in zip(tail1, tail2) if nsrt1.name == nsrt2.name)
-                # TODO: use edit distance instead of simple matching
-                # check if plan is subplan of previous plan's tail, if so, score is high
-                similarities.append(score)
-                steps.append(len(plan))
+                if len(plan) < min_len:
+                    min_len = len(plan)
+                    min_idx = i
+            
+
+                # 
+                # tail1 = previous_plan[-min_len:]
+                # tail2 = plan[-min_len:]
+                # score = sum(1 for nsrt1, nsrt2 in zip(tail1, tail2) if nsrt1.name == nsrt2.name)
+                # # TODO: use edit distance instead of simple matching
+                # # check if plan is subplan of previous plan's tail, if so, score is high
+                # similarities.append(score)
+                # steps.append(len(plan))
                 # print(f"Re-Plan {i} [{', '.join(nsrt.name for nsrt in plan)}] has {score} score, {len(plan)} steps")
 
             # filter out plans that are too long
@@ -1299,13 +1308,17 @@ def run_task_plan_once(
 
             # Select plan with highest similarity
             # Choose min/max similarity based on whether we want to stay close to previous plan
-            if stay_close_to_previous_plan:   
-                best_score = max(similarities) if stay_close_to_previous_plan else min(similarities)
-                best_idx = similarities.index(best_score)
-            else:
-                # Choose random index since stay_close_to_previous_plan is False
-                best_idx = np.random.choice(range(len(similarities)))
-            print(f"Best Re-Plan [{', '.join(nsrt.name for nsrt in plans[best_idx])}] has {similarities[best_idx]} score, {steps[best_idx]} steps")
+            # if stay_close_to_previous_plan:   
+            #     best_score = max(similarities) if stay_close_to_previous_plan else min(similarities)
+            #     best_idx = similarities.index(best_score)
+            # else:
+            #     # Choose random index since stay_close_to_previous_plan is False
+            #     best_idx = np.random.choice(range(len(similarities)))
+            # just pick the shortest plan
+            # best_idx = steps.index(min(steps))
+            best_idx = min_idx
+
+            # print(f"Best Re-Plan [{', '.join(nsrt.name for nsrt in plans[best_idx])}] has {similarities[best_idx]} score, {steps[best_idx]} steps")
             print(f"Best Re-Plan Atoms Seq: ")
             for i, atoms in enumerate(atoms_seqs[best_idx]):
                 print(f"Step {i+1}: {', '.join(atom._str for atom in atoms)}")
@@ -1336,6 +1349,8 @@ def run_task_plan_once(
             for i, atoms in enumerate(atoms_seqs[best_idx]):
                 print(f"Step {i+1}: {', '.join(atom._str for atom in atoms)}")
             plan = plans[best_idx]
+            if len(plan) == 0:
+                time.sleep(5)
             atoms_seq = atoms_seqs[best_idx]
             metrics = metrics_list[best_idx]
 
