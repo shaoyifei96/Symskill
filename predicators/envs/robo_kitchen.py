@@ -1084,7 +1084,11 @@ class RoboKitchenEnv(BaseEnv):
         # Visualize bounding boxes if enabled
         if CFG.robo_kitchen_modulation_mode is not None:
             CFG.robo_kitchen_obstacles = {}
-            self._get_object_bboxes()
+            if CFG.robo_kitchen_task in CFG.mocap_tasks:
+                # print("Getting mocap object bboxes")
+                self._get_mocap_object_bboxes()
+            else:
+                self._get_object_bboxes()
         # Visualize robot arm spheres each step (GUI only)
         # self._visualize_robot_arm_spheres()
         # Video frame saving logic (only if GUI is not enabled)
@@ -1235,6 +1239,102 @@ class RoboKitchenEnv(BaseEnv):
         #         except Exception:
         #             # Skip fixtures that don't have proper bounding box implementation
         #             continue
+
+    def _get_mocap_object_bboxes(self):
+        """Get bounding boxes for mocap tasks using predefined sizes from settings and object poses from observations."""
+        if not hasattr(self, '_current_observation') or self._current_observation is None:
+            return
+            
+        state_info = self._current_observation.get("state_info", {})
+        
+        # Object types to exclude from obstacles (robot parts, etc.)
+        excluded_types = {
+            "base_type", "gripper_type", "wrist_type", 
+            "left_finger_type", "right_finger_type"
+        }
+        state =  self.state_info_to_state(state_info)
+        for obj in state:
+            obj_name = obj.name
+            # print(f"Processing state_info entry: {obj_name}")
+            # Skip non-object entries
+            obj_type_name = obj.type.name
+                            
+            # Skip robot parts and other excluded types
+            if obj_type_name in excluded_types:
+                # print(f"Skipping state_info entry '{obj_name}'")
+                continue
+                
+            # Check if we have predefined sizes for this object type
+            if obj_type_name not in CFG.mocap_object_sizes:
+                # Log a warning for unknown object types (optional)
+                # if obj_type_name not in excluded_types:
+                # print(f"Warning: No bounding box size defined for object type '{obj_type_name}' ")
+                continue
+                
+            # Get half-extents from settings
+            half_extents = np.array(CFG.mocap_object_sizes[obj_type_name])
+            
+            # Get object pose from state
+            try:
+                # Objects use "translation" and "quaternion" fields
+                obj_pos       = state.get(obj, "translation")  # if object has translation feature
+                obj_quat_xyzw = state.get(obj, "quaternion")   # if object has quaternion feature
+                
+                # Ensure they are numpy arrays
+                if not isinstance(obj_pos, np.ndarray):
+                    obj_pos = np.array(obj_pos)
+                if not isinstance(obj_quat_xyzw, np.ndarray):
+                    obj_quat_xyzw = np.array(obj_quat_xyzw)
+                    
+            except (AttributeError, KeyError, TypeError):
+
+                print(f"Skipping state_info entry '{obj_name}' without proper pose information")
+                # Skip objects without proper pose information
+                continue
+                
+            # Create bounding box points from half-extents
+            bbox_points = self._create_bbox_points_from_pose(obj_pos, obj_quat_xyzw, half_extents)
+            
+            # Fit ellipsoid and store in obstacles
+            if bbox_points is not None:
+                obstacle_name = obj_name
+                center, quat_xyzw, radii = self._fit_bbox_ellipsoid(bbox_points, obstacle_name)
+                
+                # Visualize if enabled
+                if CFG.robo_kitchen_visualize_bboxes:
+                    self._visualize_bbox_ellipsoid(bbox_points, center, quat_xyzw, radii, obj_name)
+
+    def _create_bbox_points_from_pose(self, position, quaternion_xyzw, half_extents):
+        """Create 8 bounding box corner points from object pose and half-extents.
+        
+        Args:
+            position: 3D position [x, y, z]
+            quaternion_xyzw: Quaternion [x, y, z, w] 
+            half_extents: Half-sizes along each axis [x_half, y_half, z_half]
+            
+        Returns:
+            List of 8 corner points in world coordinates
+        """
+        # Convert quaternion to rotation matrix
+        rot_matrix = R.from_quat(quaternion_xyzw).as_matrix()
+        
+        # Create 8 corner offsets in local frame
+        bbox_offsets = []
+        for dx in [-1, 1]:
+            for dy in [-1, 1]:
+                for dz in [-1, 1]:
+                    local_offset = np.array([dx * half_extents[0], 
+                                           dy * half_extents[1], 
+                                           dz * half_extents[2]])
+                    bbox_offsets.append(local_offset)
+        
+        # Transform to world coordinates
+        bbox_points = []
+        for offset in bbox_offsets:
+            world_point = position + rot_matrix @ offset
+            bbox_points.append(world_point)
+            
+        return bbox_points
 
     def _visualize_bbox_wireframe(self, bbox_points, obj_name):
         """Visualize bounding box as wireframe cube using edges."""

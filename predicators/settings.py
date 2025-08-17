@@ -184,6 +184,17 @@ class GlobalSettings:
     # for "ellipsoid" mode, obstacle_info is (center, axes, rotation_matrix)
     robo_kitchen_obstacles = {} 
     robo_kitchen_exclude_obstacles = set() # set of object names to exclude from obstacles
+    
+    # Mocap object bounding box sizes (half-extents: [x_half, y_half, z_half])
+    # These will be transformed according to object poses from observations
+    mocap_object_sizes = {
+        "lid_type": [0.05, 0.05, 0.02],          # Lid: 10cm x 10cm x 4cm
+        "cookware_type": [0.08, 0.08, 0.08],     # Cookware: 16cm x 16cm x 10cm  
+        "cabinet_type": [0.15, 0.30, 0.40],      # Cabinet: 30cm x 60cm x 80cm
+        "surface_type": [0.30, 0.40, 0.02],      # Surface: 60cm x 80cm x 4cm
+        "thing_type": [0.03, 0.03, 0.03],        # Generic small object: 6cm x 6cm x 6cm
+        "container_type": [0.08, 0.08, 0.08],    # Container: 16cm x 16cm x 16cm
+    }
 
     show_option_cluster_predicates = True
 

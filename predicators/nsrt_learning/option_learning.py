@@ -1278,7 +1278,9 @@ class _LearnedDSParameterizedOption(ParameterizedOption):
             self._ds_policy.clear_modulations()
             # Collect obstacles for visualization
             vis_obstacles = []
+            print ("Adding modulation for obstacles... size of CFG.robo_kitchen_obstacles:", len(CFG.robo_kitchen_obstacles))
             for obj_name, obstacle_info in CFG.robo_kitchen_obstacles.items():
+                # print ("considering obstacle:", obj_name)
                 # Skip objects that should be excluded because they are clustered with the gripper for this option execution.
                 excluded = False
                 for excluded_obj_name in memory.get("excluded_obj_names", set()):
@@ -1286,13 +1288,14 @@ class _LearnedDSParameterizedOption(ParameterizedOption):
                         excluded = True
                         break
                 if excluded:
+                    print (f"excluding {obj_name} from modulation")
                     continue
                 bbox_points, (center, radii, quat_xyzw) = obstacle_info
                 relative_pose = calculate_relative_pose(state.get(ref_obj, "translation"), state.get(ref_obj, "quaternion"), center, quat_xyzw)
                 ellipsoid_tuple = (relative_pose[:3], radii, R.from_quat(relative_pose[3:]).as_matrix())
                 self._ds_policy.add_ellipsoid_modulation(relative_pose[:3], radii, R.from_quat(relative_pose[3:]).as_matrix())
-                # Transform bbox_points to OOI_obj frame
-                # bbox_points are in world frame, transform each to OOI_obj frame
+                # Transform bbox_points to ref_obj frame
+                # bbox_points are in world frame, transform each to ref_obj frame
                 ref_pos = state.get(ref_obj, "translation")
                 ref_quat = state.get(ref_obj, "quaternion")
                 ref_rot = R.from_quat(ref_quat).as_matrix()
@@ -1359,7 +1362,7 @@ class _LearnedDSParameterizedOption(ParameterizedOption):
         if memory['time_step'] > 35:
             memory["gripper_moved"] = True  # force to move after 60 steps
         else:
-            # print(memory["time_step"])
+            # print(f"cannot move {memory['time_step']}")
             pass
 
         if memory["gripper_moved"]:
