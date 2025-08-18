@@ -818,16 +818,6 @@ class RoboKitchenEnv(BaseEnv):
         """Get the current observation from the hardware."""
         state_info = {}
 
-        ee_pose_msg = self._hw_interface.get_ee_pose(wait_for_message=False, timeout=2.0)
-        assert ee_pose_msg is not None, "No end-effector pose message received" # mocap is in world frame now
-
-        # ee_pose_in_base = self._hw_interface.transform_pose(ee_pose_msg, self._robot_base_frame)
-
-        pos = ee_pose_msg.pose.position
-        quat = ee_pose_msg.pose.orientation
-        ee_pos_world = np.array([pos.x, pos.y, pos.z])
-        ee_quat_world = np.array([quat.x, quat.y, quat.z, quat.w])
-
         # state_info["gripper_pos_quat"] = np.concatenate([ee_pos_world, ee_quat_world])
         
 
@@ -855,6 +845,18 @@ class RoboKitchenEnv(BaseEnv):
         # quat = cabinet_pose_msg.pose.orientation
         # state_info["cabinet_pos_quat"] = np.concatenate(([pos.x, pos.y, pos.z], [quat.x, quat.y, quat.z, quat.w]))
 
+
+        # End-Effector Pose (Gripper) this has slight offset wrt gripper alt pose, mocap is more consistent
+        # ee_pose_msg = self._hw_interface.get_ee_pose(wait_for_message=False, timeout=2.0)
+        # ee_pose_in_base = self._hw_interface.transform_pose(ee_pose_msg, self._robot_base_frame)
+        # assert ee_pose_msg is not None, "No end-effector pose message received" # mocap is in world frame now
+
+
+        # pos = ee_pose_in_base.pose.position
+        # quat = ee_pose_in_base.pose.orientation
+        # ee_pos_base = np.array([pos.x, pos.y, pos.z])
+        # ee_quat_base = np.array([quat.x, quat.y, quat.z, quat.w])
+        # state_info["gripper_pos_quat"] = np.concatenate([ee_pos_base, ee_quat_base])
         # Gripper Alternate Pose (Mocap)
         gripper_alt_pose_msg = self._hw_interface.get_gripper_alt_pose(wait_for_message=False, timeout=2.0)
         # transform the gripper alternate pose to the base frame
@@ -895,11 +897,20 @@ class RoboKitchenEnv(BaseEnv):
             state_info["left_finger_pos_quat"] = np.array([-gripper_positions[0], 0.0, 0.0, 0.0, 0.0, 0.0, 1.0])
             state_info["right_finger_pos_quat"] = np.array([gripper_positions[1], 0.0, 0.0, 0.0, 0.0, 0.0, 1.0])
         
-        # Add wrist object - use gripper position and orientation for hardware interface
-        # This ensures DS policy has all required objects
-        gripper_pos = state_info["gripper_pos_quat"][:3]
-        gripper_quat = state_info["gripper_pos_quat"][3:]
-        state_info["wrist_pos_quat"] = np.concatenate([gripper_pos, gripper_quat])
+        # Add wrist object - get actual link7 pose from TF instead of using gripper pose
+        link7_msg = self._hw_interface.get_link7_pose(timeout=0.5)
+        if link7_msg is not None:
+            # Use actual link7 pose from TF lookup
+            link7_msg = self._hw_interface.transform_pose(link7_msg, self._robot_base_frame)
+            pos = link7_msg.pose.position
+            quat = link7_msg.pose.orientation
+            state_info["wrist_pos_quat"] = np.array([pos.x, pos.y, pos.z, quat.x, quat.y, quat.z, quat.w])
+        else:
+            # Fallback to gripper pose if TF lookup fails
+            print("Warning: Could not get link7 pose from TF, falling back to gripper pose for wrist")
+            gripper_pos = state_info["gripper_pos_quat"][:3]
+            gripper_quat = state_info["gripper_pos_quat"][3:]
+            state_info["wrist_pos_quat"] = np.concatenate([gripper_pos, gripper_quat])
         
         # Get new mocap object poses - only include if we have valid data
         # Bowl pose
@@ -1000,7 +1011,7 @@ class RoboKitchenEnv(BaseEnv):
             Predicate("SinkFaucetOff", [cls.sink_faucet_handle_type], cls._SinkFaucetOff_holds),
             Predicate("InContainer", [cls.thing_type, cls.container_type], cls._InContainer_holds),
             # below are hardware predicates
-            Predicate("LidOnDishrack", [cls.thing_type, cls.cabinet_type], cls._LidOnDishrack_holds),
+            Predicate("LidOnDishrack", [cls.lid_type, cls.cabinet_type], cls._LidOnDishrack_holds),
             Predicate("PourInPan", [cls.thing_type, cls.container_type], cls._PourInPan_holds),
             Predicate("InCookware", [cls.thing_type, cls.cookware_type], cls._InCookware_holds),
         }

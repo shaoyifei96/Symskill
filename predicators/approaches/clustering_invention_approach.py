@@ -851,7 +851,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             keep_indices = [ 5, 7, 11, 17, 19, 21]
             dataset._trajectories = [dataset._trajectories[i] for i in keep_indices if i < len(dataset._trajectories)]
         elif CFG.robo_kitchen_task == "MocapOpenLid":
-            keep_indices = [0, 1, 2, 3, 4, 5, 6, 7]
+            keep_indices = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
             dataset._trajectories = [dataset._trajectories[i] for i in keep_indices if i < len(dataset._trajectories)]
         elif CFG.robo_kitchen_task == "mocap_pour_pot":
             keep_indices = [0, 1, 2, 4]

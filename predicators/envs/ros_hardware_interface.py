@@ -412,6 +412,48 @@ class ROSHardwareInterface:
                 rospy.logerr(f"Timeout waiting for message on {self.banana_pose_topic}")
                 return None
         return self._current_banana_pose_msg
+
+    def get_link7_pose(self, timeout: float = 0.5) -> Optional[PoseStamped]:
+        """
+        Returns the pose of panda_link7 (wrist) in the robot base frame using TF lookup.
+        
+        Args:
+            timeout: Time (s) to wait for the TF transform.
+            
+        Returns:
+            PoseStamped with link7 pose in robot base frame, or None if lookup fails.
+        """
+        try:
+            # Look up the transform from robot base to link7
+            link7_frame = "panda_link7"
+            now = rospy.Time(0)  # Use latest available transform
+            
+            # Wait for transform to be available
+            self.tf_listener.waitForTransform(self.robot_base_frame, link7_frame, now, rospy.Duration(timeout))
+            
+            # Get the transform
+            (trans, rot) = self.tf_listener.lookupTransform(self.robot_base_frame, link7_frame, now)
+            
+            # Create PoseStamped message
+            pose_msg = PoseStamped()
+            pose_msg.header.stamp = rospy.Time.now()
+            pose_msg.header.frame_id = self.robot_base_frame
+            pose_msg.pose.position.x = trans[0]
+            pose_msg.pose.position.y = trans[1]
+            pose_msg.pose.position.z = trans[2]
+            pose_msg.pose.orientation.x = rot[0]
+            pose_msg.pose.orientation.y = rot[1]
+            pose_msg.pose.orientation.z = rot[2]
+            pose_msg.pose.orientation.w = rot[3]
+            
+            return pose_msg
+            
+        except (tf.LookupException, tf.ConnectivityException, tf.ExtrapolationException) as e:
+            rospy.logwarn_throttle(2.0, f"TF Error looking up link7 pose: {e}")
+            return None
+        except Exception as e:
+            rospy.logerr(f"Unexpected error during link7 TF lookup: {e}")
+            return None
             
 
     # --- Robot Commands ---

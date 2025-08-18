@@ -30,7 +30,7 @@ class GlobalSettings:
     use_gt_ref_obj_type = True
 
     use_cluster_center_as_attractor = False # if True, use the cluster center as the attractor, otherwise use the average of the end points of the trajectory
-    # currently not used, both are computed and 
+    # currently not used, both are computed and for linear DS it uses cluster center
 
     init_pose = np.array([0.24844874, 0.00726439, 0.59251043, 0.98814909,  0.04089472, -0.14543901,  0.02713826])
 
@@ -114,11 +114,11 @@ class GlobalSettings:
     # robo_kitchen_task = "CookCheeseAndTomatoes" # New task
 
     # hardware tasks    
-    # robo_kitchen_task = "MocapOpenLid"
+    robo_kitchen_task = "MocapOpenLid"
     # robo_kitchen_task = "MocapPourWater"
     # robo_kitchen_task = "MocapPnPBanana"
     # robo_kitchen_task = "MocapOpenLidPourWater"  # New task combining both actions
-    robo_kitchen_task = "MocapOpenLidPnPBanana"  # New task combining both actions
+    # robo_kitchen_task = "MocapOpenLidPnPBanana"  # New task combining both actions
 
     
     # robo_kitchen_task = "MocapTest"
@@ -154,7 +154,7 @@ class GlobalSettings:
     # robo_kitchen_task = "TurnOnMicrowave" # this is not working, nothing is in motion in the dataset button just clicks
     # robo_kitchen_viz_debug = False # i think the use_gui flag covers this
     path_to_user_demo = {"PnPCabToCounterTomato": "/home/yifei/Documents/task_planning_2/robocasa/robocasa/models/assets/demonstrations_private/2025-08-01-21-56-57",
-                         "MocapOpenLid": "/home/figueroa-lab-12n/Documents/task_planning/scripts/openlid_v7/",
+                         "MocapOpenLid": "/home/figueroa-lab-12n/Documents/task_planning/scripts/openlid_v8/",
                          "MocapPourWater": "/home/yifei/Documents/task_planning_2/real_data/pour_water_v2/",
                          "MocapTest": "/home/yifei/Documents/task_planning_2/real_data/mocap_test/",
                          "MocapPnPBanana": "/home/figueroa-lab-12n/Documents/task_planning/scripts/banana_in_pod/"}
@@ -190,7 +190,7 @@ class GlobalSettings:
     mocap_object_sizes = {
         "lid_type": [0.05, 0.05, 0.02],          # Lid: 10cm x 10cm x 4cm
         "cookware_type": [0.08, 0.08, 0.08],     # Cookware: 16cm x 16cm x 10cm  
-        "cabinet_type": [0.15, 0.30, 0.40],      # Cabinet: 30cm x 60cm x 80cm
+        "cabinet_type": [0.1, 0.2, 0.08],      # Cabinet: 30cm x 60cm x 80cm
         "surface_type": [0.30, 0.40, 0.02],      # Surface: 60cm x 80cm x 4cm
         "thing_type": [0.03, 0.03, 0.03],        # Generic small object: 6cm x 6cm x 6cm
         "container_type": [0.08, 0.08, 0.08],    # Container: 16cm x 16cm x 16cm
@@ -930,7 +930,7 @@ class GlobalSettings:
         elif robo_kitchen_task == "PnPCabToCounterTomato":
             num_train_tasks = 6
         elif robo_kitchen_task == "MocapOpenLid":
-            num_train_tasks = 8
+            num_train_tasks = 10
         elif robo_kitchen_task == "MocapPourWater":
             num_train_tasks = 9
         elif robo_kitchen_task == "MocapTest":

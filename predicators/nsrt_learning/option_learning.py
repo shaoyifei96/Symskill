@@ -1194,6 +1194,7 @@ class _LearnedDSParameterizedOption(ParameterizedOption):
         # gripper in cluster predicates of the grounded NSRT.
         grounded_op = self.operator.ground(tuple(objects))
         memory["excluded_obj_names"] = _get_objects_clustered_with_gripper(grounded_op)
+        print (f"Excluding these objects from modulation: {memory['excluded_obj_names']}")
         memory["gripper_or_obj_pose_ref_frame_history"] = []
         memory["mem_count"] = 12
         memory["gripper_moved"] = False
@@ -1278,7 +1279,7 @@ class _LearnedDSParameterizedOption(ParameterizedOption):
             self._ds_policy.clear_modulations()
             # Collect obstacles for visualization
             vis_obstacles = []
-            print ("Adding modulation for obstacles... size of CFG.robo_kitchen_obstacles:", len(CFG.robo_kitchen_obstacles))
+            # print ("Adding modulation for obstacles... size of CFG.robo_kitchen_obstacles:", len(CFG.robo_kitchen_obstacles))
             for obj_name, obstacle_info in CFG.robo_kitchen_obstacles.items():
                 # print ("considering obstacle:", obj_name)
                 # Skip objects that should be excluded because they are clustered with the gripper for this option execution.
@@ -1291,6 +1292,9 @@ class _LearnedDSParameterizedOption(ParameterizedOption):
                     print (f"excluding {obj_name} from modulation")
                     continue
                 bbox_points, (center, radii, quat_xyzw) = obstacle_info
+                if any(radiii > 0.4 for radiii in radii):
+                    print (f"skipping {obj_name} for modulation because too big: {radii}")
+                    raise ValueError(f"Obstacle {obj_name} is too big for modulation")
                 relative_pose = calculate_relative_pose(state.get(ref_obj, "translation"), state.get(ref_obj, "quaternion"), center, quat_xyzw)
                 ellipsoid_tuple = (relative_pose[:3], radii, R.from_quat(relative_pose[3:]).as_matrix())
                 self._ds_policy.add_ellipsoid_modulation(relative_pose[:3], radii, R.from_quat(relative_pose[3:]).as_matrix())
@@ -1359,7 +1363,7 @@ class _LearnedDSParameterizedOption(ParameterizedOption):
         #     # NOTE: this is a hack to prevent the option from getting stuck when the finger distance is close to 0.1
         #     memory["gripper_moved"] = True
         
-        if memory['time_step'] > 35:
+        if memory['time_step'] > 15:
             memory["gripper_moved"] = True  # force to move after 60 steps
         else:
             # print(f"cannot move {memory['time_step']}")
@@ -1408,9 +1412,9 @@ class _LearnedDSParameterizedOption(ParameterizedOption):
         #     memory["state_history"].pop(0)
 
         # Check if state has not changed for e.g. 10 steps
-        if memory["time_step"] > 300:
+        if memory["time_step"] > 100:
             if len(memory["gripper_or_obj_pose_ref_frame_history"]) == memory["mem_count"]:
-                if all(np.allclose(memory["gripper_or_obj_pose_ref_frame_history"][0], s, atol=1.2e-3) for s in memory["gripper_or_obj_pose_ref_frame_history"][1:]):
+                if all(np.allclose(memory["gripper_or_obj_pose_ref_frame_history"][0], s, atol=3.0e-3) for s in memory["gripper_or_obj_pose_ref_frame_history"][1:]):
                     # warnings.warn("Disabled effect-based terminal check, this is due to velocity-based ")
                     return True
                     # # Initialize terminal ready flag if not exists
