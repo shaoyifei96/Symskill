@@ -79,15 +79,15 @@ if "CUDA_VISIBLE_DEVICES" in os.environ:  # pragma: no cover
         os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(cuda_visible_devices)
 
 
-def compute_adaptive_reg_term(cov, base_reg, min_reg=1e-20, max_reg=1.0, mode="trace"):
-    if mode == "trace":
-        cov_magnitude = np.trace(cov)
-    elif mode == "det":
-        cov_magnitude = np.linalg.det(cov)
-    elif mode == "eig":
-        cov_magnitude = np.max(np.linalg.eigvalsh(cov))
-    else:
-        raise ValueError(f"Unknown mode: {mode}")
+def compute_adaptive_reg_term(cov, base_reg, min_reg=1e-20, max_reg=0.04, mode="trace"):
+    # if mode == "trace":
+    #     cov_magnitude = np.trace(cov)
+    # elif mode == "det":
+    #     cov_magnitude = np.linalg.det(cov)
+    # elif mode == "eig":
+    #     cov_magnitude = np.max(np.linalg.eigvalsh(cov))
+    # else:
+    #     raise ValueError(f"Unknown mode: {mode}")
     
     # proportionality to cov: higher cov → higher reg
     # Calculate the initial reg_strength
@@ -99,6 +99,12 @@ def compute_adaptive_reg_term(cov, base_reg, min_reg=1e-20, max_reg=1.0, mode="t
     #     reg_strength = min_reg
     # else:
     #     reg_strength = np.clip(initial_reg, min_reg, max_reg)
+    cov_magnitude = np.trace(cov)
+    reg_strength = cov_magnitude * base_reg
+
+    if reg_strength > 0.05:
+        pass
+        
     
     return cov * (base_reg) + np.eye(cov.shape[0]) * min_reg
 
@@ -3079,7 +3085,8 @@ def create_ground_atom_dataset(
         predicates: Set[Predicate]) -> List[GroundAtomTrajectory]:
     """Apply all predicates to all trajectories in the dataset."""
     ground_atom_dataset = []
-    for traj in trajectories:
+    for itraj, traj in enumerate(trajectories):
+        print(f"idx: {itraj}")
         traj_atoms = [abstract(s, predicates) for s in traj.states]
         # Filter atoms to ensure InContact predicates only have gripper as the second element
         for i, time_atom_set in enumerate(traj_atoms):

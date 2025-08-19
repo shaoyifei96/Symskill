@@ -91,7 +91,7 @@ class GlobalSettings:
 
     # robo_kitchen env parameters
     robo_kitchen_randomize_init_state = True  # not used
-    # robo_kitchen_task = "OpenSingleDoor"
+    robo_kitchen_task = "OpenSingleDoor"
     # robo_kitchen_task = "CloseSingleDoor"
     # robo_kitchen_task = "PnPCounterToCab" 
     # robo_kitchen_task = "PnPCabToCounter" # #this has no plate, cannot find a good ref
@@ -112,7 +112,7 @@ class GlobalSettings:
 
     # hardware tasks    
     # robo_kitchen_task = "MocapOpenLid"
-    robo_kitchen_task = "MocapPourWater"
+    # robo_kitchen_task = "MocapPourWater"
     # robo_kitchen_task = "MocapTest"
 
     # for learning ref frame
@@ -153,7 +153,7 @@ class GlobalSettings:
         robo_kitchen_user_demo = True
     else:
         robo_kitchen_user_demo = False # if True, this has priority, if False, then load flag is considered
-    robo_kitchen_load_dataset = False # this has priority, if False, then save flag is considered
+    robo_kitchen_load_dataset = True # this has priority, if False, then save flag is considered
     robo_kitchen_save_dataset = not robo_kitchen_load_dataset
     robo_kitchen_save_traj_by_segment = False
     robo_kitchen_contact_smoothing_window = 21
