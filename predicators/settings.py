@@ -40,8 +40,13 @@ class GlobalSettings:
     dict_gt_goal_predicate_to_dummy_goal_predicates = {}  # key: gt goal predicate, value: set of dummy goal predicates
 
     # clustering_invention approach parameters
-    # predicate_candidates_method = "contact_clustering"  # "low_speed" or "contact_clustering" or "motion_analysis_contact"
-    predicate_candidates_method = "motion_analysis_contact"  # "low_speed" or "contact_clustering" or "motion_analysis_contact"
+    predicate_candidates_method = "low_speed"  # "low_speed" or "contact_clustering" or "motion_analysis_contact"
+    if predicate_candidates_method == "low_speed": # low speed still needs to run the grammar search, so need goal
+        excluded_predicates = "all"
+    else:
+        excluded_predicates = "all_goal" # "all_goal" will always be used
+
+    # low speed is https://arxiv.org/abs/2503.21406, using relative low speed points as candidate predicates
     motion_analysis_lin_vel_rot_vel_threshold = 0.002 # lin vel min thresh, under this, use rot vel
     motion_analysis_contact_threshold = {"PnPCabToCounterTomato": 0.003, "MocapOpenLid": 0.02, "MocapPourWater": 0.02}
     clustering_inv_cov_reg_lin = 3.0 # gripper object
@@ -61,6 +66,7 @@ class GlobalSettings:
     clustering_se3_rot_weight = 5.0  # 30 deg = 0.5236 rad
     clustering_feature_constancy_percentile = 10  # of total number of data points = 13782
     clustering_se3_epsilon = 3.0 # made very big since we are only keeping 1 cluster!!!
+    clustering_baseline_epsilon = 1.0 # default epsilon
     clustering_visualization_frame_axis_length = 0.05
     # clustering_translation_constancy_tol = 0.01/10 # 10 hz 0.01 m
     # clustering_quaternion_constancy_tol = 0.01 # 10 hz 0.01 rad
@@ -78,7 +84,6 @@ class GlobalSettings:
     clustering_quaternion_epsilon = 0.7
     clustering_dbscan_ratio = 0.1  # dbscan is 10 times smaller than this
     clustering_agglomerative_ratio = 0.3  # what ratio of data range
-    clustering_epsilon = 0.3  # default not used!
 
     clustering_algorithm = "agglomerative"  # "hdbscan" or "agglomerative"
     clustering_min_ratio_of_data = 0.1  # 10% of the contact points 2068 * 0.1 = 206
@@ -87,7 +92,6 @@ class GlobalSettings:
     clustering_search_alpha = 0.4
     clustering_search_max_iterations = 30
     clustering_check_plan_length_constraint = True
-    clustering_search_constraint_penalty = 10.0
 
     # robo_kitchen env parameters
     robo_kitchen_randomize_init_state = True  # not used

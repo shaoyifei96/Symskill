@@ -876,6 +876,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             candidates = self._generate_candidate_predicates(dataset)
             logging.info(f"Generated {len(candidates)} candidate predicates.")
             logging.info(f"Candidate predicates: {candidates}")
+            different_seg_count_trajs = []
             if not candidates:
                 logging.warning("No candidate predicates generated. Learning NSRTs with initial predicates only.")
                 self._learned_predicates = set()
@@ -883,6 +884,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 logging.info("Selecting predicates via beam search...")
                 self._learned_predicates = self._select_predicates_by_beam_search(candidates, dataset, self._train_tasks)
                 logging.info(f"Selected {len(self._learned_predicates)} predicates.")
+                og_pred_atom_dataset = self._create_atom_dataset(dataset, self._learned_predicates | self._initial_predicates)
         elif CFG.predicate_candidates_method == "contact_clustering":
             logging.info("Generating candidate predicates via contact clustering method...")
             og_pred_atom_dataset, cluster_pred_atom_dataset, different_seg_count_trajs, candidates, initial_monitor_preds = self._generate_candidate_predicates_contact_goal_clustering_refactored(dataset)
@@ -985,17 +987,9 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
 
             logging.info(f"Saved {len(data)} data points for feature {feature_key} to {data_path}")
 
-            # Select clustering epsilon based on feature type
-            if feat_name == CFG.trans_feat_name:
-                epsilon = CFG.clustering_translation_epsilon
-            elif feat_name == CFG.quat_feat_name:
-                epsilon = CFG.clustering_quaternion_epsilon
-            else: #pose_feature
-                epsilon = CFG.clustering_epsilon
 
-            # logging.debug(f"Using epsilon: {epsilon:.4f} for feature {feat_name}")
             # Perform clustering
-            data_array, labels, unique_labels = self._cluster_feature_dataset(data, epsilon, feat_name)
+            data_array, labels, unique_labels = self._cluster_feature_dataset(data, CFG.clustering_baseline_epsilon, feat_name)
             diff_fn = self._get_feature_difference_function(feat_name)
 
             if data_array.size == 0: continue # Skip if clustering returned empty
@@ -1070,15 +1064,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 cluster_points = cluster_info['points'] # Retrieve stored points
                 # compute the SE(3) covariance matrix
 
-            # Now, optionally visualize clusters if in debug mode, passing the *updated* info
-            if CFG.clustering_debug and data_array.size > 0: # Check if there is data to plot
-                # The kept_clusters_info dict now contains cov matrix and threshold for plot
-                self._plot_cluster_results(data_array, labels, unique_labels, kept_clusters_info,
-                                           type1.name, type2.name if type2 else None, feat_name)
 
-                # Plot relative trajectories *after* cluster plot, if applicable
-                if feat_name == CFG.pose_feature_name and type2 is not None:
-                    self._plot_relative_trajectories(dataset, type1.name, type2.name)
 
             # Sort kept clusters by size (descending) for top_k selection AFTER plotting
             # Filter out any clusters where covariance calculation failed (if needed, though `continue` above handles it)
@@ -1097,8 +1083,18 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                     type1, type2, feat_name, cluster_info['center'],
                     cluster_info['cluster_radius'],
                     diff_fn, cluster_label) # Use cluster_label for ID
-                candidates[pred] = pred.arity + 1.0
+                candidates[pred] = pred.arity 
                 predicate_counter += 1
+
+                # Now, optionally visualize clusters if in debug mode, passing the *updated* info with pred
+                if CFG.clustering_debug and data_array.size > 0: # Check if there is data to plot
+                    # The kept_clusters_info dict now contains cov matrix and threshold for plot
+                    self._plot_cluster_results(data_array, labels, unique_labels, kept_clusters_info,
+                                               type1.name, type2.name if type2 else None, feat_name, pred)
+
+                    # Plot relative trajectories *after* cluster plot, if applicable
+                    if feat_name == CFG.pose_feature_name and type2 is not None:
+                        self._plot_relative_trajectories(dataset, type1.name, type2.name, pred)
 
         # Rename predicates for PDDL compatibility (reuse from grammar search)
         renamed_candidates = self._rename_predicates_to_remove_incompatible_chars(candidates)
@@ -1266,13 +1262,13 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         # Optional: Filter types as before
         filtered_types = set()
         # Example filter (adjust as needed):
-        allowed_type_names = {"handle", "cabinet"} # Added door_type based on usage
+        blacklisted_type_names = {"left_finger_type", "right_finger_type", "base_type", "wrist_type","counter_type","surface_type", "thing_type"}
         for type_obj in types:
-            if any(name in type_obj.name for name in allowed_type_names):
+            if type_obj.name not in blacklisted_type_names:
                 filtered_types.add(type_obj)
                 logging.info(f"Keeping type for relative features: {type_obj.name}")
             else:
-                logging.debug(f"Filtering out type: {type_obj.name}")
+                logging.debug(f"Filtering out blacklisted type: {type_obj.name}")
 
         gripper_type = "gripper"
         gripper_type_obj = None
@@ -1283,8 +1279,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 break
 
         if gripper_type_obj is None:
-            logging.warning(f"No gripper type found in the dataset. Skipping relative features.")
-            return {}
+            raise ValueError("No gripper type found in the dataset. Skipping relative features.")
 
         type_pairs = list(utils.combinations_no_self_pairs(sorted(list(filtered_types)), 2))
         # Create type pairs that include combinations with gripper
@@ -1294,11 +1289,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             logging.info(f"Adding gripper pair: ({gripper_type_obj.name}, {type_obj.name}) and ({type_obj.name}, {gripper_type_obj.name})")
 
         logging.info(f"Total type pairs for relative features: {len(type_pairs)}")
-        # type_pairs = list(product(sorted(list(types)), repeat=2))
 
-        quat_feat_name = "quaternion"
-        trans_feat_name = "translation"
-        pose_feat_name = "pose" # New combined feature name
 
         for i, traj in enumerate(dataset.trajectories):
             logging.debug(f"Processing trajectory {i+1}/{len(dataset.trajectories)} for relative features")
@@ -1322,8 +1313,8 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                         # Handle type1 == type2 case
                         obj2_list = objs2 if type1 != type2 else [o for o in objs2 if o != o1]
                         for o2 in obj2_list:
-                            rel_pose_t = utils.calculate_relative_pose_from_state(state_t, o1, o2, trans_feat_name, quat_feat_name)
-                            rel_pose_t1 = utils.calculate_relative_pose_from_state(state_t1, o1, o2, trans_feat_name, quat_feat_name)
+                            rel_pose_t = utils.calculate_relative_pose_from_state(state_t, o1, o2, CFG.trans_feat_name, CFG.quat_feat_name)
+                            rel_pose_t1 = utils.calculate_relative_pose_from_state(state_t1, o1, o2, CFG.trans_feat_name, CFG.quat_feat_name)
 
                             if rel_pose_t is not None and rel_pose_t1 is not None:
                                 # Calculate change in relative pose (using SE(3) distance concept)
@@ -1333,7 +1324,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                                                                                 CFG.clustering_se3_rot_weight)
 
                                 # Add the pose at time t to the dataset
-                                feature_key = (type1, type2, pose_feat_name)
+                                feature_key = (type1, type2, CFG.pose_feature_name)
                                 feature_data[feature_key].append(rel_pose_t)
                                 feature_changes[feature_key].append(pose_diff_norm)
 
@@ -1383,7 +1374,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                                                             CFG.clustering_se3_trans_weight, 
                                                             CFG.clustering_se3_rot_weight)
             # Use a specific epsilon for SE(3) clustering
-            effective_epsilon = CFG.clustering_se3_epsilon # Needs to be defined in CFG
+            effective_epsilon = initial_epsilon
             logging.debug(f"Using SE(3) metric with epsilon: {effective_epsilon:.4f}")
         else:
             raise ValueError(f"Unsupported feature type: {feature_name}")
@@ -2163,11 +2154,8 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             # np.save(data_path, np.array(data))
             # logging.info(f"Saved {len(data)} contact pose data points for feature {feature_key} to {data_path}")
 
-            # Use SE(3) epsilon
-            epsilon = CFG.clustering_se3_epsilon
-
             # Perform clustering
-            data_array, labels, unique_labels = self._cluster_feature_dataset(data, epsilon, feat_name)
+            data_array, labels, unique_labels = self._cluster_feature_dataset(data, CFG.clustering_se3_epsilon, feat_name)
             if data_array.size == 0: continue # Skip if clustering returned empty
 
             # Adjust min cluster size calculation if needed (e.g., minimum 3 points for covariance)
@@ -2716,8 +2704,8 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             # Generate successors by adding one predicate to each set in the beam
             for _, current_preds, _ in beam:
                 for cand_pred in candidate_list:
-                    if cand_pred.arity == 2 and cand_pred.types[1].name != "gripper_type":
-                        continue
+                    # if cand_pred.arity == 2 and cand_pred.types[1].name != "gripper_type":
+                    #     continue
                     if cand_pred in current_preds or cand_pred in self._initial_predicates:
                         continue
                     next_pred_set = current_preds | {cand_pred}
@@ -2737,9 +2725,10 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 logging.info("Beam search found no viable successors. Terminating.")
                 break # No improvement possible
 
-            # Keep top B successors based on score
-            successors.sort(key=lambda x: x[0], reverse=True) # Sort descending by score
-            new_beam = successors[:beam_width]
+            # Keep top B successors based on score, excluding -inf scores
+            valid_successors = [s for s in successors if s[0] > -np.inf]
+            valid_successors.sort(key=lambda x: x[0], reverse=True) # Sort descending by score
+            new_beam = valid_successors[:beam_width]
 
             # Check for convergence (beam hasn't changed or score isn't improving)
             # Simple check: if the best score in the new beam is not better than the previous best
@@ -2748,8 +2737,6 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 logging.info(f"\033[1;36mIteration {iteration} best score: {best_score:.4f}\033[0m")
                 logging.info(f"\033[1;32mCurrent best operators: {best_operators}\033[0m")
                 logging.info(f"\033[1;33mCurrent best preds: {best_pred_set_added}\033[0m")
-                warnings.warn(f"Not doing beam search!!!!!!!!!!!!!!!!!")
-                break
             current_best_score_in_beam = new_beam[0][0] if new_beam else -np.inf
             if current_best_score_in_beam <= best_score and iteration > 1 : # Allow first iteration to set baseline
                 logging.info("\033[1;35mBeam search converged (no score improvement).\033[0m")
@@ -2804,7 +2791,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         seg_term = self._calculate_segmentation_term(predicates, atom_dataset)             # Cache already handled inside the function call
 
         # Add the negated absolute value of constraint_value to the score
-        score = seg_term - alpha * op_term - CFG.clustering_search_constraint_penalty * abs(constraint_value)
+        score = seg_term - alpha * op_term - constraint_value
         logging.debug(f"Pred set {predicates}, Seg: {seg_term}, OpComp: {op_term}, Constraint: {constraint_value}, Score: {score:.3f}")
         # logging.debug(f"Pred set size {len(predicates)}, Seg: {seg_term}, OpComp: {op_term}, Score: {score:.3f}")
         return score, operators
@@ -2910,13 +2897,13 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
 
         if not operators:  # If operator learning failed, return large negative value
             logging.debug("Cannot check plan length constraint: Operator learning failed.")
-            self._plan_constraint_cache[predicates] = -1000  # Significant negative value
-            return -1000
+            self._plan_constraint_cache[predicates] = np.inf  # Significant negative value
+            return np.inf
 
         # The 'operators' set already contains STRIPSOperator objects
         strips_ops = operators
 
-        diffs = []  # Store differences for all trajectories
+        diffs_abs = []  # Store differences for all trajectories
 
         # Iterate through each demonstration trajectory
         for i, (ll_traj, atom_seq) in enumerate(atom_dataset):
@@ -2937,7 +2924,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
 
             # Get demonstrated plan length (number of segments)
             demo_segments = segment_trajectory(ll_traj, predicates, atom_seq=atom_seq)
-            demo_plan_len = len(demo_segments) + 1  # segment does not include last section
+            demo_plan_len = len(demo_segments)  # segment does not include last section
 
             # Create a planning task
             task = Task(init_state, goal_atoms)
@@ -2959,15 +2946,16 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 continue
             else:
                 planner_plan_len = len(plan)
+                # number of grounded operators in the plan
                 # Calculate difference: positive if plan is longer, negative if shorter
                 diff = planner_plan_len - demo_plan_len
                 # logging.debug(f"Traj {i}: Demo len={demo_plan_len}, Planner len={planner_plan_len}, Diff={diff}")
 
-                diffs.append(np.abs(diff))
-
-        avg_diff = np.mean(diffs) if len(diffs) > 0 else np.inf
-        self._plan_constraint_cache[predicates] = avg_diff
-        return avg_diff
+                if diff != 0:   
+                    self._plan_constraint_cache[predicates] = np.inf
+                    return np.inf
+        self._plan_constraint_cache[predicates] = 0
+        return self._plan_constraint_cache[predicates]
 
     # --- Helper Functions ---
     def _create_atom_dataset(self, dataset: Dataset, predicates: Set[Predicate] | FrozenSet[Predicate]) -> List[GroundAtomTrajectory]:

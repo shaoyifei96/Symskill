@@ -3856,7 +3856,9 @@ def update_config_with_parser(parser: ArgumentParser, args: Dict[str,
             args[k] = getattr(CFG, k)
     for d in [arg_specific_settings, args]:
         for k, v in d.items():
-            setattr(CFG, k, v)
+            # Only override settings if the value is not None (i.e., explicitly provided)
+            if v is not None:
+                setattr(CFG, k, v)
 
 
 def reset_config(args: Optional[Dict[str, Any]] = None,
