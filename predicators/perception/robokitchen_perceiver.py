@@ -16,6 +16,145 @@ class RoboKitchenPerceiver(BasePerceiver):
     def get_name(cls) -> str:
         return "robo_kitchen"
 
+    def _build_predicate_key(self, predicate_name: str, entities: list) -> tuple:
+        """Build a key for predicate lookups based on predicate name and entity types."""
+        if len(entities) == 1:
+            return (predicate_name, entities[0].type.name)
+        else:
+            return (predicate_name, entities[0].type.name, entities[1].type.name)
+
+    def _extract_name_without_number(self, name: str) -> str:
+        """Extract object name without trailing number (e.g., 'door_1' -> 'door')."""
+        if "_" in name and name.split("_")[-1].isdigit():
+            return name.split("_")[0]
+        return name
+
+    def _find_matching_object_by_name(self, target_name: str, candidates: list):
+        """Find object from candidates that matches target name, with fallback to partial matching."""
+        # Try exact match first
+        for candidate in candidates:
+            if target_name == candidate.name:
+                return candidate
+        
+        # Try partial match without numbers
+        target_name_base = self._extract_name_without_number(target_name)
+        for candidate in candidates:
+            candidate_name_base = self._extract_name_without_number(candidate.name)
+            if target_name_base in candidate_name_base:
+                return candidate
+        
+        return None
+
+    def _find_matching_object_by_number_suffix(self, reference_obj, candidates: list):
+        """Find object from candidates that has the same number suffix as reference object."""
+        if not reference_obj.name.split("_")[-1].isdigit():
+            return None
+            
+        reference_number = reference_obj.name.split("_")[-1]
+        for candidate in candidates:
+            if (candidate.name.split("_")[-1].isdigit() and 
+                candidate.name.split("_")[-1] == reference_number):
+                return candidate
+        
+        return None
+
+    def _find_closest_object(self, reference_obj, candidates: list, state) -> object:
+        """Find the closest object to reference_obj from candidates based on position."""
+        if not candidates:
+            return None
+            
+        # Special case for containers
+        if all(obj.type.name == "container_type" for obj in candidates):
+            for candidate in candidates:
+                if candidate.name == "container":
+                    return candidate
+        
+        # Find closest by distance
+        min_dist = float("inf")
+        closest_obj = None
+        reference_pos = state.get(reference_obj, "translation")
+        
+        for candidate in candidates:
+            candidate_pos = state.get(candidate, "translation")
+            dist = np.linalg.norm(candidate_pos - reference_pos)
+            logging.info(f"Distance from {candidate.name} to {reference_obj.name}: {dist}")
+            if dist < min_dist:
+                min_dist = dist
+                closest_obj = candidate
+                
+        return closest_obj
+
+    def _match_objects_for_predicate(self, goal_atom, type1_objs: list, type2_objs: list, state) -> tuple:
+        """Match type1 and type2 objects for a predicate based on names and proximity."""
+        assert len(type1_objs) >= 1 and len(type2_objs) >= 1
+        
+        # Simple case: only one object of each type
+        if len(type1_objs) == 1 and len(type2_objs) == 1:
+            return type1_objs[0], type2_objs[0]
+        
+        # Find type2 object (usually the object in motion)
+        goal_obj_2_name = goal_atom.entities[0].name  # predicate usually has object as first entity
+        type2_obj_final = self._find_matching_object_by_name(goal_obj_2_name, type2_objs)
+        assert type2_obj_final is not None, f"Could not find matching type2 object for {goal_obj_2_name}"
+        
+        # Find matching type1 object
+        # Try to match by number suffix first
+        type1_obj_final = self._find_matching_object_by_number_suffix(type2_obj_final, type1_objs)
+        
+        # If no number match, find closest object
+        if type1_obj_final is None:
+            type1_obj_final = self._find_closest_object(type2_obj_final, type1_objs, state)
+        
+        assert type1_obj_final is not None, f"Could not find matching type1 object for {type2_obj_final.name}"
+        return type1_obj_final, type2_obj_final
+
+    def _convert_single_goal_atom(self, goal_atom, state):
+        """Convert a single goal atom to relative pose predicate if needed."""
+        if "goal" in goal_atom.predicate.name:
+            raise NotImplementedError("Not implemented properly! when saving goal, it is not converted to the right types")
+        
+        if CFG.predicate_candidates_method != "low_speed":
+            # Build key for predicate lookup
+            gt_goal_key = self._build_predicate_key(goal_atom.predicate.name, goal_atom.entities)
+            
+            # Check if this predicate needs conversion
+            if gt_goal_key not in CFG.dict_gt_goal_predicate_to_dummy_goal_predicates:
+                # For predicates not in the conversion dict (like MicrowaveOn), keep as is
+                return goal_atom
+            
+            # Get dummy goal predicate and corresponding relative pose predicate
+            dummy_goal_pred = list(CFG.dict_gt_goal_predicate_to_dummy_goal_predicates[gt_goal_key])[0]
+            rel_pose_key = (dummy_goal_pred.name, dummy_goal_pred.types[0].name, dummy_goal_pred.types[1].name)
+            proper_goal_preds = CFG.dict_contact_predicate_to_rel_pose_predicates[rel_pose_key]
+            proper_goal_pred = list(proper_goal_preds)[0]
+        else:
+            proper_goal_pred = goal_atom.predicate
+        
+        # Find objects of the required types
+        type1_objs = [obj for obj in state if obj.type == proper_goal_pred.types[0]]
+        type2_objs = [obj for obj in state if obj.type == proper_goal_pred.types[1]]
+        
+        # Match the appropriate objects
+        type1_obj_final, type2_obj_final = self._match_objects_for_predicate(
+            goal_atom, type1_objs, type2_objs, state)
+        
+        # Create and return the relative pose predicate atom
+        return GroundAtom(proper_goal_pred, [type1_obj_final, type2_obj_final])
+
+    def _convert_goal_for_clustering_reprocess(self, state, goal: Set[GroundAtom]) -> Set[GroundAtom]:
+        """Convert goal atoms to relative pose predicates if clustering reprocess is enabled."""
+        if (len(list(state)) == 0 or 
+            not (CFG.reprocess_ground_atom_dataset_using_cluster_replacement or 
+                 CFG.reprocess_ground_atom_dataset_using_cluster_predicates)):
+            return goal
+        
+        new_goal = set()
+        for goal_atom in goal:
+            converted_atom = self._convert_single_goal_atom(goal_atom, state)
+            new_goal.add(converted_atom)
+        
+        return new_goal
+
     def reset(self, env_task: EnvironmentTask) -> Task:
         state = self._observation_to_state(env_task.init_obs)
 
@@ -146,94 +285,8 @@ class RoboKitchenPerceiver(BasePerceiver):
         else:
             raise NotImplementedError(f"Unrecognized goal: {goal_desc} (This goal is what the algorithm sees online to convert each goal description to something it understands as relative pose predicates it met during training. e.g. InContainer(tomato, plate) -> RelPose(tomato, plate). Since no goal predicate is specified during training, so we need to save a goal dict for each goal description)")
 
-        # convert task.goal to predicate goal if using clustering reprocess
-        if  len(list(state)) > 0 and (CFG.reprocess_ground_atom_dataset_using_cluster_replacement or CFG.reprocess_ground_atom_dataset_using_cluster_predicates):
-            new_goal = set()
-            for g in goal:
-                if "goal" in g.predicate.name:
-                    raise NotImplementedError("Not implemented properly! when saving goal, it is not converted to the right types")
-                    # Build key based on number of entities
-                    if len(g.entities) == 1:
-                        rel_pose_key = (g.predicate.name, g.entities[0].type.name)
-                    else:
-                        rel_pose_key = (g.predicate.name, g.entities[0].type.name, g.entities[1].type.name)
-                    rel_pose_preds = CFG.dict_contact_predicate_to_rel_pose_predicates[rel_pose_key]
-                    rel_pose_pred = list(rel_pose_preds)[0]
-                    rel_pose_pred_atom = GroundAtom(rel_pose_pred, g.entities)
-                    new_goal.add(rel_pose_pred_atom)
-                else:
-                    # Build key based on number of entities
-                    if len(g.entities) == 1:
-                        gt_goal_key = (g.predicate.name, g.entities[0].type.name)
-                    else:
-                        gt_goal_key = (g.predicate.name, g.entities[0].type.name, g.entities[1].type.name)
-                    
-                    # Check if this predicate needs conversion (only for 2-entity predicates currently)
-                    if gt_goal_key in CFG.dict_gt_goal_predicate_to_dummy_goal_predicates:
-                        dummy_goal_pred = list(CFG.dict_gt_goal_predicate_to_dummy_goal_predicates[gt_goal_key])[0]
-                        rel_pose_preds = CFG.dict_contact_predicate_to_rel_pose_predicates[(dummy_goal_pred.name, dummy_goal_pred.types[0].name, dummy_goal_pred.types[1].name)]
-                        rel_pose_pred = list(rel_pose_preds)[0]
-                        # TODO: this is problematic. It's unable to get both tomato and cheese
-                        type1_objs = [obj for obj in state if obj.type == rel_pose_pred.types[0]]
-                        type2_objs = [obj for obj in state if obj.type == rel_pose_pred.types[1]] 
-                        # print(f"DEBUG: type1_objs: {type1_objs}")
-                        # print(f"DEBUG: type2_objs: {type2_objs}")
-                        # type 2 is the object in motion, such as door, or tomato, if object name has a _number at the end, and type_1 object also has a _number at the end, then try to match the object with the same _number at the end. if type 2 object has no _number at the end, then match with the object of type 1 that is closer.
-                        assert len(type1_objs) >= 1 and len(type2_objs) >= 1
-                        if len(type1_objs) == 1 and len(type2_objs) == 1:
-                            type1_obj_final = type1_objs[0]
-                            type2_obj_final = type2_objs[0]
-                        else:
-                            # start with type 2,
-                            goal_obj_2_name = g.entities[0].name # since predicate usually have the object as first entity
-                            # try to match the whole name first with number
-                            for type2_obj in type2_objs:
-                                if goal_obj_2_name == type2_obj.name:
-                                    type2_obj_final = type2_obj
-                                    break
-                            else:
-                                # try to match the name without _number at the end
-                                goal_obj_2_name_without_number = goal_obj_2_name.split("_")[0] if "_" in goal_obj_2_name and goal_obj_2_name.split("_")[-1].isdigit() else goal_obj_2_name
-                                for type2_obj in type2_objs:
-                                    type2_obj_name_without_number = type2_obj.name.split("_")[0] if "_" in type2_obj.name and type2_obj.name.split("_")[-1].isdigit() else type2_obj.name
-                                    if goal_obj_2_name_without_number in type2_obj_name_without_number:
-                                        type2_obj_final = type2_obj
-                                        break
-                        assert type2_obj_final is not None
-                        # try to match the object of type 1 that has the name number at the end 
-                        if type2_obj_final.name.split("_")[-1].isdigit():
-                            for type1_obj in type1_objs:
-                                if type1_obj.name.split("_")[-1].isdigit() and type1_obj.name.split("_")[-1] == type2_obj_final.name.split("_")[-1]:
-                                    type1_obj_final = type1_obj
-                                    break
-                        else:
-                            # try to match the object of type 1 that is closer
-                            type1_obj_final = None
-                            all_containers = [obj.type.name == "container_type" for obj in type1_objs ]
-                            if all(all_containers): # special case for obj_container being the current container, container being the goal container
-                                # find the container whose name is container, 
-                                for type1_obj in type1_objs:
-                                    if type1_obj.name == "container":
-                                        type1_obj_final = type1_obj
-                                        break
-                            else:
-                                min_dist = float("inf")
-                                goal_obj_pos = state.get(type2_obj_final, "translation")
-                                for type1_obj in type1_objs:
-                                    state_obj_pos = state.get(type1_obj, "translation")
-                                    dist = np.linalg.norm(state_obj_pos - goal_obj_pos)
-                                    logging.info(f"best type1_obj_final: {type1_obj.name} for type2_obj_final: {type2_obj_final.name} with dist: {dist}")
-                                    if dist < min_dist:
-                                        min_dist = dist
-                                        type1_obj_final = type1_obj
-                            assert type1_obj_final is not None
-                        # type2_obj = type2_objs[0]
-                        rel_pose_pred_atom = GroundAtom(rel_pose_pred, [type1_obj_final, type2_obj_final])
-                        new_goal.add(rel_pose_pred_atom)
-                    else:
-                        # For predicates not in the conversion dict (like MicrowaveOn), keep as is
-                        new_goal.add(g)
-            goal = new_goal
+        # Convert task.goal to predicate goal if using clustering reprocess
+        goal = self._convert_goal_for_clustering_reprocess(state, goal)
 
         return Task(state, goal)
 
