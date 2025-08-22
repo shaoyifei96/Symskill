@@ -1437,7 +1437,7 @@ class Segment:
     # Field used by the backchaining algorithm (gen_to_spec_learner.py)
     necessary_add_effects: Optional[Set[GroundAtom]] = field(default=None)
     # New field to store maintain atoms (atoms that persist throughout the segment)
-    maintain_atoms: Optional[Set[GroundAtom]] = field(default=None)
+    maintain_atoms: Optional[Set[GroundAtom]] = field(default= frozenset())
 
     def __post_init__(self) -> None:
         assert len(self.states) == len(self.actions) + 1

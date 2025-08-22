@@ -1073,7 +1073,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             sorted_valid_kept_clusters = sorted(valid_kept_clusters.items(), key=lambda item: item[1]['size'], reverse=True)
 
             # Create predicates for the top_k *valid* kept clusters
-            top_k = min(CFG.clustering_max_clusters, len(sorted_valid_kept_clusters))
+            top_k = len(sorted_valid_kept_clusters)
             logging.debug(f"Selecting top {top_k} valid kept clusters for {feat_name}:{type1.name}-{type2.name}.")
 
             for i, (cluster_label, cluster_info) in enumerate(sorted_valid_kept_clusters[:top_k]):
@@ -1262,7 +1262,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         # Optional: Filter types as before
         filtered_types = set()
         # Example filter (adjust as needed):
-        blacklisted_type_names = {"left_finger_type", "right_finger_type", "base_type", "wrist_type","counter_type","surface_type", "thing_type"}
+        blacklisted_type_names = {"left_finger_type", "right_finger_type", "base_type", "wrist_type","counter_type","surface_type"}#,"thing_type"}
         for type_obj in types:
             if type_obj.name not in blacklisted_type_names:
                 filtered_types.add(type_obj)
@@ -1270,23 +1270,23 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             else:
                 logging.debug(f"Filtering out blacklisted type: {type_obj.name}")
 
-        gripper_type = "gripper"
-        gripper_type_obj = None
-        for type_obj in types:
-            if gripper_type in type_obj.name:
-                gripper_type_obj = type_obj
-                logging.info(f"Keeping gripper type: {type_obj.name}")
-                break
+        # gripper_type = "gripper"
+        # gripper_type_obj = None
+        # for type_obj in types:
+        #     if gripper_type in type_obj.name:
+        #         gripper_type_obj = type_obj
+        #         logging.info(f"Keeping gripper type: {type_obj.name}")
+        #         break
 
-        if gripper_type_obj is None:
-            raise ValueError("No gripper type found in the dataset. Skipping relative features.")
+        # if gripper_type_obj is None:
+        #     raise ValueError("No gripper type found in the dataset. Skipping relative features.")
 
         type_pairs = list(utils.combinations_no_self_pairs(sorted(list(filtered_types)), 2))
         # Create type pairs that include combinations with gripper
-        for type_obj in filtered_types:
-            # Add both (gripper, obj) and (obj, gripper) pairs
-            type_pairs.append((type_obj, gripper_type_obj))
-            logging.info(f"Adding gripper pair: ({gripper_type_obj.name}, {type_obj.name}) and ({type_obj.name}, {gripper_type_obj.name})")
+        # for type_obj in filtered_types:
+        #     # Add both (gripper, obj) and (obj, gripper) pairs
+        #     type_pairs.append((type_obj, gripper_type_obj))
+        #     logging.info(f"Adding gripper pair: ({gripper_type_obj.name}, {type_obj.name}) and ({type_obj.name}, {gripper_type_obj.name})")
 
         logging.info(f"Total type pairs for relative features: {len(type_pairs)}")
 
@@ -1335,8 +1335,11 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             if len(changes) > 1: # Need at least 2 points to compute percentile
                 # get moving average of changes first
                 changes_ma = np.convolve(changes, np.ones(CFG.clustering_moving_average_window) / CFG.clustering_moving_average_window, mode='valid')
-                constancy_threshold = np.percentile(changes_ma, CFG.clustering_feature_constancy_percentile) # Default 30?
-                logging.debug(f"Constancy threshold for {feature_key}: {constancy_threshold:.4f} ({CFG.clustering_feature_constancy_percentile}th percentile)")
+                percentile_threshold = np.percentile(changes_ma, CFG.clustering_feature_constancy_percentile) # Default 10th percentile
+                fixed_threshold = CFG.clustering_constancy_threshold
+                # Use the higher threshold (more permissive, keeps more data)
+                constancy_threshold = max(percentile_threshold, fixed_threshold)
+                logging.debug(f"Constancy threshold for {feature_key}: {constancy_threshold:.4f} (max of {CFG.clustering_feature_constancy_percentile}th percentile: {percentile_threshold:.4f} and fixed: {fixed_threshold:.4f})")
                 mask = changes <= constancy_threshold
                 final_feature_data[feature_key] = [pt for pt, keep in zip(data_points, mask) if keep]
                 logging.debug(f"Kept {sum(mask)} / {len(data_points)} points for {feature_key} based on constancy.")
@@ -1436,8 +1439,16 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         num_kept_clusters = len(kept_clusters_info)
 
         fig = plt.figure(figsize=(15, 12))
-        title = (f"{cluster_type_str} ({feat_name})\n"
-                 f"MinRatio={CFG.clustering_min_ratio_of_data}, Kept={num_kept_clusters}/{num_total_clusters}")
+        
+        # Create shortened title with just task name, type1 name, type2 name, cluster IDs
+        cluster_ids = sorted(list(kept_clusters_info.keys()))
+        cluster_ids_str = ",".join(map(str, cluster_ids))
+        
+        if type2_name:
+            title = f"{CFG.robo_kitchen_task}, {type1_name}, {type2_name}, {cluster_ids_str}"
+        else:
+            title = f"{CFG.robo_kitchen_task}, {type1_name}, {cluster_ids_str}"
+        
         fname = f"{fname_prefix}.png"
 
         # Store figure reference for potential trajectory overlay
@@ -2903,7 +2914,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         # The 'operators' set already contains STRIPSOperator objects
         strips_ops = operators
 
-        diffs_abs = []  # Store differences for all trajectories
+        total_diff = 0  # Initialize total difference accumulator
 
         # Iterate through each demonstration trajectory
         for i, (ll_traj, atom_seq) in enumerate(atom_dataset):
@@ -2930,20 +2941,24 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             task = Task(init_state, goal_atoms)
 
             # Run the planner using the learned NSRTs
-            plan, _, metrics = run_task_plan_once(
-                task=task,
-                nsrts=strips_ops,    # Pass NSRTs
-                preds=set(predicates),  # Pass predicates
-                types=self._types,   # Pass types
-                timeout=10.0,   # Pass timeout
-                seed=0,      # Pass seed
-                task_planning_heuristic=CFG.sesame_task_planning_heuristic,  # Pass heuristic
-            )
+            plan = None
+            try:
+                plan, _, metrics = run_task_plan_once(
+                    task=task,
+                    nsrts=strips_ops,    # Pass NSRTs
+                    preds=set(predicates),  # Pass predicates
+                    types=self._types,   # Pass types
+                    timeout=10.0,   # Pass timeout
+                    seed=0,      # Pass seed
+                    task_planning_heuristic=CFG.sesame_task_planning_heuristic,  # Pass heuristic
+                )
+            except PlanningFailure as e:
+                logging.debug(f"Planning failed for traj {i}: {e}")
 
             # Check planner result
             if plan is None:
-                # Planner failed (timeout or unsolvable)
-                continue
+                # Planner failed (timeout or unsolvable) - assume diff of 3
+                diff = 3
             else:
                 planner_plan_len = len(plan)
                 # number of grounded operators in the plan
@@ -2951,11 +2966,16 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 diff = planner_plan_len - demo_plan_len
                 # logging.debug(f"Traj {i}: Demo len={demo_plan_len}, Planner len={planner_plan_len}, Diff={diff}")
 
-                if diff != 0:   
-                    self._plan_constraint_cache[predicates] = np.inf
-                    return np.inf
-        self._plan_constraint_cache[predicates] = 0
-        return self._plan_constraint_cache[predicates]
+            # Accumulate absolute difference for soft constraint
+            total_diff += abs(diff)
+        if total_diff != 0:
+            self._plan_constraint_cache[predicates] = np.inf
+            return np.inf
+        else:
+            self._plan_constraint_cache[predicates] = 0
+            return 0
+        # self._plan_constraint_cache[predicates] = total_diff
+        # return self._plan_constraint_cache[predicates]
 
     # --- Helper Functions ---
     def _create_atom_dataset(self, dataset: Dataset, predicates: Set[Predicate] | FrozenSet[Predicate]) -> List[GroundAtomTrajectory]:
@@ -3151,191 +3171,4 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             self._last_cluster_ax = None
             self._last_cluster_title = None
 
-    def _test_clustering_with_dummy_data(self, num_clusters=3, points_per_cluster=50, 
-                                        noise_level=0.05, cluster_separation=0.5):
-        """Test HDBSCAN clustering with synthetic pose data.
-        
-        Args:
-            num_clusters: Number of distinct clusters to generate
-            points_per_cluster: Number of points in each cluster
-            noise_level: Standard deviation of Gaussian noise added to each cluster
-            cluster_separation: Distance between cluster centers
-        """
-        logging.info(f"Generating synthetic pose data with {num_clusters} clusters, "
-                     f"{points_per_cluster} points per cluster, noise level {noise_level}")
-
-        # Import necessary visualization packages
-        import matplotlib.pyplot as plt
-        from mpl_toolkits.mplot3d import Axes3D
-        import matplotlib.cm as cm
-        import matplotlib
-        matplotlib.use('TkAgg')  # Try TkAgg first
-
-        # Set random seed for reproducibility
-        np.random.seed(42)
-
-        # Function to generate random rotation quaternion
-        def random_quaternion():
-            # Generate random rotation axis
-            axis = np.random.randn(3)
-            axis = axis / np.linalg.norm(axis)
-
-            # Random angle (in radians)
-            angle = np.random.uniform(0, 2*np.pi)
-
-            # Convert axis-angle to quaternion
-            sin_a = np.sin(angle/2)
-            cos_a = np.cos(angle/2)
-            qx, qy, qz = axis * sin_a
-            qw = cos_a
-
-            # Return in xyzw format
-            return np.array([qx, qy, qz, qw])
-
-        # Generate cluster centers with good separation
-        centers = []
-        for i in range(num_clusters):
-            # Position each cluster in a grid pattern
-            grid_size = int(np.ceil(np.sqrt(num_clusters)))
-            row = i // grid_size
-            col = i % grid_size
-
-            # Create translation with separation
-            trans = np.array([
-                col * cluster_separation - (grid_size-1) * cluster_separation / 2,
-                row * cluster_separation - (grid_size-1) * cluster_separation / 2,
-                0.0  # Keep Z at zero for clarity
-            ])
-
-            # Create a random rotation for each cluster
-            quat = random_quaternion()
-
-            # Combine into 7D pose vector [tx, ty, tz, qx, qy, qz, qw]
-            center = np.concatenate([trans, quat])
-            centers.append(center)
-
-        # Generate data points with noise
-        all_data = []
-        true_labels = []
-
-        # Generate a single random quaternion to use for all clusters
-        # This makes all clusters have the same orientation, varying only in position
-        shared_quaternion = random_quaternion()
-
-        # Update all centers to use the same quaternion
-        for i in range(len(centers)):
-            centers[i][3:] = shared_quaternion
-
-        for cluster_idx, center in enumerate(centers):
-            for _ in range(points_per_cluster):
-                # Add Gaussian noise to translation
-                trans_noise = np.random.normal(0, noise_level, 3)
-                noisy_trans = center[:3] + trans_noise
-
-                # Add noise to quaternion (small rotation perturbation)
-                # Generate small random rotation
-                noise_in_deg = 30
-                noise_angle = np.random.normal(0, noise_in_deg * np.pi / 180)  # Smaller noise for rotation
-                noise_axis = np.random.randn(3)
-                noise_axis = noise_axis / np.linalg.norm(noise_axis)
-
-                # Convert to quaternion
-                sin_a = np.sin(noise_angle/2)
-                cos_a = np.cos(noise_angle/2)
-                noise_quat = np.array([*noise_axis * sin_a, cos_a])  # xyzw format
-
-                # Apply noise rotation to center quaternion using quaternion multiplication
-                center_quat = center[3:]
-
-                # Use scipy's Rotation for quaternion multiplication
-                center_rot = R.from_quat(center_quat)
-                noise_rot = R.from_quat(noise_quat)
-                noisy_rot = noise_rot * center_rot
-                noisy_quat = noisy_rot.as_quat()
-
-                # Create noisy pose
-                noisy_pose = np.concatenate([noisy_trans, noisy_quat])
-                all_data.append(noisy_pose)
-                true_labels.append(cluster_idx)
-
-        # Add some random noise points
-        num_noise_points = int(points_per_cluster * 0.1)  # 10% of points per cluster
-        for _ in range(num_noise_points):
-            # Random position in the general area
-            trans = np.random.uniform(-cluster_separation * grid_size, 
-                                      cluster_separation * grid_size, 3)
-            quat = random_quaternion()
-            noise_point = np.concatenate([trans, quat])
-            all_data.append(noise_point)
-            true_labels.append(-1)  # -1 for noise points
-
-        all_data = np.array(all_data)
-        true_labels = np.array(true_labels)
-
-        # Run clustering
-        logging.info("Running HDBSCAN on synthetic data...")
-        feat_name = "pose"  # This will use the SE(3) metric
-
-        # Use _cluster_feature_dataset to perform clustering
-        data_array, labels, unique_labels = self._cluster_feature_dataset(
-            all_data.tolist(), CFG.clustering_se3_epsilon, feat_name)
-
-        # Calculate clustering metrics
-        num_clusters_found = len(unique_labels) - (1 if -1 in unique_labels else 0)
-        noise_points = sum(1 for label in labels if label == -1)
-
-        logging.info(f"HDBSCAN found {num_clusters_found} clusters (ground truth: {num_clusters})")
-        logging.info(f"HDBSCAN identified {noise_points} noise points")
-
-        # Create a visualization
-        fig = plt.figure(figsize=(20, 15))
-
-        # 3D plot of translations with ground truth labels
-        ax1 = fig.add_subplot(221, projection='3d')
-        scatter1 = ax1.scatter(all_data[:, 0], all_data[:, 1], all_data[:, 2], 
-                              c=true_labels, cmap='tab10', s=50, alpha=0.7)
-        ax1.set_title('Ground Truth Clusters (Translations)')
-        ax1.set_xlabel('X')
-        ax1.set_ylabel('Y')
-        ax1.set_zlabel('Z')
-
-        # 3D plot of translations with HDBSCAN labels
-        ax2 = fig.add_subplot(222, projection='3d')
-        scatter2 = ax2.scatter(data_array[:, 0], data_array[:, 1], data_array[:, 2], 
-                              c=labels, cmap='tab10', s=50, alpha=0.7)
-        ax2.set_title(f'HDBSCAN Clusters: {num_clusters_found} found (Translations)')
-        ax2.set_xlabel('X')
-        ax2.set_ylabel('Y')
-        ax2.set_zlabel('Z')
-
-        # Rotation visualization (Optional)
-        # Project quaternions to 3D using PCA if needed
-
-        # Add information table
-        params_text = (
-            f"Parameters:\n"
-            f"Number of clusters: {num_clusters}\n"
-            f"Points per cluster: {points_per_cluster}\n"
-            f"Noise level: {noise_level}\n"
-            f"Cluster separation: {cluster_separation}\n\n"
-            f"Results:\n"
-            f"Clusters found: {num_clusters_found}\n"
-            f"Noise points: {noise_points}/{len(labels)}"
-        )
-
-        fig.text(0.1, 0.3, params_text, fontsize=12, bbox=dict(facecolor='white', alpha=0.5))
-
-        # Draw cluster centers
-        for i, center in enumerate(centers):
-            ax1.scatter([center[0]], [center[1]], [center[2]], 
-                       c='black', marker='*', s=200, edgecolor='white')
-            ax1.text(center[0], center[1], center[2], f'Center {i}', fontsize=10)
-
-        # Save figure
-        plt.tight_layout()
-        os.makedirs("feature_data", exist_ok=True)
-        plt.savefig("feature_data/hdbscan_test_results.png")
-        logging.info("Saved visualization to feature_data/hdbscan_test_results.png")
-        plt.show()
-
-        return labels, true_labels
+    
