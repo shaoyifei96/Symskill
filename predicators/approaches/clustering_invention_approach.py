@@ -1142,63 +1142,43 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         return renamed_candidates
 
     def _update_incontact_predicate_using_motion_analysis(self, dataset: Dataset, in_contact_pred: Predicate, gripper_type: Type) -> Dict[Tuple[Type, Type, str], List[np.ndarray]]:
-        """Update incontact predicates using motion analysis.
-        Incontact is a previledged predicate, this function removes it
-        and replaces it with a more general predicate that is based on motion analysis.
-        It looks at which object is in motion to determine if it is in contact with the gripper.
+        """Update incontact predicates using multi-phase motion analysis.
+        This function analyzes motion patterns to identify different phases:
+        1. Gripper-only motion (approaching/repositioning)
+        2. Gripper+Object motion (manipulation)
+        3. Sequential object interactions in long horizon demos
         """
-
-
         # Filter types so things other than gripper and are useful are kept!!!
-        # types = {obj.type for traj in dataset.trajectories for obj in traj.states[0]}
-        # Example filter (adjust as needed):
-        disallowed_type_names = {"wrist_type", "gripper_type", "left_finger_type", "right_finger_type", "base_type", "drawer_type"} # Added door_type based on usage # drawer and inner drawer are the same, so just choose one
+        disallowed_type_names = {"wrist_type", "gripper_type", "left_finger_type", "right_finger_type", "base_type", "drawer_type"}
 
         # Dictionary to store motion data for each object in each trajectory
         motion_data = defaultdict(lambda: defaultdict(list))
+        gripper_motion_data = defaultdict(list)  # Separate tracking for gripper
 
         gripper_obj = None
         for obj in dataset.trajectories[0].states[0].get_objects(gripper_type):
             gripper_obj = obj
             break
         assert gripper_obj is not None, "No gripper object found in the dataset"
-        
-        # hack here, since some task the motion stops at the end, so we need 2 change points
-        # others achieve the goal and the episode ends, so we need 1 change point detections
-        if CFG.robo_kitchen_task == "OpenSingleDoor" \
-            or CFG.robo_kitchen_task == "CloseSingleDoor" \
-            or CFG.robo_kitchen_task == "CloseDrawer" \
-            or CFG.robo_kitchen_task == "OpenDrawer" \
-            or CFG.robo_kitchen_task == "TurnOnStove" \
-            or CFG.robo_kitchen_task == "TurnOffStove" \
-            or CFG.robo_kitchen_task == "TurnOnSinkFaucet" \
-            or CFG.robo_kitchen_task == "TurnOffSinkFaucet":
-            n_bkps = 1
-        else:
-            # or CFG.robo_kitchen_task == "PnPCounterToStove":
-            # or CFG.robo_kitchen_task == "PnPCounterToCab" \
-            # or CFG.robo_kitchen_task == "PnPStoveToCounter" \
-            # or CFG.robo_kitchen_task == "PnPCabToCounterTomato" \
-            n_bkps = 2
 
         for i, traj in enumerate(dataset.trajectories):
-            logging.debug(f"Processing trajectory {i+1}/{len(dataset.trajectories)} for motion analysis")
+            logging.debug(f"Processing trajectory {i+1}/{len(dataset.trajectories)} for multi-phase motion analysis")
             
             # Get all objects in the trajectory
             all_objects = set()
             for state in traj.states:
                 all_objects.update(state.data.keys())
             
-            # Calculate velocity for each object
+            # Calculate velocity for each object INCLUDING gripper
             for t in range(len(traj.states) - 1):
                 state_t = traj.states[t]
                 state_t1 = traj.states[t+1]
                 
                 for obj in all_objects:
-                    if obj not in state_t.data or obj not in state_t1.data or obj.type.name in disallowed_type_names:
+                    if obj not in state_t.data or obj not in state_t1.data:
                         continue
                         
-                    # Get translation data
+                    # Get translation and rotation data
                     trans_t = state_t.get(obj, CFG.trans_feat_name)
                     trans_t1 = state_t1.get(obj, CFG.trans_feat_name)
                     rot_t = state_t.get(obj, CFG.quat_feat_name)
@@ -1211,85 +1191,702 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                         q2 = R.from_quat(rot_t1)
                         q_diff = q2 * q1.inv()
                         delta2 = q_diff.magnitude()
-                        motion_data[i][obj].append((t, delta1, delta2)) # NOTE: adjust weight here
             
+                        if obj == gripper_obj:
+                            gripper_motion_data[i].append((t, delta1, delta2))
+                        elif obj.type.name not in disallowed_type_names:
+                            motion_data[i][obj].append((t, delta1, delta2))
             
-            # clear in contact set for each state !!!! This makes our method not previledged, good!
+            # Clear in contact set for each state
             for state in dataset.trajectories[i].states:
                 state.items_in_contact = set()
             
-            # For each trajectory, find the object with most motion
-            max_motion_obj = None
-            max_motion = 0
-            for obj, motion_list in motion_data[i].items():
-                total_motion = sum(vel for _, vel, _ in motion_list)
-                if total_motion > max_motion:
-                    max_motion = total_motion
-                    max_motion_obj = obj
+            # Multi-phase motion analysis
+            self._analyze_multi_phase_motion(i, traj, motion_data[i], gripper_motion_data[i], gripper_obj, dataset)
+
+    def _analyze_multi_phase_motion(self, traj_idx: int, traj, object_motion_data: Dict, gripper_motion_data: List, gripper_obj, dataset: Dataset):
+        """Analyze trajectory for object motion phases and mark contacts accordingly.
+        Focuses on object motion analysis while using combined object+gripper velocities for boundary detection.
+        """
+        os.makedirs("feature_data", exist_ok=True)
+        
+        if not gripper_motion_data:
+            logging.warning(f"No gripper motion data for trajectory {traj_idx}")
+            return
+        
+        if not object_motion_data:
+            logging.warning(f"No object motion data for trajectory {traj_idx}")
+            return
             
-            os.makedirs("feature_data", exist_ok=True)
-            if max_motion_obj is not None:
-                # Find first and last frame of significant motion
-                # Compute a dynamic threshold for this object based on its motion statistics
-                velocities = [(vel, rot_vel) for _, vel, rot_vel in motion_data[i][max_motion_obj]]
-                lin_vel = np.array([vel for vel, _ in velocities])
-                rot_vel = np.array([rot_vel for _, rot_vel in velocities])
-                lin_vel_smooth = uniform_filter1d(lin_vel, size=4)    # ≈ 5 samples
-                rot_vel_smooth = uniform_filter1d(rot_vel, size=4)    # ≈ 5 samples
-                #add small noise to signal to make it more robust to noise
-                lin_vel_smooth = lin_vel_smooth + np.random.normal(0, 0.0008, lin_vel_smooth.shape)
-                rot_vel_smooth = rot_vel_smooth + np.random.normal(0, 0.0008, rot_vel_smooth.shape)
+        # Extract gripper velocity profile for boundary detection
+        gripper_velocities = [(vel, rot_vel) for _, vel, rot_vel in gripper_motion_data]
+        gripper_lin_vel = np.array([vel for vel, _ in gripper_velocities])
+        gripper_rot_vel = np.array([rot_vel for _, rot_vel in gripper_velocities])
+        
+        # Smooth gripper velocities
+        gripper_lin_vel_smooth = uniform_filter1d(gripper_lin_vel, size=4)
+        gripper_rot_vel_smooth = uniform_filter1d(gripper_rot_vel, size=4)
+        
+        # Add small noise for robustness
+        gripper_lin_vel_smooth += np.random.normal(0, 0.0008, gripper_lin_vel_smooth.shape)
+        gripper_rot_vel_smooth += np.random.normal(0, 0.0008, gripper_rot_vel_smooth.shape)
+        
+        motion_threshold = CFG.motion_analysis_lin_vel_rot_vel_threshold if hasattr(CFG, 'motion_analysis_lin_vel_rot_vel_threshold') else 0.01
+        
+        # Find motion phases based on object motion but using combined velocities for boundary detection
+        object_motion_phases = self._find_object_motion_phases(object_motion_data, gripper_lin_vel_smooth, motion_threshold)
+        
+        logging.info(f"Trajectory {traj_idx}: Found {len(object_motion_phases)} object motion phases")
+        
+        # Process object motion phases and mark contacts
+        for phase_idx, phase in enumerate(object_motion_phases):
+            start_frame = phase['start_frame']
+            end_frame = phase['end_frame']
+            moving_objects = phase['moving_objects']
+            
+            logging.debug(f"  Phase {phase_idx}: Object motion (frames {start_frame}-{end_frame})")
+            logging.debug(f"    -> Objects in motion: {[obj.name for obj in moving_objects]}")
+            
+            # Mark contacts between gripper and moving objects during this period
+            # Add some buffer before/after the detected motion for contact
+            contact_start = max(0, start_frame - 10)  # 1 second buffer at 10Hz
+            contact_end = min(len(traj.states) - 1, end_frame + 5)
+            
+            for t in range(contact_start, contact_end + 1):
+                if t < len(traj.states):
+                    # Mark contact with ALL moving objects during this phase
+                    contacts = {(gripper_obj, obj) for obj in moving_objects}
+                    if dataset.trajectories[traj_idx].states[t].items_in_contact is None:
+                        dataset.trajectories[traj_idx].states[t].items_in_contact = set()
+                    dataset.trajectories[traj_idx].states[t].items_in_contact.update(contacts)
+        
+        # Visualization with object motion phases
+        self._visualize_object_motion_phases(traj_idx, gripper_lin_vel_smooth, object_motion_phases, object_motion_data, gripper_motion_data)
 
-                algo = rpt.Dynp(model="l2", min_size=20, jump=10).fit(lin_vel_smooth)
-                if np.max(lin_vel_smooth) > CFG.motion_analysis_lin_vel_rot_vel_threshold: # if there is lin motion, use lin vel to find change points
-                    logging.warning(f"Using LINEAR velocity to find change points for {max_motion_obj.name}")
-                    
-                    if CFG.robo_kitchen_task in CFG.motion_analysis_contact_threshold:
-                        # For tomato task, use simple threshold crossing for breakpoints
-                        threshold = CFG.motion_analysis_contact_threshold[CFG.robo_kitchen_task]
-                        above_threshold = np.where(lin_vel_smooth > threshold)[0]
-                        if len(above_threshold) > 0:
-                            first_motion = above_threshold[0]
-                            last_motion = above_threshold[-1]
-                            my_bkps = [first_motion, last_motion]
-                        else:
-                            my_bkps = algo.predict(n_bkps=n_bkps)
+    def _find_contiguous_segments(self, motion_mask: np.ndarray, min_length: int = 10) -> List[Tuple[int, int]]:
+        """Find contiguous segments where motion_mask is True."""
+        segments = []
+        in_segment = False
+        start_idx = 0
+        
+        for i, is_moving in enumerate(motion_mask):
+            if is_moving and not in_segment:
+                # Start of new segment
+                start_idx = i
+                in_segment = True
+            elif not is_moving and in_segment:
+                # End of current segment
+                if i - start_idx >= min_length:
+                    segments.append((start_idx, i - 1))
+                in_segment = False
+        
+        # Handle case where segment continues to end
+        if in_segment and len(motion_mask) - start_idx >= min_length:
+            segments.append((start_idx, len(motion_mask) - 1))
+            
+        return segments
+
+    def _fine_tune_motion_boundaries(self, initial_segments: List[Tuple[int, int]], combined_velocities: np.ndarray, search_window: int = 30) -> List[Tuple[int, int]]:
+        """Fine-tune motion boundaries by finding minimum combined velocity within search window."""
+        if not initial_segments:
+            return []
+        
+        refined_segments = []
+        
+        for start_frame, end_frame in initial_segments:
+            # Fine-tune start boundary
+            refined_start = self._find_velocity_minimum_in_window(
+                combined_velocities, start_frame, search_window, direction='backward'
+            )
+            
+            # Fine-tune end boundary
+            refined_end = self._find_velocity_minimum_in_window(
+                combined_velocities, end_frame, search_window, direction='forward'
+            )
+            
+            # Ensure refined boundaries are valid
+            refined_start = max(0, min(refined_start, len(combined_velocities) - 1))
+            refined_end = max(0, min(refined_end, len(combined_velocities) - 1))
+            
+            # Only keep segment if it's still meaningful after refinement
+            if refined_end > refined_start:
+                refined_segments.append((refined_start, refined_end))
+                logging.debug(f"    Refined boundary: {start_frame}-{end_frame} -> {refined_start}-{refined_end}")
+        
+        return refined_segments
+
+    def _find_velocity_minimum_in_window(self, velocities: np.ndarray, center_frame: int, window_size: int, direction: str) -> int:
+        """Find the frame with minimum velocity within a window around center_frame."""
+        if direction == 'backward':
+            # Search backward from center_frame
+            start_idx = max(0, center_frame - window_size)
+            end_idx = min(len(velocities), center_frame + 1)
+        else:  # direction == 'forward'
+            # Search forward from center_frame
+            start_idx = max(0, center_frame)
+            end_idx = min(len(velocities), center_frame + window_size + 1)
+        
+        if start_idx >= end_idx:
+            return center_frame
+        
+        # Find the index with minimum velocity in the window
+        window_velocities = velocities[start_idx:end_idx]
+        min_idx_relative = np.argmin(window_velocities)
+        min_idx_absolute = start_idx + min_idx_relative
+        
+        return min_idx_absolute
+
+    def _combine_overlapping_segments(self, motion_phases: List[Dict], max_gap: int = 10) -> List[Dict]:
+        """Combine segments of the same object that have overlap or small gaps."""
+        if not motion_phases:
+            return []
+        
+        # Group phases by moving objects (since each phase has only one moving object)
+        object_phases = {}
+        for phase in motion_phases:
+            # Get the object name (there should be only one moving object per phase)
+            if phase['moving_objects']:
+                obj_name = phase['moving_objects'][0].name
+                if obj_name not in object_phases:
+                    object_phases[obj_name] = []
+                object_phases[obj_name].append(phase)
+        
+        # Combine overlapping/close segments for each object
+        combined_phases = []
+        for obj_name, phases in object_phases.items():
+            if not phases:
+                continue
+                
+            # Sort phases by start frame
+            phases.sort(key=lambda p: p['start_frame'])
+            
+            if len(phases) == 1:
+                # Only one phase for this object, no combining needed
+                combined_phases.append(phases[0])
+                continue
+            
+            combined_obj_phases = []
+            current_phase = phases[0].copy()
+            
+            for i in range(1, len(phases)):
+                next_phase = phases[i]
+                
+                # Check if phases overlap or have small gap
+                gap = next_phase['start_frame'] - current_phase['end_frame']
+                
+                if gap <= max_gap:  # Overlapping or small gap (including negative gaps for overlap)
+                    # Combine phases by extending the current phase
+                    current_phase['end_frame'] = max(current_phase['end_frame'], next_phase['end_frame'])
+                    logging.debug(f"    Combined {obj_name} segments: gap={gap}, new range={current_phase['start_frame']}-{current_phase['end_frame']}")
+                else:
+                    # Gap too large, save current phase and start new one
+                    combined_obj_phases.append(current_phase)
+                    current_phase = next_phase.copy()
+            
+            # Add the last phase
+            combined_obj_phases.append(current_phase)
+            combined_phases.extend(combined_obj_phases)
+        
+        # Sort final phases by start frame
+        combined_phases.sort(key=lambda p: p['start_frame'])
+        
+        return combined_phases
+
+    def _find_object_motion_phases(self, object_motion_data: Dict, gripper_lin_vel_smooth: np.ndarray, motion_threshold: float) -> List[Dict]:
+        """Find motion phases based on object motion, using object velocities primarily and fine-tuning boundaries with combined velocities."""
+        if not object_motion_data:
+            return []
+        
+        # Create object-only velocities signal for primary boundary detection
+        object_only_velocities = np.zeros_like(gripper_lin_vel_smooth)
+        combined_velocities = np.copy(gripper_lin_vel_smooth)  # For fine-tuning
+        
+        # Add object velocities to both signals
+        for obj, motion_list in object_motion_data.items():
+            # Create object velocity array aligned with gripper data
+            obj_velocities = np.zeros_like(gripper_lin_vel_smooth)
+            for t, lin_vel, rot_vel in motion_list:
+                if 0 <= t < len(obj_velocities):
+                    obj_velocities[t] = lin_vel
+            
+            # Add to object-only signal for primary detection
+            object_only_velocities += obj_velocities
+            # Add to combined signal for fine-tuning
+            combined_velocities += obj_velocities
+        
+        # Find initial motion boundaries using object velocities only
+        object_in_motion = object_only_velocities > motion_threshold
+        initial_motion_segments = self._find_contiguous_segments(object_in_motion, min_length=10)
+        logging.debug(f"    Found {len(initial_motion_segments)} initial object motion segments using object velocities only")
+        
+        # Fine-tune boundaries using combined velocities within 30 steps
+        raw_motion_segments = self._fine_tune_motion_boundaries(
+            initial_motion_segments, combined_velocities, search_window=30
+        )
+        logging.debug(f"    After fine-tuning with combined velocities: {len(raw_motion_segments)} refined segments")
+        
+        # For each detected segment, determine which objects are actually moving
+        object_motion_phases = []
+        for start_frame, end_frame in raw_motion_segments:
+            moving_objects = self._find_moving_objects_in_segment(
+                object_motion_data, start_frame, end_frame, motion_threshold
+            )
+            
+            # Only create a phase if there are actually moving objects
+            if moving_objects:
+                object_motion_phases.append({
+                    'start_frame': start_frame,
+                    'end_frame': end_frame,
+                    'moving_objects': moving_objects
+                })
+                logging.debug(f"    Found object motion phase: frames {start_frame}-{end_frame}, objects: {[obj.name for obj in moving_objects]}")
+        
+        # Combine segments of the same object with overlap or small gaps (<10 frames)
+        combined_phases = self._combine_overlapping_segments(object_motion_phases, max_gap=10)
+        logging.debug(f"    After combining overlapping segments: {len(combined_phases)} final phases")
+        
+        return combined_phases
+
+    def _find_moving_objects_in_segment(self, object_motion_data: Dict, start_frame: int, end_frame: int, threshold: float) -> List:
+        """Find objects that are moving significantly during the given time segment.
+        Returns list with single object (the one with highest average velocity) if multiple objects are moving.
+        """
+        moving_objects_with_velocities = []
+        
+        for obj, motion_list in object_motion_data.items():
+            # Calculate average velocity during this segment
+            segment_velocities = []
+            for t, lin_vel, rot_vel in motion_list:
+                if start_frame <= t <= end_frame:
+                    segment_velocities.append(lin_vel)
+            
+            if segment_velocities:
+                avg_velocity = np.mean(segment_velocities)
+                max_velocity = np.max(segment_velocities)
+                
+                # Object is considered moving if average velocity exceeds threshold
+                # OR if peak velocity is significantly high
+                if avg_velocity > threshold or max_velocity > threshold * 2:
+                    moving_objects_with_velocities.append((obj, avg_velocity, max_velocity))
+                    logging.debug(f"      Object {obj.name}: avg_vel={avg_velocity:.4f}, max_vel={max_velocity:.4f}")
+        
+        # If multiple objects are moving, pick the one with highest average velocity
+        if len(moving_objects_with_velocities) == 0:
+            return []
+        elif len(moving_objects_with_velocities) == 1:
+            return [moving_objects_with_velocities[0][0]]
+        else:
+            # Sort by average velocity (descending) and pick the top one
+            moving_objects_with_velocities.sort(key=lambda x: x[1], reverse=True)
+            primary_obj = moving_objects_with_velocities[0]
+            logging.debug(f"      Multiple objects moving, selected {primary_obj[0].name} with highest avg_vel={primary_obj[1]:.4f}")
+            return [primary_obj[0]]
+
+
+
+    def _visualize_alternating_phases(self, traj_idx: int, gripper_velocity: np.ndarray, alternating_phases: List[Dict], object_motion_data: Dict, gripper_motion_data: List):
+        """Create visualization showing gripper motion and alternating phases."""
+        plt.figure(figsize=(15, 10))
+        
+        # Extract gripper rotational velocity from gripper_motion_data
+        gripper_angular_velocity = np.zeros(len(gripper_velocity))
+        for t, linear_vel, angular_vel in gripper_motion_data:
+            if t < len(gripper_angular_velocity):
+                gripper_angular_velocity[t] = angular_vel
+        
+        # Plot gripper linear velocity
+        plt.subplot(2, 2, 1)
+        plt.plot(gripper_velocity, label='Gripper Linear Velocity', color='blue', linewidth=2)
+        
+        # Highlight alternating phases with different colors
+        colors = ['lightcoral', 'lightgreen']  # Red for gripper-only, Green for manipulation
+        legend_labels_added = {'gripper_only': False, 'manipulation': False}
+        
+        for i, phase in enumerate(alternating_phases):
+            start, end = phase['start_frame'], phase['end_frame']
+            phase_type = phase['type']
+            color = colors[0] if phase_type == 'gripper_only' else colors[1]
+            alpha = 0.3
+            
+            # Create descriptive label for legend (only once per type)
+            legend_label = None
+            if not legend_labels_added[phase_type]:
+                if phase_type == 'gripper_only':
+                    legend_label = 'Gripper Motion'
+                else:  # manipulation
+                    moving_objects = phase.get('moving_objects', [])
+                    if moving_objects:
+                        # Since we now select only the primary object, this should always be length 1
+                        obj_names = [obj.name for obj in moving_objects]
+                        legend_label = f'Object Motion ({obj_names[0]})'
                     else:
-                        # data is 10 hz, so min size being 1 sec, jump being 0.3 sec
-                        my_bkps = algo.predict(n_bkps=n_bkps)
-                    
-                    # Display and save the visualization
-                    rpt.show.display(lin_vel_smooth, my_bkps, my_bkps, figsize=(10, 6))
-                    plt.savefig(f"feature_data/motion_analysis_traj{i}_obj_lin_{max_motion_obj.name}.png")
-                    plt.close()
+                        legend_label = 'Object Motion'
+                legend_labels_added[phase_type] = True
+            
+            plt.axvspan(start, end, alpha=alpha, color=color, label=legend_label)
+        
+        # Add vertical lines at refined boundaries
+        for i in range(len(alternating_phases) - 1):
+            boundary_frame = alternating_phases[i]['end_frame']
+            plt.axvline(x=boundary_frame, color='black', linestyle='--', alpha=0.7, linewidth=1)
+        
+        plt.xlabel('Time Step')
+        plt.ylabel('Linear Velocity (m/s)')
+        plt.title(f'Gripper Linear Velocity')
+        plt.legend()
+        plt.grid(True, alpha=0.3)
+        
+        # Plot gripper angular velocity
+        plt.subplot(2, 2, 2)
+        plt.plot(gripper_angular_velocity, label='Gripper Angular Velocity', color='red', linewidth=2)
+        
+        # Highlight alternating phases on angular velocity plot
+        legend_labels_added_ang = {'gripper_only': False, 'manipulation': False}
+        for i, phase in enumerate(alternating_phases):
+            start, end = phase['start_frame'], phase['end_frame']
+            phase_type = phase['type']
+            color = colors[0] if phase_type == 'gripper_only' else colors[1]
+            alpha = 0.3
+            
+            # Create descriptive label for legend (only once per type)
+            legend_label = None
+            if not legend_labels_added_ang[phase_type]:
+                if phase_type == 'gripper_only':
+                    legend_label = 'Gripper Motion'
+                else:  # manipulation
+                    moving_objects = phase.get('moving_objects', [])
+                    if moving_objects:
+                        obj_names = [obj.name for obj in moving_objects]
+                        legend_label = f'Object Motion ({obj_names[0]})'
+                    else:
+                        legend_label = 'Object Motion'
+                legend_labels_added_ang[phase_type] = True
+            
+            plt.axvspan(start, end, alpha=alpha, color=color, label=legend_label)
+        
+        # Add vertical lines at refined boundaries
+        for i in range(len(alternating_phases) - 1):
+            boundary_frame = alternating_phases[i]['end_frame']
+            plt.axvline(x=boundary_frame, color='black', linestyle='--', alpha=0.7, linewidth=1)
+        
+        plt.xlabel('Time Step')
+        plt.ylabel('Angular Velocity (rad/s)')
+        plt.title(f'Gripper Angular Velocity')
+        plt.legend()
+        plt.grid(True, alpha=0.3)
+        
+        # Plot object linear velocities
+        plt.subplot(2, 2, 3)
+        colors_obj = plt.cm.tab10(np.linspace(0, 1, len(object_motion_data)))
+        
+        for (obj, motion_list), color in zip(object_motion_data.items(), colors_obj):
+            if motion_list:  # Only plot if object has motion data
+                times = [t for t, _, _ in motion_list]
+                velocities = [vel for _, vel, _ in motion_list]
+                plt.plot(times, velocities, label=f'{obj.name}', color=color, alpha=0.7)
+        
+        # Highlight alternating phases on object plot
+        for i, phase in enumerate(alternating_phases):
+            start, end = phase['start_frame'], phase['end_frame']
+            phase_type = phase['type']
+            color = colors[0] if phase_type == 'gripper_only' else colors[1]
+            plt.axvspan(start, end, alpha=0.2, color=color)
+            
+            # Add text annotation for phase type with object names
+            mid_point = (start + end) / 2
+            max_vel = max([max([vel for _, vel, _ in motion_list]) for motion_list in object_motion_data.values() if motion_list] + [0])
+            
+            # Create informative label
+            if phase_type == 'gripper_only':
+                label = f'P{i}\ngripper'
+            else:  # manipulation phase
+                moving_objects = phase.get('moving_objects', [])
+                if moving_objects:
+                    # Since we now select only the primary object, this should always be length 1
+                    obj_names = [obj.name for obj in moving_objects]
+                    label = f'P{i}\n{obj_names[0]}'
                 else:
-                    logging.warning(f"Using ROTATIONAL velocity to find change points for {max_motion_obj.name}")
-                    algo = rpt.Dynp(model="l2", min_size=20, jump=10).fit(rot_vel_smooth)
-                    my_bkps = algo.predict(n_bkps=n_bkps)
-                    rpt.show.display(rot_vel_smooth, my_bkps, my_bkps, figsize=(10, 6))
-                    plt.savefig(f"feature_data/motion_analysis_traj{i}_obj_rot_{max_motion_obj.name}.png")
-                    plt.close()
-                if n_bkps == 1:
-                    motion_frames = range(my_bkps[0]-10, len(dataset.trajectories[i].states)) # -10 is a hack , assume 1 sec of contact before the motion
+                    label = f'P{i}\nmanip'
+            
+            plt.text(mid_point, max_vel * 0.8, label, 
+                    ha='center', va='center', fontsize=8, 
+                    bbox=dict(boxstyle='round,pad=0.2', facecolor=color, alpha=0.7))
+        
+        # Add vertical lines at refined boundaries
+        for i in range(len(alternating_phases) - 1):
+            boundary_frame = alternating_phases[i]['end_frame']
+            plt.axvline(x=boundary_frame, color='black', linestyle='--', alpha=0.7, linewidth=1)
+            
+        plt.xlabel('Time Step')
+        plt.ylabel('Linear Velocity (m/s)')
+        plt.title('Object Linear Velocity')
+        plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+        plt.grid(True, alpha=0.3)
+        
+        # Plot object angular velocities
+        plt.subplot(2, 2, 4)
+        
+        for (obj, motion_list), color in zip(object_motion_data.items(), colors_obj):
+            if motion_list:  # Only plot if object has motion data
+                times = [t for t, _, _ in motion_list]
+                angular_velocities = [ang_vel for _, _, ang_vel in motion_list]
+                plt.plot(times, angular_velocities, label=f'{obj.name}', color=color, alpha=0.7)
+        
+        # Highlight alternating phases on object angular plot
+        for i, phase in enumerate(alternating_phases):
+            start, end = phase['start_frame'], phase['end_frame']
+            phase_type = phase['type']
+            color = colors[0] if phase_type == 'gripper_only' else colors[1]
+            plt.axvspan(start, end, alpha=0.2, color=color)
+            
+            # Add text annotation for phase type with object names
+            mid_point = (start + end) / 2
+            max_ang_vel = max([max([ang_vel for _, _, ang_vel in motion_list]) for motion_list in object_motion_data.values() if motion_list] + [0])
+            
+            # Create informative label
+            if phase_type == 'gripper_only':
+                label = f'P{i}\ngripper'
+            else:  # manipulation phase
+                moving_objects = phase.get('moving_objects', [])
+                if moving_objects:
+                    obj_names = [obj.name for obj in moving_objects]
+                    label = f'P{i}\n{obj_names[0]}'
                 else:
-                    motion_frames = range(my_bkps[0]-10, my_bkps[1]) 
-                    # dynamic_threshold = CFG.motion_analysis_contact_threshold
+                    label = f'P{i}\nmanip'
+            
+            plt.text(mid_point, max_ang_vel * 0.8, label, 
+                    ha='center', va='center', fontsize=8, 
+                    bbox=dict(boxstyle='round,pad=0.2', facecolor=color, alpha=0.7))
+        
+        # Add vertical lines at refined boundaries
+        for i in range(len(alternating_phases) - 1):
+            boundary_frame = alternating_phases[i]['end_frame']
+            plt.axvline(x=boundary_frame, color='black', linestyle='--', alpha=0.7, linewidth=1)
+            
+        plt.xlabel('Time Step')
+        plt.ylabel('Angular Velocity (rad/s)')
+        plt.title('Object Angular Velocity')
+        plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+        plt.grid(True, alpha=0.3)
+        
+        plt.tight_layout()
+        plt.savefig(f"feature_data/alternating_phase_motion_analysis_traj{traj_idx}.png", dpi=150, bbox_inches='tight')
+        plt.close()
+        
+        logging.info(f"Saved alternating phase motion visualization for trajectory {traj_idx}")
 
-                # motion_frames = [t for t, vel, _ in motion_data[i][max_motion_obj]
-                #                  if vel > dynamic_threshold and t > 5]
-                # NOTE: we are only looking at motion after 5 steps, since the first few steps are noisy 
-                assert len(motion_frames) > 0, "No motion frames found for object"
-                first_motion = min(motion_frames)
-                last_motion = max(motion_frames)
-                    
-                # Mark the object as in contact during the motion period
-                for t in range(first_motion, last_motion + 1):
-                    if t < len(traj.states):
-                        
-                        dataset.trajectories[i].states[t].items_in_contact = {(gripper_obj, max_motion_obj)}
-                        # Update the state to mark the object as in contact
-                        # This assumes you have a way to mark objects as in contact
-                        # You might need to modify this based on your state representation
+    def _visualize_object_motion_phases(self, traj_idx: int, gripper_velocity: np.ndarray, object_motion_phases: List[Dict], object_motion_data: Dict, gripper_motion_data: List):
+        """Create visualization showing object motion phases with combined velocity boundary detection."""
+        plt.figure(figsize=(15, 10))
+        
+        # Extract gripper rotational velocity from gripper_motion_data
+        gripper_angular_velocity = np.zeros(len(gripper_velocity))
+        for t, linear_vel, angular_vel in gripper_motion_data:
+            if t < len(gripper_angular_velocity):
+                gripper_angular_velocity[t] = angular_vel
+        
+        # Plot gripper linear velocity
+        plt.subplot(2, 2, 1)
+        plt.plot(gripper_velocity, label='Gripper Linear Velocity', color='blue', linewidth=2)
+        
+        # Highlight object motion phases
+        colors = ['lightgreen']  # Single color for object motion phases
+        
+        for i, phase in enumerate(object_motion_phases):
+            start, end = phase['start_frame'], phase['end_frame']
+            moving_objects = phase.get('moving_objects', [])
+            color = colors[0]
+            alpha = 0.3
+            
+            # Create descriptive label for legend (only once)
+            legend_label = None
+            if i == 0:  # Only add legend for first phase
+                if moving_objects:
+                    obj_names = [obj.name for obj in moving_objects]
+                    legend_label = f'Object Motion ({obj_names[0]})'
+                else:
+                    legend_label = 'Object Motion'
+            
+            plt.axvspan(start, end, alpha=alpha, color=color, label=legend_label)
+        
+        # Add vertical lines at phase boundaries
+        for i in range(len(object_motion_phases) - 1):
+            boundary_frame = object_motion_phases[i]['end_frame']
+            plt.axvline(x=boundary_frame, color='black', linestyle='--', alpha=0.7, linewidth=1)
+        
+        plt.xlabel('Time Step')
+        plt.ylabel('Linear Velocity (m/s)')
+        plt.title(f'Gripper Linear Velocity')
+        plt.legend()
+        plt.grid(True, alpha=0.3)
+        
+        # Plot gripper angular velocity
+        plt.subplot(2, 2, 2)
+        plt.plot(gripper_angular_velocity, label='Gripper Angular Velocity', color='red', linewidth=2)
+        
+        # Highlight object motion phases on angular velocity plot
+        for i, phase in enumerate(object_motion_phases):
+            start, end = phase['start_frame'], phase['end_frame']
+            moving_objects = phase.get('moving_objects', [])
+            color = colors[0]
+            alpha = 0.3
+            
+            # Create descriptive label for legend (only once)
+            legend_label = None
+            if i == 0:  # Only add legend for first phase
+                if moving_objects:
+                    obj_names = [obj.name for obj in moving_objects]
+                    legend_label = f'Object Motion ({obj_names[0]})'
+                else:
+                    legend_label = 'Object Motion'
+            
+            plt.axvspan(start, end, alpha=alpha, color=color, label=legend_label)
+        
+        # Add vertical lines at phase boundaries
+        for i in range(len(object_motion_phases) - 1):
+            boundary_frame = object_motion_phases[i]['end_frame']
+            plt.axvline(x=boundary_frame, color='black', linestyle='--', alpha=0.7, linewidth=1)
+        
+        plt.xlabel('Time Step')
+        plt.ylabel('Angular Velocity (rad/s)')
+        plt.title(f'Gripper Angular Velocity')
+        plt.legend()
+        plt.grid(True, alpha=0.3)
+        
+        # Plot object linear velocities
+        plt.subplot(2, 2, 3)
+        colors_obj = plt.cm.tab10(np.linspace(0, 1, len(object_motion_data)))
+        
+        for (obj, motion_list), color in zip(object_motion_data.items(), colors_obj):
+            if motion_list:  # Only plot if object has motion data
+                times = [t for t, _, _ in motion_list]
+                velocities = [vel for _, vel, _ in motion_list]
+                plt.plot(times, velocities, label=f'{obj.name}', color=color, alpha=0.7)
+        
+        # Highlight object motion phases on object plot
+        for i, phase in enumerate(object_motion_phases):
+            start, end = phase['start_frame'], phase['end_frame']
+            color = colors[0]
+            plt.axvspan(start, end, alpha=0.2, color=color)
+            
+            # Add text annotation for phase with object names
+            mid_point = (start + end) / 2
+            max_vel = max([max([vel for _, vel, _ in motion_list]) for motion_list in object_motion_data.values() if motion_list] + [0])
+            
+            # Create informative label
+            moving_objects = phase.get('moving_objects', [])
+            if moving_objects:
+                obj_names = [obj.name for obj in moving_objects]
+                label = f'P{i}\n{obj_names[0]}'
+            else:
+                label = f'P{i}\nobj'
+            
+            plt.text(mid_point, max_vel * 0.8, label, 
+                    ha='center', va='center', fontsize=8, 
+                    bbox=dict(boxstyle='round,pad=0.2', facecolor=color, alpha=0.7))
+        
+        # Add vertical lines at phase boundaries
+        for i in range(len(object_motion_phases) - 1):
+            boundary_frame = object_motion_phases[i]['end_frame']
+            plt.axvline(x=boundary_frame, color='black', linestyle='--', alpha=0.7, linewidth=1)
+            
+        plt.xlabel('Time Step')
+        plt.ylabel('Linear Velocity (m/s)')
+        plt.title('Object Linear Velocity')
+        plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+        plt.grid(True, alpha=0.3)
+        
+        # Plot object angular velocities
+        plt.subplot(2, 2, 4)
+        
+        for (obj, motion_list), color in zip(object_motion_data.items(), colors_obj):
+            if motion_list:  # Only plot if object has motion data
+                times = [t for t, _, _ in motion_list]
+                angular_velocities = [ang_vel for _, _, ang_vel in motion_list]
+                plt.plot(times, angular_velocities, label=f'{obj.name}', color=color, alpha=0.7)
+        
+        # Highlight object motion phases on object angular plot
+        for i, phase in enumerate(object_motion_phases):
+            start, end = phase['start_frame'], phase['end_frame']
+            color = colors[0]
+            plt.axvspan(start, end, alpha=0.2, color=color)
+            
+            # Add text annotation for phase with object names
+            mid_point = (start + end) / 2
+            max_ang_vel = max([max([ang_vel for _, _, ang_vel in motion_list]) for motion_list in object_motion_data.values() if motion_list] + [0])
+            
+            # Create informative label
+            moving_objects = phase.get('moving_objects', [])
+            if moving_objects:
+                obj_names = [obj.name for obj in moving_objects]
+                label = f'P{i}\n{obj_names[0]}'
+            else:
+                label = f'P{i}\nobj'
+            
+            plt.text(mid_point, max_ang_vel * 0.8, label, 
+                    ha='center', va='center', fontsize=8, 
+                    bbox=dict(boxstyle='round,pad=0.2', facecolor=color, alpha=0.7))
+        
+        # Add vertical lines at phase boundaries
+        for i in range(len(object_motion_phases) - 1):
+            boundary_frame = object_motion_phases[i]['end_frame']
+            plt.axvline(x=boundary_frame, color='black', linestyle='--', alpha=0.7, linewidth=1)
+        
+        plt.xlabel('Time Step')
+        plt.ylabel('Angular Velocity (rad/s)')
+        plt.title('Object Angular Velocity')
+        plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+        plt.grid(True, alpha=0.3)
+        
+        plt.tight_layout()
+        plt.savefig(f"feature_data/object_motion_analysis_traj{traj_idx}.png", dpi=150, bbox_inches='tight')
+        plt.close()
+        
+        logging.info(f"Saved object motion phase visualization for trajectory {traj_idx}")
+
+    def _visualize_multi_phase_motion(self, traj_idx: int, gripper_velocity: np.ndarray, motion_segments: List[Tuple[int, int]], object_motion_data: Dict):
+        """Create visualization showing gripper motion and detected phases."""
+        plt.figure(figsize=(12, 8))
+        
+        # Plot gripper velocity
+        plt.subplot(2, 1, 1)
+        plt.plot(gripper_velocity, label='Gripper Linear Velocity', color='blue', linewidth=2)
+        
+        # Highlight motion segments
+        for i, (start, end) in enumerate(motion_segments):
+            plt.axvspan(start, end, alpha=0.3, color=f'C{i}', label=f'Motion Segment {i}')
+        
+        plt.xlabel('Time Step')
+        plt.ylabel('Linear Velocity (m/s)')
+        plt.title(f'Trajectory {traj_idx}: Gripper Motion Analysis')
+        plt.legend()
+        plt.grid(True, alpha=0.3)
+        
+        # Plot object velocities
+        plt.subplot(2, 1, 2)
+        colors = plt.cm.tab10(np.linspace(0, 1, len(object_motion_data)))
+        
+        for (obj, motion_list), color in zip(object_motion_data.items(), colors):
+            if motion_list:  # Only plot if object has motion data
+                times = [t for t, _, _ in motion_list]
+                velocities = [vel for _, vel, _ in motion_list]
+                plt.plot(times, velocities, label=f'{obj.name}', color=color, alpha=0.7)
+        
+        # Highlight motion segments on object plot too
+        for i, (start, end) in enumerate(motion_segments):
+            plt.axvspan(start, end, alpha=0.2, color=f'C{i}')
+            
+        plt.xlabel('Time Step')
+        plt.ylabel('Linear Velocity (m/s)')
+        plt.title('Object Motion During Gripper Motion Phases')
+        plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+        plt.grid(True, alpha=0.3)
+        
+        plt.tight_layout()
+        plt.savefig(f"feature_data/multi_phase_motion_analysis_traj{traj_idx}.png", dpi=150, bbox_inches='tight')
+        plt.close()
+        
+        logging.info(f"Saved multi-phase motion visualization for trajectory {traj_idx}")
 
     def _generate_relative_low_speed_feature_datasets(self, dataset: Dataset) -> Dict[Tuple[Type, Type, str], List[np.ndarray]]:
         """Extracts relative features constant between consecutive states.
@@ -2014,10 +2611,22 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         predicates_to_monitor, ground_atom_dataset = self._create_gnd_atom_datasets(dataset, in_contact_pred, in_origin_pred, learnt_goal_predicates)
         all_objs_types, robot_base_obj_type = self._find_common_objects_types(ground_atom_dataset)
         relative_pose_dataset_dict, traj_all_objs_all, contact_period_rel_trajs, goal_reached_states, object_type_in_contact_with_gripper_longest_duration, ground_atom_dataset = self._extract_relative_pose_data(ground_atom_dataset, all_objs_types, gripper_type, in_contact_pred, in_origin_pred)
-        # single out the object with in contact with gripper for longest duration
-        # Ensure all trajectories have the same object with longest contact duration
-        assert len(set(object_type_in_contact_with_gripper_longest_duration)) == 1, "All trajectories should have the same object with longest contact/motion duration"
-        obj_type_contact_with_gripper = object_type_in_contact_with_gripper_longest_duration[0]
+        # Handle variable object interactions in long horizon demos
+        # Instead of requiring all trajectories to have the same object, find the most common one
+        if len(set(object_type_in_contact_with_gripper_longest_duration)) == 1:
+            # All trajectories interact with the same object type (original behavior)
+            obj_type_contact_with_gripper = object_type_in_contact_with_gripper_longest_duration[0]
+            logging.info(f"All trajectories interact with same object type: {obj_type_contact_with_gripper.name}")
+        else:
+            # Long horizon demos with variable object interactions
+            from collections import Counter
+            object_type_counts = Counter(object_type_in_contact_with_gripper_longest_duration)
+            obj_type_contact_with_gripper = object_type_counts.most_common(1)[0][0]
+            logging.warning(f"Variable object interactions detected. Most common object type: {obj_type_contact_with_gripper.name}")
+            logging.warning(f"Object interaction distribution: {dict(object_type_counts)}")
+            
+            # For long horizon demos, we'll focus on the most common interaction pattern
+            # but this could be extended to handle multiple interaction types simultaneously
         obj_type_of_reference_best, min_reconstruction_error, list_of_reconstruction_errors = self._select_reference_object(contact_period_rel_trajs)
         # just 1 object does not support contacting with multiple objects 
         if CFG.use_gt_ref_obj_type and CFG.robo_kitchen_task in CFG.gt_ref_obj_type: # mocap tasks are not using gt ref obj type
