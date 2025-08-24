@@ -69,6 +69,7 @@ class RoboKitchenEnv(BaseEnv):
     gripper_fingers_distance_thresh = 0.08  # m
     place_close_z_thresh = 0.10  # m
     place_close_xy_thresh = 0.15  # m
+    gripper_obj_far_thresh = 0.25  # m
 
     online_door_open_thresh = np.deg2rad(70)  # rad
     online_door_close_thresh = np.deg2rad(10)  # rad
@@ -853,6 +854,7 @@ class RoboKitchenEnv(BaseEnv):
             # below are hardware predicates
             Predicate("LidOnDishrack", [cls.thing_type, cls.cabinet_type], cls._LidOnDishrack_holds),
             Predicate("PourInPan", [cls.thing_type, cls.container_type], cls._PourInPan_holds),
+            Predicate("GripperFarFromObj", [cls.gripper_type, cls.thing_type], cls._GripperFarFromObj_holds),
         }
 
         return {p.name: p for p in preds}
@@ -1508,13 +1510,13 @@ class RoboKitchenEnv(BaseEnv):
         if goal_desc == "OpenSingleDoor":
             goal_preds = {self._pred_name_to_pred["DoorOpen"]}
         elif goal_desc == "PnPCounterToCab":
-            goal_preds = {self._pred_name_to_pred["OnSurface"]}
+            goal_preds = {self._pred_name_to_pred["OnSurface"],  self._pred_name_to_pred["GripperFarFromObj"]}   
         elif goal_desc == "PnPStoveToCounter":
             goal_preds = {self._pred_name_to_pred["InContainer"]}
         elif goal_desc == "PnPCabToCounter":
             goal_preds = {self._pred_name_to_pred["OnCounter"]}
         elif goal_desc == "PnPCounterToStove":
-            goal_preds = {self._pred_name_to_pred["InContainer"]}
+            goal_preds = {self._pred_name_to_pred["InContainer"], self._pred_name_to_pred["GripperFarFromObj"]}
         elif goal_desc == "CloseSingleDoor":
             goal_preds = {self._pred_name_to_pred["DoorClosed"]}
         elif goal_desc == "StoreFruit":
@@ -1755,6 +1757,16 @@ class RoboKitchenEnv(BaseEnv):
         state.items_in_contact = contact_set  # when defaults, it means Not populated, when empty means no contact
         cls._current_state = state
         return state
+
+
+    @classmethod
+    def _GripperFarFromObj_holds(cls, state: State, objects: Sequence[Object]) -> bool:
+        """Check if gripper is far from object."""
+        gripper, obj = objects
+        gripper_pos = state.get(gripper, "translation")
+        obj_pos = state.get(obj, "translation")
+        gripper_obj_far = np.linalg.norm(gripper_pos - obj_pos) > cls.gripper_obj_far_thresh
+        return gripper_obj_far
 
     @classmethod
     def _InOrigin_holds(cls, state: State, objects: Sequence[Object]) -> bool:

@@ -1059,6 +1059,47 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
 
             # Now calculate covariance etc. ONLY for kept clusters and add to info dict
             kept_cluster_labels_list = list(kept_clusters_info.keys())
+            
+            # Compute and print distances between all cluster center pairs
+            if len(kept_cluster_labels_list) > 1:
+                print(f"\n=== Cluster Center Distances for {type1.name}-{type2.name}-{feat_name} ===")
+                for i, label1 in enumerate(kept_cluster_labels_list):
+                    for j, label2 in enumerate(kept_cluster_labels_list):
+                        if i < j:  # Only compute upper triangle to avoid duplicates
+                            center1 = kept_clusters_info[label1]['center']
+                            center2 = kept_clusters_info[label2]['center']
+                            
+                            # Compute linear distance (translation only)
+                            trans1, trans2 = center1[:3], center2[:3]
+                            linear_distance = np.linalg.norm(trans1 - trans2)
+                            
+                            # Compute rotational distance (quaternion only)
+                            quat1, quat2 = center1[3:], center2[3:]
+                            try:
+                                from scipy.spatial.transform import Rotation
+                                # Normalize quaternions
+                                quat1_norm = quat1 / np.linalg.norm(quat1)
+                                quat2_norm = quat2 / np.linalg.norm(quat2)
+                                
+                                rot1 = Rotation.from_quat(quat1_norm)
+                                rot2 = Rotation.from_quat(quat2_norm)
+                                relative_rot = rot1.inv() * rot2
+                                rotational_distance = relative_rot.magnitude()  # Angle in radians
+                            except Exception as e:
+                                logging.warning(f"Error computing rotational distance: {e}")
+                                rotational_distance = float('nan')
+                            
+                            print(f"Clusters {label1} <-> {label2}:")
+                            print(f"  Linear distance:     {linear_distance:.6f}")
+                            print(f"  Rotational distance: {rotational_distance:.6f} rad ({np.degrees(rotational_distance):.2f}°)")
+                            
+                            # Also compute the combined SE3 distance using the existing utility
+                            se3_distance = utils.calculate_se3_distance(center1, center2, 
+                                                                      CFG.clustering_se3_trans_weight, 
+                                                                      CFG.clustering_se3_rot_weight)
+                            print(f"  Weighted SE3 distance: {se3_distance:.6f}")
+                            print()
+            
             for cluster_label in kept_cluster_labels_list: # Iterate over keys
                 cluster_info = kept_clusters_info[cluster_label]
                 cluster_points = cluster_info['points'] # Retrieve stored points
@@ -1262,7 +1303,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         # Optional: Filter types as before
         filtered_types = set()
         # Example filter (adjust as needed):
-        blacklisted_type_names = {"left_finger_type", "right_finger_type", "base_type", "wrist_type","counter_type","surface_type"}#,"thing_type"}
+        blacklisted_type_names = {"left_finger_type", "right_finger_type", "base_type", "wrist_type","counter_type","surface_type","door_type"}#"thing_type"}
         for type_obj in types:
             if type_obj.name not in blacklisted_type_names:
                 filtered_types.add(type_obj)
@@ -1341,8 +1382,17 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 constancy_threshold = max(percentile_threshold, fixed_threshold)
                 logging.debug(f"Constancy threshold for {feature_key}: {constancy_threshold:.4f} (max of {CFG.clustering_feature_constancy_percentile}th percentile: {percentile_threshold:.4f} and fixed: {fixed_threshold:.4f})")
                 mask = changes <= constancy_threshold
-                final_feature_data[feature_key] = [pt for pt, keep in zip(data_points, mask) if keep]
-                logging.debug(f"Kept {sum(mask)} / {len(data_points)} points for {feature_key} based on constancy.")
+                filtered_points = [pt for pt, keep in zip(data_points, mask) if keep]
+                
+                # Additional layer: limit to 500 points maximum
+                if len(filtered_points) > 500:
+                    # Randomly sample 500 points to maintain diversity
+                    indices = np.random.choice(len(filtered_points), 500, replace=False)
+                    filtered_points = [filtered_points[i] for i in sorted(indices)]
+                    # logging.debug(f"Further reduced from {sum(mask)} to 500 points for {feature_key} via random sampling.")
+                
+                final_feature_data[feature_key] = filtered_points
+                # logging.debug(f"Final count: {len(filtered_points)} points for {feature_key} after all filtering.")
             else:
                 logging.debug(f"No data points collected for {feature_key}.")
 
@@ -1398,7 +1448,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             dist_matrix = squareform(dists)
             clustering = AgglomerativeClustering(n_clusters=None,
                                                 affinity="precomputed", # Pass metric
-                                                linkage='single', # Check compatibility with custom metric
+                                                linkage='average', # Check compatibility with custom metric
                                                 distance_threshold=effective_epsilon).fit(dist_matrix)
 
         labels = clustering.labels_
@@ -1430,10 +1480,10 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         # Determine if relative or absolute for titles/filenames
         if type2_name:
             cluster_type_str = f"Relative Cluster: {type2_name} in {type1_name} frame"
-            fname_prefix = f"rel_{feat_name}_clusters_{CFG.robo_kitchen_task}_{pred.name}_{type2_name}_in_{type1_name}_frame"
+            fname_prefix = f"{CFG.robo_kitchen_task}_{type2_name}_in_{type1_name}_frame"
         else:
             cluster_type_str = f"Absolute Cluster: {type1_name}"
-            fname_prefix = f"abs_{feat_name}_clusters_{CFG.robo_kitchen_task}_{pred.name}_{type1_name}"
+            fname_prefix = f"{CFG.robo_kitchen_task}_{type1_name}"
 
         num_total_clusters = len(unique_labels - {-1})
         num_kept_clusters = len(kept_clusters_info)
@@ -2743,15 +2793,16 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
 
             # Check for convergence (beam hasn't changed or score isn't improving)
             # Simple check: if the best score in the new beam is not better than the previous best
+            current_best_score_in_beam = new_beam[0][0] if new_beam else -np.inf
+            if current_best_score_in_beam <= best_score and iteration > 1 : # Allow first iteration to set baseline
+                logging.info("\033[1;35mBeam search converged (no score improvement).\033[0m")
+                break
+            
             if new_beam:
                 best_score, best_pred_set_added, best_operators = new_beam[0] # Best set in current beam (added preds only)
                 logging.info(f"\033[1;36mIteration {iteration} best score: {best_score:.4f}\033[0m")
                 logging.info(f"\033[1;32mCurrent best operators: {best_operators}\033[0m")
                 logging.info(f"\033[1;33mCurrent best preds: {best_pred_set_added}\033[0m")
-            current_best_score_in_beam = new_beam[0][0] if new_beam else -np.inf
-            if current_best_score_in_beam <= best_score and iteration > 1 : # Allow first iteration to set baseline
-                logging.info("\033[1;35mBeam search converged (no score improvement).\033[0m")
-                break
 
             beam = new_beam
 
@@ -2769,22 +2820,31 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                             train_tasks: List[Task]) -> Tuple[float, Set[NSRT]]:
         """Calculates the objective function score for a given predicate set,
            checking constraints. Returns -inf if constraints fail."""
-
+      
+        # Extend predicates with their negations (similar to grammar search approach)
+        extended_predicates = set(predicates)
+        for predicate in predicates:
+            negated_classifier = _NegationClassifier(predicate)
+            negated_predicate = Predicate(str(negated_classifier), predicate.types, negated_classifier)
+            extended_predicates.add(negated_predicate)
+        extended_predicates = frozenset(extended_predicates)
+        predicates = extended_predicates
+        
         # Check plan length constraint first (most expensive)
         # Need operators for the constraint check
         atom_dataset = self._create_atom_dataset(dataset, predicates)
-        if CFG.clustering_debug:
-            for i, (_, atom_seq) in enumerate(atom_dataset):
-                print(f"Traj {i}:")
-                current_atom_count = 0
-                current_atom = atom_seq[0]
-                for atom in atom_seq:
-                    if atom == current_atom:
-                        current_atom_count += 1
-                    else:
-                        print(f"{current_atom} {current_atom_count}")
-                        current_atom = atom
-                        current_atom_count = 1
+        # if CFG.clustering_debug:
+        #     for i, (_, atom_seq) in enumerate(atom_dataset):
+        #         print(f"Traj {i}:")
+        #         current_atom_count = 0
+        #         current_atom = atom_seq[0]
+        #         for atom in atom_seq:
+        #             if atom == current_atom:
+        #                 current_atom_count += 1
+        #             else:
+        #                 print(f"{current_atom} {current_atom_count}")
+        #                 current_atom = atom
+        #                 current_atom_count = 1
 
             # Add debug visualization here
 
@@ -2856,7 +2916,11 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             # for p in predicates:
             #     if p.name [-3:] == 'ID4':
             #         pass
-
+            for p in predicates:
+                if "RelPoseEllipsoidCluster" in p.name:
+                    if "gripper_type" in p.types[0].name or "gripper_type" in p.types[1].name:
+                        if "thing_type" in p.types[0].name or "thing_type" in p.types[1].name:
+                            pass
             # TODO: Figure out the right arguments for learn_strips_operators
             # It likely needs the segmented trajectories.
             learned_pnads = learn_strips_operators(
@@ -2914,7 +2978,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         # The 'operators' set already contains STRIPSOperator objects
         strips_ops = operators
 
-        total_diff = 0  # Initialize total difference accumulator
+        diff_vec = []
 
         # Iterate through each demonstration trajectory
         for i, (ll_traj, atom_seq) in enumerate(atom_dataset):
@@ -2960,22 +3024,30 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 # Planner failed (timeout or unsolvable) - assume diff of 3
                 diff = 3
             else:
-                planner_plan_len = len(plan)
+                planner_plan_len = len(plan)    
                 # number of grounded operators in the plan
                 # Calculate difference: positive if plan is longer, negative if shorter
                 diff = planner_plan_len - demo_plan_len
                 # logging.debug(f"Traj {i}: Demo len={demo_plan_len}, Planner len={planner_plan_len}, Diff={diff}")
-
+            diff_vec.append(diff)
             # Accumulate absolute difference for soft constraint
-            total_diff += abs(diff)
-        if total_diff != 0:
-            self._plan_constraint_cache[predicates] = np.inf
-            return np.inf
-        else:
-            self._plan_constraint_cache[predicates] = 0
-            return 0
-        # self._plan_constraint_cache[predicates] = total_diff
-        # return self._plan_constraint_cache[predicates]
+            # total_diff += abs(diff)
+        # if total_diff != 0:
+        #     self._plan_constraint_cache[predicates] = np.inf
+        #     return np.inf
+        # else:
+        #     self._plan_constraint_cache[predicates] = 0
+        #     return 0
+        # Check if any predicate involves gripper and thing types
+        for p in predicates:
+            if "RelPoseEllipsoidCluster" in p.name:
+                if "gripper_type" in p.types[0].name or "gripper_type" in p.types[1].name:
+                    if "thing_type" in p.types[0].name or "thing_type" in p.types[1].name:
+                        pass
+
+        total_diff = np.sum(np.abs(np.array(diff_vec)))
+        self._plan_constraint_cache[predicates] = total_diff
+        return self._plan_constraint_cache[predicates]
 
     # --- Helper Functions ---
     def _create_atom_dataset(self, dataset: Dataset, predicates: Set[Predicate] | FrozenSet[Predicate]) -> List[GroundAtomTrajectory]:
@@ -3055,7 +3127,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             ax.set_ylabel('Y relative')
             ax.set_zlabel('Z relative')
             is_overlay = False
-            fname = f"rel_traj_{CFG.robo_kitchen_task}_{pred.name}_{type2_name}_in_{type1_name}_frame.png"
+            fname = f"p_{CFG.robo_kitchen_task}_{type2_name}_in_{type1_name}_frame.png"
 
         # Different colors for different trajectories - use brighter colors for trajectories
         colors = plt.cm.rainbow(np.linspace(0, 1, len(dataset.trajectories)))

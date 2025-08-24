@@ -85,6 +85,7 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
                 var_to_obj = dict(zip(params, objects_lst))
 
                 add_effects = {atom.lift(obj_to_var) for atom in segment.add_effects}
+                print(f"add_effects: {add_effects}")
                 delete_effects = {atom.lift(obj_to_var) for atom in segment.delete_effects}
                 ignore_effects: Set[Predicate] = set()  # will be learned later
                 maintain_effects: Set[LiftedAtom] = set() # will be learned later
@@ -94,6 +95,10 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
                 option_spec = (segment_param_option, option_vars)
                 pnads.append(PNAD(op, datastore, option_spec))
 
+        pnads = [
+            pnad for pnad in pnads
+            if len(pnad.datastore) >= 3 # min_data too few means that the operator may not be real
+        ]
         # Learn the preconditions of the operators in the PNADs. This part
         # is flexible; subclasses choose how to implement it.
         pnads = self._learn_pnad_preconditions(pnads)

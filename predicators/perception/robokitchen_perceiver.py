@@ -174,6 +174,7 @@ class RoboKitchenPerceiver(BasePerceiver):
         StoveOff = pred_name_to_pred["StoveOff"]
         SinkFaucetOn = pred_name_to_pred["SinkFaucetOn"]
         SinkFaucetOff = pred_name_to_pred["SinkFaucetOff"]
+        GripperFarFromObj = pred_name_to_pred["GripperFarFromObj"]
 
         # handle = RoboKitchenEnv.object_name_to_object("handle")
         # left_handle = RoboKitchenEnv.object_name_to_object("left_door_handle")
@@ -223,6 +224,7 @@ class RoboKitchenPerceiver(BasePerceiver):
         elif goal_desc == 'PnPCounterToCab':
             goal = {
                 GroundAtom(OnSurface, [obj, bottom]),
+                GroundAtom(GripperFarFromObj, [obj, obj]),
             }
         elif goal_desc == 'PnPCabToCounter':
             goal = {
@@ -231,6 +233,7 @@ class RoboKitchenPerceiver(BasePerceiver):
         elif goal_desc == 'PnPCounterToStove':
             goal = {
                 GroundAtom(InContainer, [obj, container]),
+                GroundAtom(GripperFarFromObj, [obj, obj]),
             }
         elif goal_desc == 'StoreFruit':
             goal = {

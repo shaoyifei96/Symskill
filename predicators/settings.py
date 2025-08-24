@@ -63,11 +63,11 @@ class GlobalSettings:
     clustering_debug = True
     enable_meshcat = False
     clustering_se3_trans_weight = 10.0  # 0.05 m # 10 times differnece
-    clustering_se3_rot_weight = 5.0  # 30 deg = 0.5236 rad
+    clustering_se3_rot_weight = 1.0 # 30 deg = 0.5236 rad
     clustering_feature_constancy_percentile = 3  # of total number of data points = 13782
     clustering_constancy_threshold = 0.0001  # fixed threshold for constancy check (0.01m trans or ~8° rot)
     clustering_se3_epsilon = 3.0 
-    clustering_baseline_epsilon = 3.8# default epsilon
+    clustering_baseline_epsilon = 1.3# default epsilon
     clustering_visualization_frame_axis_length = 0.05
     # clustering_translation_constancy_tol = 0.01/10 # 10 hz 0.01 m
     # clustering_quaternion_constancy_tol = 0.01 # 10 hz 0.01 rad
@@ -87,7 +87,7 @@ class GlobalSettings:
     clustering_agglomerative_ratio = 0.3  # what ratio of data range
 
     clustering_algorithm = "agglomerative"  # "hdbscan" or "agglomerative"
-    clustering_min_ratio_of_data = 0.1  # 10% of the contact points 2068 * 0.1 = 206
+    clustering_min_ratio_of_data = 0.13  
     clustering_max_clusters = 1
     clustering_search_beam_width = 15
     clustering_search_alpha = 0.2
@@ -98,11 +98,11 @@ class GlobalSettings:
     robo_kitchen_randomize_init_state = True  # not used
     # robo_kitchen_task = "OpenSingleDoor"
     # robo_kitchen_task = "CloseSingleDoor"
-    # robo_kitchen_task = "PnPCounterToCab" 
+    robo_kitchen_task = "PnPCounterToCab" 
     # robo_kitchen_task = "PnPCabToCounter" # #this has no plate, cannot find a good ref
     # robo_kitchen_task = "PnPCabToCounterTomato"  # we collected demo with plate
     # robo_kitchen_task = "PnPStoveToCounter"
-    robo_kitchen_task = "PnPCounterToStove"
+    # robo_kitchen_task = "PnPCounterToStove"
     # robo_kitchen_task = "OpenDrawer"
     # robo_kitchen_task = "CloseDrawer"
     # robo_kitchen_task = "TurnOnStove"
