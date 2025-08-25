@@ -1141,7 +1141,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         renamed_candidates = self._rename_predicates_to_remove_incompatible_chars(candidates)
         return renamed_candidates
 
-    def _update_incontact_predicate_using_motion_analysis(self, dataset: Dataset, in_contact_pred: Predicate, gripper_type: Type) -> Dict[Tuple[Type, Type, str], List[np.ndarray]]:
+    def _update_incontact_predicate_using_motion_analysis(self, dataset: Dataset, in_contact_pred: Predicate, gripper_type: Type) -> Tuple[Dict[int, List[Dict]], Dict[int, List[Object]], Object, Dict[int, List[Tuple[int, int]]]]:
         """Update incontact predicates using multi-phase motion analysis.
         This function analyzes motion patterns to identify different phases:
         1. Gripper-only motion (approaching/repositioning)
@@ -1154,6 +1154,11 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         # Dictionary to store motion data for each object in each trajectory
         motion_data = defaultdict(lambda: defaultdict(list))
         gripper_motion_data = defaultdict(list)  # Separate tracking for gripper
+        
+        # Data to return for _extract_relative_pose_data
+        trajectory_motion_phases = {}  # trajectory_idx -> List[Dict] (motion phases)
+        trajectory_all_objects = {}    # trajectory_idx -> List[Object] 
+        contact_lost_periods = {}      # trajectory_idx -> List[Tuple[int, int]] (contact lost periods)
 
         gripper_obj = None
         for obj in dataset.trajectories[0].states[0].get_objects(gripper_type):
@@ -1168,6 +1173,10 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             all_objects = set()
             for state in traj.states:
                 all_objects.update(state.data.keys())
+            
+            # Filter and store objects for later use (excluding disallowed types)
+            filtered_objects = [obj for obj in all_objects if obj.type.name not in disallowed_type_names]
+            trajectory_all_objects[i] = filtered_objects
             
             # Calculate velocity for each object INCLUDING gripper
             for t in range(len(traj.states) - 1):
@@ -1201,10 +1210,16 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             for state in dataset.trajectories[i].states:
                 state.items_in_contact = set()
             
-            # Multi-phase motion analysis
-            self._analyze_multi_phase_motion(i, traj, motion_data[i], gripper_motion_data[i], gripper_obj, dataset)
+            # Multi-phase motion analysis and collect motion phases
+            motion_phases = self._analyze_multi_phase_motion(i, traj, motion_data[i], gripper_motion_data[i], gripper_obj, dataset)
+            trajectory_motion_phases[i] = motion_phases
+            
+            # Extract contact lost periods from motion phases
+            contact_lost_periods[i] = self._extract_contact_lost_periods(motion_phases, len(traj.states))
+        
+        return trajectory_motion_phases, trajectory_all_objects, gripper_obj, contact_lost_periods
 
-    def _analyze_multi_phase_motion(self, traj_idx: int, traj, object_motion_data: Dict, gripper_motion_data: List, gripper_obj, dataset: Dataset):
+    def _analyze_multi_phase_motion(self, traj_idx: int, traj, object_motion_data: Dict, gripper_motion_data: List, gripper_obj, dataset: Dataset) -> List[Dict]:
         """Analyze trajectory for object motion phases and mark contacts accordingly.
         Focuses on object motion analysis while using combined object+gripper velocities for boundary detection.
         """
@@ -1262,6 +1277,32 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         
         # Visualization with object motion phases
         self._visualize_object_motion_phases(traj_idx, gripper_lin_vel_smooth, object_motion_phases, object_motion_data, gripper_motion_data)
+        
+        return object_motion_phases
+
+    def _extract_contact_lost_periods(self, motion_phases: List[Dict], traj_length: int) -> List[Tuple[int, int]]:
+        """Extract periods between motion phases where contact is lost."""
+        contact_lost_periods = []
+        
+        if not motion_phases:
+            return contact_lost_periods
+            
+        # Add period from start to first motion phase
+        if motion_phases[0]['start_frame'] > 0:
+            contact_lost_periods.append((0, motion_phases[0]['start_frame'] - 1))
+        
+        # Add periods between motion phases
+        for i in range(len(motion_phases) - 1):
+            end_current = motion_phases[i]['end_frame']
+            start_next = motion_phases[i + 1]['start_frame']
+            if start_next > end_current + 1:
+                contact_lost_periods.append((end_current + 1, start_next - 1))
+        
+        # Add period from last motion phase to end
+        if motion_phases[-1]['end_frame'] < traj_length - 1:
+            contact_lost_periods.append((motion_phases[-1]['end_frame'] + 1, traj_length - 1))
+            
+        return contact_lost_periods
 
     def _find_contiguous_segments(self, motion_mask: np.ndarray, min_length: int = 10) -> List[Tuple[int, int]]:
         """Find contiguous segments where motion_mask is True."""
@@ -1311,7 +1352,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             # Only keep segment if it's still meaningful after refinement
             if refined_end > refined_start:
                 refined_segments.append((refined_start, refined_end))
-                logging.debug(f"    Refined boundary: {start_frame}-{end_frame} -> {refined_start}-{refined_end}")
+                # logging.debug(f"    Refined boundary: {start_frame}-{end_frame} -> {refined_start}-{refined_end}")
         
         return refined_segments
 
@@ -1417,13 +1458,13 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         # Find initial motion boundaries using object velocities only
         object_in_motion = object_only_velocities > motion_threshold
         initial_motion_segments = self._find_contiguous_segments(object_in_motion, min_length=10)
-        logging.debug(f"    Found {len(initial_motion_segments)} initial object motion segments using object velocities only")
+        # logging.debug(f"    Found {len(initial_motion_segments)} initial object motion segments using object velocities only")
         
         # Fine-tune boundaries using combined velocities within 30 steps
         raw_motion_segments = self._fine_tune_motion_boundaries(
             initial_motion_segments, combined_velocities, search_window=30
         )
-        logging.debug(f"    After fine-tuning with combined velocities: {len(raw_motion_segments)} refined segments")
+        # logging.debug(f"    After fine-tuning with combined velocities: {len(raw_motion_segments)} refined segments")
         
         # For each detected segment, determine which objects are actually moving
         object_motion_phases = []
@@ -1439,11 +1480,11 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                     'end_frame': end_frame,
                     'moving_objects': moving_objects
                 })
-                logging.debug(f"    Found object motion phase: frames {start_frame}-{end_frame}, objects: {[obj.name for obj in moving_objects]}")
+                # logging.debug(f"    Found object motion phase: frames {start_frame}-{end_frame}, objects: {[obj.name for obj in moving_objects]}")
         
         # Combine segments of the same object with overlap or small gaps (<10 frames)
         combined_phases = self._combine_overlapping_segments(object_motion_phases, max_gap=10)
-        logging.debug(f"    After combining overlapping segments: {len(combined_phases)} final phases")
+        # logging.debug(f"    After combining overlapping segments: {len(combined_phases)} final phases")
         
         return combined_phases
 
@@ -2605,41 +2646,40 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         if not gripper_type:
             logging.warning("Gripper type not found. Cannot generate contact-based predicates.")
             return {}, {} # Return empty dicts if gripper type is not found
+        trajectory_motion_phases, trajectory_all_objects, gripper_obj, contact_lost_periods = None, None, None, None
         if CFG.predicate_candidates_method == "motion_analysis_contact":
-            self._update_incontact_predicate_using_motion_analysis(dataset, in_contact_pred, gripper_type)
+            trajectory_motion_phases, trajectory_all_objects, gripper_obj, contact_lost_periods = self._update_incontact_predicate_using_motion_analysis(dataset, in_contact_pred, gripper_type)
         learnt_goal_predicates = self.load_learnt_goals()
         predicates_to_monitor, ground_atom_dataset = self._create_gnd_atom_datasets(dataset, in_contact_pred, in_origin_pred, learnt_goal_predicates)
         all_objs_types, robot_base_obj_type = self._find_common_objects_types(ground_atom_dataset)
-        relative_pose_dataset_dict, traj_all_objs_all, contact_period_rel_trajs, goal_reached_states, object_type_in_contact_with_gripper_longest_duration, ground_atom_dataset = self._extract_relative_pose_data(ground_atom_dataset, all_objs_types, gripper_type, in_contact_pred, in_origin_pred)
-        # Handle variable object interactions in long horizon demos
-        # Instead of requiring all trajectories to have the same object, find the most common one
-        if len(set(object_type_in_contact_with_gripper_longest_duration)) == 1:
-            # All trajectories interact with the same object type (original behavior)
-            obj_type_contact_with_gripper = object_type_in_contact_with_gripper_longest_duration[0]
-            logging.info(f"All trajectories interact with same object type: {obj_type_contact_with_gripper.name}")
+        relative_pose_dataset_dict, traj_all_objs_all, contact_period_rel_trajs, goal_reached_states, ground_atom_dataset = self._extract_relative_pose_data(ground_atom_dataset, all_objs_types, gripper_type, in_contact_pred, in_origin_pred, trajectory_motion_phases, trajectory_all_objects, gripper_obj, contact_lost_periods)            
+        
+        # Find the most common object type that comes in contact with the gripper
+        if trajectory_all_objects is not None:
+            obj_type_contact_with_gripper = self._find_object_in_contact_with_gripper(trajectory_all_objects)
         else:
-            # Long horizon demos with variable object interactions
-            from collections import Counter
-            object_type_counts = Counter(object_type_in_contact_with_gripper_longest_duration)
-            obj_type_contact_with_gripper = object_type_counts.most_common(1)[0][0]
-            logging.warning(f"Variable object interactions detected. Most common object type: {obj_type_contact_with_gripper.name}")
-            logging.warning(f"Object interaction distribution: {dict(object_type_counts)}")
-            
-            # For long horizon demos, we'll focus on the most common interaction pattern
-            # but this could be extended to handle multiple interaction types simultaneously
-        obj_type_of_reference_best, min_reconstruction_error, list_of_reconstruction_errors = self._select_reference_object(contact_period_rel_trajs)
-        # just 1 object does not support contacting with multiple objects 
-        if CFG.use_gt_ref_obj_type and CFG.robo_kitchen_task in CFG.gt_ref_obj_type: # mocap tasks are not using gt ref obj type
-            obj_type_of_reference_best_text = CFG.gt_ref_obj_type[CFG.robo_kitchen_task]
-            for obj_type in all_objs_types:
-                if obj_type.name == obj_type_of_reference_best_text:
-                    obj_type_of_reference_best = obj_type
-                    break
-        logging.error(f"Using ground truth reference object type: {obj_type_of_reference_best.name}")
-        assert obj_type_of_reference_best is not None, f"Reference object type not found in all_objs_types: {all_objs_types}"
+            # Fallback: use the first moving object type from contact_period_rel_trajs
+            if contact_period_rel_trajs:
+                obj_type_contact_with_gripper = next(iter(contact_period_rel_trajs.keys()))
+            else:
+                # Final fallback: use the first non-gripper object type
+                obj_type_contact_with_gripper = next((obj_type for obj_type in all_objs_types if 'gripper' not in obj_type.name.lower()), all_objs_types[0])
+        
+        logging.info(f"Object type in contact with gripper: {obj_type_contact_with_gripper.name}")
+        
+        best_reference_per_moving_obj, _ = self._select_reference_object(contact_period_rel_trajs)
+        obj_type_of_reference_best = next(iter(best_reference_per_moving_obj.values()))[0]
+        # if CFG.use_gt_ref_obj_type and CFG.robo_kitchen_task in CFG.gt_ref_obj_type: # mocap tasks are not using gt ref obj type
+        #     obj_type_of_reference_best_text = CFG.gt_ref_obj_type[CFG.robo_kitchen_task]
+        #     for obj_type in all_objs_types:
+        #         if obj_type.name == obj_type_of_reference_best_text:
+        #             obj_type_of_reference_best = obj_type
+        #             break
+        # logging.error(f"Using ground truth reference object type: {obj_type_of_reference_best.name}")
+        # assert obj_type_of_reference_best is not None, f"Reference object type not found in all_objs_types: {all_objs_types}"
         # assert obj_type_of_reference_best.name in gt_ref_obj_type, f"GT reference object type not matching correct solution, gt_ref_obj_type: {gt_ref_obj_type}, obj_type_of_reference_best: {obj_type_of_reference_best.name}"
         
-        self._visualize_contact_period_trajectories(contact_period_rel_trajs, list_of_reconstruction_errors)
+        # self._visualize_contact_period_trajectories(contact_period_rel_trajs, list_of_reconstruction_errors)
         ground_atom_dataset, relative_pose_dataset_dict = self._update_atom_sequences_with_goal_predicates(ground_atom_dataset, traj_all_objs_all, obj_type_of_reference_best, obj_type_contact_with_gripper, goal_reached_states, relative_pose_dataset_dict)
         if CFG.enable_base_ref_obj_precondition:
             ground_atom_dataset, relative_pose_dataset_dict = self._add_base_ref_obj_precondition(ground_atom_dataset, relative_pose_dataset_dict, obj_type_of_reference_best, obj_type_contact_with_gripper, robot_base_obj_type, traj_all_objs_all)
@@ -2994,17 +3034,41 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             obj_ref = [o for o in traj_all_objs if o.type == obj_type_of_reference_best][0]
             obj_contact = [o for o in traj_all_objs if o.type == obj_type_contact_with_gripper][0]
             assert obj_ref is not None and obj_contact is not None, "Object of reference or contact with gripper not found"
+            
+            # Track all goal/subgoal types found in this trajectory
+            goal_types_found = set()
+            
             for j, atoms in enumerate(atom_seq):
-                for k, atom in enumerate(atoms):
+                atoms_to_remove = []
+                atoms_to_add = []
+                
+                for atom in atoms:
                     if isinstance(atom, DummyPredicate):
-                        ground_atom_dataset[i][1][j].remove(atom)
-                        ground_atom_dataset[i][1][j].add(GroundAtom(DummyPredicate(f"{CFG.robo_kitchen_task}-goal", [obj_type_of_reference_best, obj_type_contact_with_gripper]), [obj_ref, obj_contact]))
+                        atoms_to_remove.append(atom)
+                        
+                        # Handle both main goals and subgoals
+                        if atom.name.startswith(f"{CFG.robo_kitchen_task}-goal") or atom.name.startswith(f"{CFG.robo_kitchen_task}-subgoal"):
+                            goal_types_found.add(atom.name)
+                            # Replace with grounded version
+                            new_goal_pred = DummyPredicate(atom.name, [obj_type_of_reference_best, obj_type_contact_with_gripper])
+                            atoms_to_add.append(GroundAtom(new_goal_pred, [obj_ref, obj_contact]))
+                
+                # Apply the changes
+                for atom in atoms_to_remove:
+                    ground_atom_dataset[i][1][j].remove(atom)
+                for atom in atoms_to_add:
+                    ground_atom_dataset[i][1][j].add(atom)
 
-            # add stored states before contact lost to relative_pose_dataset_dict
+            # Add all stored states to relative_pose_dataset_dict 
+            # (they're already filtered by goal type during the marking phase)
             for state in goal_reached_states[i]:
                 rel_pose = utils.calculate_relative_pose_from_state(state, obj_ref, obj_contact, CFG.trans_feat_name, CFG.quat_feat_name)
-                key = (DummyPredicate(f"{CFG.robo_kitchen_task}-goal"), obj_type_of_reference_best, obj_type_contact_with_gripper, "2in1")
-                relative_pose_dataset_dict[key].append(rel_pose)
+                if rel_pose is not None:
+                    # For now, add to the main goal key - could be extended to separate by goal type
+                    main_goal_pred = DummyPredicate(f"{CFG.robo_kitchen_task}-goal")
+                    key = (main_goal_pred, obj_type_of_reference_best, obj_type_contact_with_gripper, "2in1")
+                    relative_pose_dataset_dict[key].append(rel_pose)
+                            
         return ground_atom_dataset, relative_pose_dataset_dict
 
     def _visualize_contact_period_trajectories(self, contact_period_rel_trajs: Dict[Type, List[List[np.ndarray]]], list_of_reconstruction_errors: List[float]):
@@ -3052,238 +3116,217 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             plt.close(fig)
 
     def _select_reference_object(self, 
-                                contact_period_rel_trajs: Dict[Type, List[List[np.ndarray]]], 
+                                contact_period_rel_trajs: Dict[Type, Dict[Type, List[List[np.ndarray]]]], 
                                 ) -> Tuple[Type, float, List[float]]:
         """
-        Select the object of reference by learning a DS policy for each object and selecting the one with the lowest reconstruction error.
+        Select the object of reference by learning a DS policy for each moving object type and each potential reference object type,
+        and selecting the reference object type with the lowest reconstruction error for each moving object type.
+        Returns the overall best reference object type.
         """
-        obj_type_of_reference_best = None
-        min_reconstruction_error = float('inf')
-        list_of_reconstruction_errors = []
-        black_list = []
-        for obj_type, rel_pose_trajs in contact_period_rel_trajs.items():
-            if len(rel_pose_trajs) == 0: continue
-            x = []
-            quat = []
-            x_dot = []
-            omega = []
-            for rel_pose_traj in rel_pose_trajs:
-                x_traj = np.array(rel_pose_traj)[:, :3]
-                quat_traj = np.array(rel_pose_traj)[:, 3:]
-                x_dot_traj, omega_traj = compute_vel_traj(x_traj, np.array([R.from_quat(q).as_matrix() for q in quat_traj]), 1/10)
-                x.append(x_traj)
-                quat.append(quat_traj)
-                x_dot.append(x_dot_traj)
-                omega.append(omega_traj)
-            # Check if start and end poses are almost the same (indicating no meaningful motion)
-            if len(x) > 0 and len(x[0]) > 1:
-                start_pos = np.array([traj[0] for traj in x])
-                end_pos = np.array([traj[-1] for traj in x])
-                start_quat = np.array([traj[0] for traj in quat])
-                end_quat = np.array([traj[-1] for traj in quat])
+        best_reference_per_moving_obj = {}  # moving_obj_type -> (best_ref_obj_type, reconstruction_error)
+        all_reconstruction_errors = {}
+        
+        for moving_obj_type, ref_obj_dict in contact_period_rel_trajs.items():
+            logging.info(f"Evaluating reference objects for moving object type: {moving_obj_type.name}")
+            
+            best_ref_obj_type = None
+            min_reconstruction_error = float('inf')
+            black_list = []
+            
+            for ref_obj_type, rel_pose_trajs in ref_obj_dict.items():
+                if len(rel_pose_trajs) == 0: 
+                    continue
+                    
+                # logging.debug(f"  Testing reference object: {ref_obj_type.name} with {len(rel_pose_trajs)} trajectories")
                 
-                # Calculate average distance between start and end poses
-                avg_distance = np.mean([np.linalg.norm(end - start) for start, end in zip(start_pos, end_pos)])
-                avg_quat_distance = np.mean([np.linalg.norm((R.from_quat(end) * R.from_quat(start).inv()).as_rotvec()) for start, end in zip(start_quat, end_quat)])
+                x = []
+                quat = []
+                x_dot = []
+                omega = []
                 
-                # If average distance is very small, blacklist this object
-                if avg_distance < 0.01 and avg_quat_distance < 0.1:  
-                    black_list.append(obj_type)
-                    logging.info(f"Blacklisting {obj_type.name} due to minimal motion (avg distance: {avg_distance:.4f})")
-                    # continue
-            unified_config = UnifiedModelConfig(
-                mode="se3_lpvds",
-                K_candidates=[3]
-            )
-            ds_policy = DSPolicy(
-                x=x,
-                x_dot=x_dot,
-                quat=quat,
-                omega=omega,
-                gripper=[],
-                unified_config=unified_config,
-                dt=1/10
-            )
-            _, reconstruction_error = ds_policy.compute_reconstruction_error()
-            # TODO: Add some basic requirements for the object of reference, so blacklist need more 
-            # 1. start pose and end pose of all trajs should be almost the same, otherwise it is not a good reference object
-            list_of_reconstruction_errors.append(reconstruction_error)
-            if reconstruction_error < min_reconstruction_error and obj_type not in black_list:
-                min_reconstruction_error = reconstruction_error
-                obj_type_of_reference_best = obj_type
-        assert obj_type_of_reference_best is not None, "No object of reference found"
-        return obj_type_of_reference_best, min_reconstruction_error, list_of_reconstruction_errors
+                for rel_pose_traj in rel_pose_trajs:
+                    if len(rel_pose_traj) == 0:
+                        continue
+                    x_traj = np.array(rel_pose_traj)[:, :3]
+                    quat_traj = np.array(rel_pose_traj)[:, 3:]
+                    x_dot_traj, omega_traj = compute_vel_traj(x_traj, np.array([R.from_quat(q).as_matrix() for q in quat_traj]), 1/10)
+                    x.append(x_traj)
+                    quat.append(quat_traj)
+                    x_dot.append(x_dot_traj)
+                    omega.append(omega_traj)
+                
+                if len(x) == 0:
+                    continue
+                    
+                # Check if start and end poses are almost the same (indicating no meaningful motion)
+                if len(x) > 0 and len(x[0]) > 1:
+                    start_pos = np.array([traj[0] for traj in x])
+                    end_pos = np.array([traj[-1] for traj in x])
+                    start_quat = np.array([traj[0] for traj in quat])
+                    end_quat = np.array([traj[-1] for traj in quat])
+                    
+                    # Calculate average distance between start and end poses
+                    avg_distance = np.mean([np.linalg.norm(end - start) for start, end in zip(start_pos, end_pos)])
+                    avg_quat_distance = np.mean([np.linalg.norm((R.from_quat(end) * R.from_quat(start).inv()).as_rotvec()) for start, end in zip(start_quat, end_quat)])
+                    
+                    # If average distance is very small, blacklist this reference object for this moving object
+                    if avg_distance < 0.01 and avg_quat_distance < 0.1:  
+                        black_list.append(ref_obj_type)
+                        logging.debug(f"    Blacklisting {ref_obj_type.name} as reference for {moving_obj_type.name} due to minimal motion (avg distance: {avg_distance:.4f})")
+                        continue
+                
+                try:
+                    unified_config = UnifiedModelConfig(
+                        mode="se3_lpvds",
+                        K_candidates=[3]
+                    )
+                    ds_policy = DSPolicy(
+                        x=x,
+                        x_dot=x_dot,
+                        quat=quat,
+                        omega=omega,
+                        gripper=[],
+                        unified_config=unified_config,
+                        dt=1/10
+                    )
+                    _, reconstruction_error = ds_policy.compute_reconstruction_error()
+                    all_reconstruction_errors[(moving_obj_type, ref_obj_type)] = reconstruction_error
+                    
+                    logging.debug(f"    {ref_obj_type.name} reconstruction error: {reconstruction_error:.6f}")
+                    
+                    if reconstruction_error < min_reconstruction_error and ref_obj_type not in black_list:
+                        min_reconstruction_error = reconstruction_error
+                        best_ref_obj_type = ref_obj_type
+                        
+                except Exception as e:
+                    logging.warning(f"    Failed to compute DS policy for {ref_obj_type.name} as reference for {moving_obj_type.name}: {e}")
+                    continue
+            
+            if best_ref_obj_type is not None:
+                best_reference_per_moving_obj[moving_obj_type] = (best_ref_obj_type, min_reconstruction_error)
+                logging.info(f"  Best reference for {moving_obj_type.name}: {best_ref_obj_type.name} (error: {min_reconstruction_error:.6f})")
+            else:
+                logging.warning(f"  No suitable reference object found for moving object type: {moving_obj_type.name}")
+        
+        # Select the overall best reference object type (lowest reconstruction error across all moving objects)
+        if not best_reference_per_moving_obj:
+            raise ValueError("No suitable reference objects found for any moving object type")
+        
+        
+        return best_reference_per_moving_obj, all_reconstruction_errors
 
-    def _extract_relative_pose_data(self, ground_atom_dataset: List[GroundAtomTrajectory], all_objs_types: List[Type], gripper_type: Type, in_contact_pred: Predicate, in_origin_pred: Predicate) -> Tuple[Dict[Tuple[Predicate, Type, Type, str], List[np.ndarray]], List[List[Object]], Dict[Type, List[List[np.ndarray]]], List[State], List[Type], List[GroundAtomTrajectory]]:
+    def _extract_relative_pose_data(self, ground_atom_dataset: List[GroundAtomTrajectory], all_objs_types: List[Type], gripper_type: Type, in_contact_pred: Predicate, in_origin_pred: Predicate, trajectory_motion_phases: Dict[int, List[Dict]] = None, trajectory_all_objects: Dict[int, List[Object]] = None, gripper_obj: Object = None, contact_lost_periods: Dict[int, List[Tuple[int, int]]] = None) -> Tuple[Dict[Tuple[Predicate, Type, Type, str], List[np.ndarray]], List[List[Object]], Dict[Type, List[List[np.ndarray]]], List[State], List[Type], List[GroundAtomTrajectory]]:
         relative_pose_dataset_dict = defaultdict(list) # Maps (atom_pred, type1, type2) -> List[rel_pose]
-
-        contact_period_rel_trajs = {}
+        contact_period_rel_trajs = {} # Maps (moving_obj_type, reference_obj_type) -> List[List[rel_pose]]
         goal_reached_states = defaultdict(list)
         object_type_in_contact_with_gripper_longest_duration = []
         traj_all_objs_all = []
 
-        # Strong assumption of contacting with only 1 object during the whole trajectory!
-        # pose_feat_name = "pose"
-
-        # 1. process of making contact: how to get to grasp (gripper obj centric DS with goal of cluster in step 2)
-        # Atom dataset auto split these
-        # 2. process of held contact: how to grasp(gripper obj centric cluster) (Obj Obj frame DS)
-        # 2.1 gripper obj centric: Already doing with clustering change only flag off
-        # 2.2 obj obj frame:(using goal predicate to find the other object)
-        # 3. instant of removed contact: achieving relative pose between two object (obj obj frame cluster goal )
-        # done
-        gripper_objs = [o for o in ground_atom_dataset[0][0].states[0].data.keys() if 'gripper' in o.type.name]
-        if len(gripper_objs) == 0:
-            raise ValueError("No gripper found in the trajectory")
-        gripper_obj = gripper_objs[0] 
-        logging.info("Extracting relative poses ...")
-        for i, (ll_traj, atom_seq) in enumerate(ground_atom_dataset):
-            goal_reached_states[i] = []
-            # Get all objects from the first state that match our target types
-            traj_all_objs = [o for o in ll_traj.states[0].data.keys() if o.type in all_objs_types]
-            # there is only one object of each type in the trajectory since the code below is not designed to handle multiple objects of the same type
-            # if there are two cabinets, the dictonary of contact_period rel traj will mess up
-            # Check if there are multiple objects of the same type in the trajectory
-            # consider which object to keep, prefer the object closer to gripper at the end of the trajectory
-            for obj_type in all_objs_types:
-                objs_of_this_type = [o for o in traj_all_objs if o.type == obj_type]
-                if len(objs_of_this_type) > 1: # 0 or 1 is fine, no filtering needed
-                    # Compute distances to gripper for all objects of this type at the end state
-                    dist_min = np.inf
-                    best_obj = None
-                    for o_same in objs_of_this_type:
-                        trans1 = ll_traj.states[-1].get(o_same, CFG.trans_feat_name)
-                        trans2 = ll_traj.states[-1].get(gripper_obj, CFG.trans_feat_name)
-                        dist_to_gripper = np.linalg.norm(np.array(trans1) - np.array(trans2))
-                        if dist_to_gripper < dist_min:
-                            dist_min = dist_to_gripper
-                            best_obj = o_same
-                    # Remove all other objects of this type 
-                    traj_all_objs = [o for o in traj_all_objs if o.type != obj_type]
-                    traj_all_objs.append(best_obj) 
-            traj_all_objs_all.append(traj_all_objs) # keep this so we can ground it later
-            object_type_in_contact_with_gripper_longest_duration.append({})
-            if not ll_traj.states: continue # Skip empty trajectories
-
-            if not CFG.remove_inOrigin_pred:
-                init_atoms = None
-                init_atoms_pred = []
-                finish_adding_init_atoms = False
-                for t in range(1, len(atom_seq)):
-                    atoms_t = atom_seq[t]
-                    atoms_tm1 = atom_seq[t - 1]
-                    if t == 1 and len(atoms_tm1) > 0 and any(atom.predicate == in_origin_pred for atom in atoms_tm1):
-                        init_atoms = atoms_tm1
-                        init_atoms_pred = [atom.predicate for atom in atoms_tm1]
-                    assert init_atoms is not None, "No InOrigin predicate found in the first state of the trajectory."
-                    if len(atoms_t) > 0 and any(atom.predicate not in init_atoms_pred for atom in atoms_t):
-                        finish_adding_init_atoms = True
-                    if not finish_adding_init_atoms:
-                        ground_atom_dataset[i][1][t] = init_atoms
-                    elif any(atom.predicate == in_origin_pred for atom in atoms_t):
-                        ground_atom_dataset[i][1][t] = set([atom for atom in atoms_t if atom.predicate != in_origin_pred])
-
-            skip_var =max(int(len(atom_seq) / 50),1)
-            logging.debug(f"Processing trajectory {i+1}/{len(ground_atom_dataset)} with {len(atom_seq)} atoms, skipping every {skip_var} atoms.")
-            achieved_goal = False 
-            for t in range(skip_var, len(atom_seq), skip_var): # Start from 1 to compare with t-1, skip every 4, for efficiency
-                state_t = ll_traj.states[t]
-                atoms_t = atom_seq[t]
-                atoms_tm1 = atom_seq[t-skip_var]
-                lost_atoms = atoms_tm1 - atoms_t
-                # assume when lost contact, we have moved the item to where we want it to be
-                # or when the episode end, we have the item at where we want it to be
-                # ------ before contact lost, or for last timestep in current traj ------- #
-                # ------ add goal predicate for them ------------------------------------- #
-                # ------ store states so that we can cluster them later as goal predicate- #
-                if not achieved_goal:
-                    if t >= len(atom_seq) - skip_var:
-                        t_start = t
-                        while t_start < len(atom_seq):
-                            ground_atom_dataset[i][1][t_start].add(DummyPredicate(f"{CFG.robo_kitchen_task}-goal"))
-                            goal_reached_states[i].append(ll_traj.states[t_start])
-                            t_start += 1
-                        achieved_goal = True
-                    else:
-                        if any(atom.predicate.name == in_contact_pred.name for atom in lost_atoms):
-                            t_start = None
-                            for t_test in range(t-skip_var, t): # search for the last state before contact lost
-                                if len(atom_seq[t_test]) > len(atom_seq[t_test+1]):
-                                    t_start = t_test+1
-                                    break
-                            logging.debug(f"Contact lost at t={t_start}")
-                            assert t_start is not None
-                            # if atom.predicate == in_contact_pred: # this is lost gripper with obj
-                            #     consistent_contact = False
-                            while t_start < len(atom_seq):
-                                ground_atom_dataset[i][1][t_start].add(DummyPredicate(f"{CFG.robo_kitchen_task}-goal"))
-                                goal_reached_states[i].append(ll_traj.states[t_start])
-                                t_start += 1
-                            achieved_goal = True
-
-                # ------------------------------------------------------------------------ #
-
-                for atom in atoms_t: # this does not handle multiple objects in contact with the gripper at the same time
-                    if CFG.clustering_change_only and atom in atoms_tm1: continue 
-                    # this optionally only consider the change of contact, this turns out to be too few points for clustering
-                    # so usually all points in contact are used for clustering, i.e. CFG.clustering_change_only is False
-                    if hasattr(atom, "predicate") and atom.predicate == in_contact_pred:
-                        if atom in atoms_tm1:
-                            consistent_contact = True
-                        else:
-                            consistent_contact = False
-                        # Ensure the atom involves the gripper type or handle goals correctly
-                        obj1, obj2 = atom.objects
-                        assert obj2.type == gripper_type
-
-                        # ------ get relative pose trajs of obj_contact_with_gripper in all other obj's frame ------ #
-                        obj_contact_with_gripper = obj1
-                        # Exclude robot base from contact duration tracking
-                        if "base" not in obj_contact_with_gripper.name.lower():
-                            if obj_contact_with_gripper not in object_type_in_contact_with_gripper_longest_duration[i]:
-                                object_type_in_contact_with_gripper_longest_duration[i][obj_contact_with_gripper.type] = 0
-                            object_type_in_contact_with_gripper_longest_duration[i][obj_contact_with_gripper.type] += 1
-
-                        for obj in traj_all_objs: # go through all object to get obj-obj relative pose
-                            if obj.type == gripper_type or obj == obj_contact_with_gripper:
-                                continue
-                            relative_pose = utils.calculate_relative_pose_from_state(state_t, obj, obj_contact_with_gripper, CFG.trans_feat_name, CFG.quat_feat_name)
-                            if obj.type not in contact_period_rel_trajs:
-                                contact_period_rel_trajs[obj.type] = []
-                            if not consistent_contact: # start of contact
-                                contact_period_rel_trajs[obj.type].append([relative_pose]) # separate the contact period into different trajectories
-                            else:
-                                contact_period_rel_trajs[obj.type][-1].append(relative_pose)
-
-                        # -------------------------------------------------------------------------------------------- #
-                        # these are used to compute rel pose between GRIPPER and OBJECT for finding end points of DS
-                        # Calculate relative pose at the moment of contact (state t)
-                        rel_pose_at_contact_obj2_in_obj1_frame = utils.calculate_relative_pose_from_state(
-                            state_t, obj1, obj2,
-                            CFG.trans_feat_name, CFG.quat_feat_name
-                        )
-
-                        if rel_pose_at_contact_obj2_in_obj1_frame is not None:
-                            key = (atom.predicate, obj1.type, obj2.type, "2in1")
-                            relative_pose_dataset_dict[key].append(rel_pose_at_contact_obj2_in_obj1_frame)
-
-                        rel_pose_at_contact_obj1_in_obj2_frame = utils.calculate_relative_pose_from_state(
-                            state_t, obj2, obj1,
-                            CFG.trans_feat_name, CFG.quat_feat_name
-                        )
-
-                        if rel_pose_at_contact_obj1_in_obj2_frame is not None:
-                            key = (atom.predicate, obj1.type, obj2.type, "1in2")
-                            relative_pose_dataset_dict[key].append(rel_pose_at_contact_obj1_in_obj2_frame)
-                # find the object in contact with the gripper the longest in each dataset
-        for i, obj_type_in_contact_with_gripper_longest_duration in enumerate(object_type_in_contact_with_gripper_longest_duration):
-            if len(obj_type_in_contact_with_gripper_longest_duration) == 0: continue
-            object_type_in_contact_with_gripper_longest_duration[i] = max(obj_type_in_contact_with_gripper_longest_duration, key=obj_type_in_contact_with_gripper_longest_duration.get)
-        logging.info(f"Object in contact with gripper the longest in each dataset: {object_type_in_contact_with_gripper_longest_duration}")
-
-
+        # Use motion analysis data if available, otherwise fall back to original logic
+        if trajectory_motion_phases is not None and trajectory_all_objects is not None and gripper_obj is not None and contact_lost_periods is not None:
+            logging.info("Using motion analysis data for relative pose extraction...")
+            
+            for i, (ll_traj, atom_seq) in enumerate(ground_atom_dataset):
+                goal_reached_states[i] = []
+                
+                # Get objects from motion analysis
+                if i in trajectory_all_objects:
+                    traj_all_objs = trajectory_all_objects[i]
+                else:
+                    # Fall back to original logic if no motion analysis data
+                    traj_all_objs = [o for o in ll_traj.states[0].data.keys() if o.type in all_objs_types]
+                
+                traj_all_objs_all.append(traj_all_objs)
+                object_type_in_contact_with_gripper_longest_duration.append({})
+                
+                if not ll_traj.states: 
+                    continue
+                
+                # Mark subgoals based on contact lost periods
+                if i in contact_lost_periods:
+                    for idx, (start_period, end_period) in enumerate(contact_lost_periods[i]):
+                        if idx == 0: continue
+                        # Find which object was in motion before this contact lost period
+                        moving_obj = self._find_object_in_motion_before_period(trajectory_motion_phases[i], start_period)
+                        goal_type = f"{CFG.robo_kitchen_task}-subgoal-{idx}"
+                        
+                        # logging.debug(f"Marking subgoal from t={start_period} to t={end_period}")
+                        
+                        for t_goal in range(start_period, end_period + 1):
+                            if t_goal < len(atom_seq):
+                                ground_atom_dataset[i][1][t_goal].add(DummyPredicate(goal_type, [moving_obj.type]))
+                                goal_reached_states[i].append(ll_traj.states[t_goal])
+                        
+                        # During contact lost periods, compute relative poses between objects in motion and all other objects
+                        if moving_obj:
+                            for t in range(start_period, min(end_period + 1, len(ll_traj.states))):
+                                state_t = ll_traj.states[t]
+                                for obj in traj_all_objs:
+                                    if obj.type == gripper_type or obj == moving_obj:
+                                        continue
+                                    relative_pose = utils.calculate_relative_pose_from_state(
+                                        state_t, obj, moving_obj, CFG.trans_feat_name, CFG.quat_feat_name
+                                    )
+                                    # Use nested dictionary: moving_obj_type -> reference_obj_type -> trajectories
+                                    if moving_obj.type not in contact_period_rel_trajs:
+                                        contact_period_rel_trajs[moving_obj.type] = {}
+                                    if obj.type not in contact_period_rel_trajs[moving_obj.type]:
+                                        contact_period_rel_trajs[moving_obj.type][obj.type] = []
+                                    if t == start_period:  # Start of new period
+                                        contact_period_rel_trajs[moving_obj.type][obj.type].append([relative_pose])
+                                    else:
+                                        if contact_period_rel_trajs[moving_obj.type][obj.type]:
+                                            contact_period_rel_trajs[moving_obj.type][obj.type][-1].append(relative_pose)
+                
+                # Extract relative poses during contact periods from motion phases
+                if i in trajectory_motion_phases:
+                    for phase in trajectory_motion_phases[i]:
+                        start_frame = phase['start_frame']
+                        end_frame = phase['end_frame']
+                        moving_objects = phase.get('moving_objects', [])
+                        
+                        # Assume contact between gripper and moving objects during motion phases
+                        for moving_obj in moving_objects:
+                            for t in range(start_frame, min(end_frame + 1, len(ll_traj.states))):
+                                state_t = ll_traj.states[t]
+                                
+                                # Calculate relative pose between gripper and moving object
+                                rel_pose_at_contact_obj2_in_obj1_frame = utils.calculate_relative_pose_from_state(
+                                    state_t, moving_obj, gripper_obj, CFG.trans_feat_name, CFG.quat_feat_name
+                                )
+                                if rel_pose_at_contact_obj2_in_obj1_frame is not None:
+                                    key = (in_contact_pred, moving_obj.type, gripper_type, "2in1")
+                                    relative_pose_dataset_dict[key].append(rel_pose_at_contact_obj2_in_obj1_frame)
         
-        return relative_pose_dataset_dict, traj_all_objs_all, contact_period_rel_trajs, goal_reached_states, object_type_in_contact_with_gripper_longest_duration, ground_atom_dataset
+        return relative_pose_dataset_dict, traj_all_objs_all, contact_period_rel_trajs, goal_reached_states, ground_atom_dataset
+
+    def _find_object_in_motion_before_period(self, motion_phases: List[Dict], period_start: int) -> Object:
+        """Find the object that was in motion before the given period start time."""
+        # Look for the most recent motion phase that ended before this period
+        for phase in reversed(motion_phases):
+            if phase['end_frame'] < period_start and phase.get('moving_objects'):
+                return phase['moving_objects'][0]  # Return the first (primary) moving object
+        raise ValueError("No object in motion before the given period start time")
+
+    def _find_object_in_contact_with_gripper(self, trajectory_all_objects: Dict[int, List[Object]]) -> Type:
+        """Find the most common object type that comes in contact with the gripper across trajectories."""
+        from collections import Counter
+        
+        # Count all object types across all trajectories (excluding gripper)
+        all_object_types = []
+        for traj_idx, objects in trajectory_all_objects.items():
+            for obj in objects:
+                if 'gripper' not in obj.type.name.lower():
+                    all_object_types.append(obj.type)
+        
+        if not all_object_types:
+            raise ValueError("No non-gripper objects found in trajectories")
+        
+        # Return the most common object type
+        type_counts = Counter(all_object_types)
+        most_common_type = type_counts.most_common(1)[0][0]
+        
+        return most_common_type
     
     def _find_common_objects_types(self, ground_atom_dataset: List[GroundAtomTrajectory]) -> List[Type]:
         """Find common objects across all trajectories in the dataset."""

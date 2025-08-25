@@ -132,6 +132,9 @@ class RoboKitchenEnv(BaseEnv):
         "obj_container": container_type,
         "door_obj": thing_type, # opensingledoor data have door obj in the cabinet
         "dummy_object": object_type,
+        "vegetable1": thing_type,
+        "vegetable2": thing_type,
+        "cutting_board": container_type,
     }
 
     obj_name_to_type_mocap = {
@@ -363,6 +366,8 @@ class RoboKitchenEnv(BaseEnv):
         elif task_name == "CookCheeseAndTomatoes":
             return [self.object_name_to_object("tomato"), self.object_name_to_object("cheese"), self.object_name_to_object("plate")]
         elif task_name == "PnPCabToCounterTomato":
+            return [self.object_name_to_object("tomato"), self.object_name_to_object("plate")]
+        elif task_name == "ArrangeVegetables":
             return [self.object_name_to_object("tomato"), self.object_name_to_object("plate")]
         else:
             raise ValueError(f"Task {task_name} not supported")
@@ -1546,6 +1551,8 @@ class RoboKitchenEnv(BaseEnv):
             goal_preds = {self._pred_name_to_pred["InContainer"]}
         elif goal_desc == "MocapTest":
             goal_preds = {self._pred_name_to_pred["LidOnDishrack"]}
+        elif goal_desc == "ArrangeVegetables":# NOT PROPERLY TESTED
+            goal_preds = {self._pred_name_to_pred["InContainer"]}
         else:
             raise NotImplementedError(f"Goal description {goal_desc} not implemented for {CFG.robo_kitchen_task}")
         return goal_preds
@@ -1624,7 +1631,8 @@ class RoboKitchenEnv(BaseEnv):
             found_objects.append(Object(found_name, cls.obj_name_to_type[obj_name_no_num]))
 # deal with case with objects that we need to add offline for user demo data, where no env is avaliable.
         if len(found_objects) > 1:
-            raise ValueError(f"Expected exactly 1 object for {obj_name}, got {len(found_objects)}")
+            warnings.warn(f"Expected exactly 1 object for {obj_name}, got {len(found_objects)}")
+            # raise ValueError(f"Expected exactly 1 object for {obj_name}, got {len(found_objects)}")
             # if len(found_objects) != 2:
             #     raise ValueError(f"Expected exactly 2 objects for {obj_name}, got {len(found_objects)}")
             
@@ -1750,7 +1758,8 @@ class RoboKitchenEnv(BaseEnv):
         if "sink_faucet_on" in state_info:
             sink_faucet_objs = cls.object_name_to_objects("sink_faucet_handle", test_time=True)
             for sink_faucet_obj in sink_faucet_objs:
-                state_dict[sink_faucet_obj]["on"] = np.array([state_info["sink_faucet_on"]])
+                if sink_faucet_obj in state_dict:
+                    state_dict[sink_faucet_obj]["on"] = np.array([state_info["sink_faucet_on"]])
 
         state = utils.create_state_from_dict(state_dict)
         state.simulator_state = {}
