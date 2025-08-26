@@ -486,7 +486,6 @@ class LiftedAtom(_Atom):
         assert set(self.variables).issubset(set(sub.keys()))
         return LiftedAtom(self.predicate, [sub[v] for v in self.variables])
 
-
 @dataclass(frozen=True, repr=False, eq=False)
 class GroundAtom(_Atom):
     """Struct defining a ground atom (a predicate applied to objects)."""
@@ -523,6 +522,11 @@ class GroundAtom(_Atom):
         assert isinstance(self.predicate, VLMPredicate)
         return self.predicate.get_vlm_query_str(self.objects)  # pylint:disable=no-member
 
+@dataclass(frozen=True, repr=False, eq=False)
+class DummyGroundAtom(GroundAtom):
+    """Struct defining a dummy ground atom (a predicate applied to variables)."""
+    def __post_init__(self) -> None:
+        assert len(self.entities) == self.predicate.arity
 
 @dataclass(frozen=True, eq=False)
 class Task:

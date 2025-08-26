@@ -18,7 +18,6 @@ class GlobalSettings:
     pose_feature_name = "pose"
     min_data_for_nsrt = 1
     reprocess_ground_atom_dataset_using_cluster_replacement = True
-    reprocess_ground_atom_dataset_using_cluster_predicates = False
     remove_inOrigin_pred = True
     robo_kitchen_obj_names = ["robot0_base", "gripper", "left_finger", "right_finger", "wrist"] # this stores the actual object names, determined by a mujoco id, such as "cabinet_10" (see how these are constructed in robocasa/kithcen.py)
 
@@ -117,6 +116,7 @@ class GlobalSettings:
 
     # learning from compostie tassk
     robo_kitchen_task = "ArrangeVegetables"
+    # robo_kitchen_task = "PreSoakPan"
 
     # hardware tasks    
     # robo_kitchen_task = "MocapOpenLid"
