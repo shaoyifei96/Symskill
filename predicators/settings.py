@@ -22,7 +22,7 @@ class GlobalSettings:
     robo_kitchen_obj_names = ["robot0_base", "gripper", "left_finger", "right_finger", "wrist"] # this stores the actual object names, determined by a mujoco id, such as "cabinet_10" (see how these are constructed in robocasa/kithcen.py)
 
     relaxed_nsrt_learning = False
-    use_learnt_goal_predicates = True
+    use_learnt_goal_predicates = False
     use_negated_goal_predicates = False
     enable_base_ref_obj_precondition = False
 
@@ -95,7 +95,7 @@ class GlobalSettings:
 
     # robo_kitchen env parameters
     robo_kitchen_randomize_init_state = True  # not used
-    # robo_kitchen_task = "OpenSingleDoor"
+    robo_kitchen_task = "OpenSingleDoor"
     # robo_kitchen_task = "CloseSingleDoor"
     # robo_kitchen_task = "PnPCounterToCab" 
     # robo_kitchen_task = "PnPCabToCounter" # #this has no plate, cannot find a good ref
@@ -115,7 +115,7 @@ class GlobalSettings:
     # robo_kitchen_task = "CookCheeseAndTomatoes" # New task
 
     # learning from compostie tassk
-    robo_kitchen_task = "ArrangeVegetables"
+    # robo_kitchen_task = "ArrangeVegetables"
     # robo_kitchen_task = "PreSoakPan"
 
     # hardware tasks    

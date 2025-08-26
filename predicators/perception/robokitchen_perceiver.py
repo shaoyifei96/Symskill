@@ -141,6 +141,93 @@ class RoboKitchenPerceiver(BasePerceiver):
         # Create and return the relative pose predicate atom
         return GroundAtom(proper_goal_pred, [type1_obj_final, type2_obj_final])
 
+    def _construct_goal_from_stored_atoms(self, state, goal_desc: str) -> Set[GroundAtom]:
+        """Construct goal from stored common atoms using object names to find objects in current state."""
+        stored_atoms = CFG.dict_gt_goal_predicate_to_dummy_goal_predicates[goal_desc]
+        goal = set()
+        
+        # Get predicate name to predicate mapping
+        pred_name_to_pred = RoboKitchenEnv.create_predicates()
+        
+        # Create a mapping from object name to object in current state
+        name_to_obj = {obj.name: obj for obj in state}
+        
+        for atom_key in stored_atoms:
+            # atom_key format: (predicate_name, (obj_names...), (obj_type_names...))
+            pred_name, obj_names, obj_type_names = atom_key
+            
+            # Try to find the predicate
+            # if pred_name in pred_name_to_pred:
+            for pred_name_key, type1, type2 in CFG.dict_contact_predicate_to_rel_pose_predicates.keys():
+                if obj_type_names == (type1, type2):
+                    predicate = CFG.dict_contact_predicate_to_rel_pose_predicates[pred_name_key, type1, type2]
+                    assert len(predicate) == 1, f"Multiple predicates found for {pred_name_key}, {type1}, {type2}"
+                    predicate = list(predicate)[0]
+                    break
+            else:
+                raise NotImplementedError(f"Unrecognized goal: {goal_desc} (This goal is what the algorithm sees online to convert each goal description to something it understands as relative pose predicates it met during training. e.g. InContainer(tomato, plate) -> RelPose(tomato, plate). Since no goal predicate is specified during training, so we need to save a goal dict for each goal description)")            
+            
+            # Check if this is a fallback entry (empty obj_names tuple)
+            if not obj_names:  # Empty tuple means this is a predicate+type only entry
+                # Match by object types only
+                objects_by_type = []
+                found_all_types = True
+                
+                for obj_type_name in obj_type_names:
+                    # Find objects of this type in the current state
+                    matching_objs = [obj for obj in state if obj.type.name == obj_type_name]
+                    if matching_objs:
+                        # Use the first object of this type
+                        objects_by_type.append(matching_objs[0])
+                    else:
+                        # No objects of this type found
+                        found_all_types = False
+                        break
+                
+                if found_all_types and len(objects_by_type) == len(obj_type_names):
+                    # Create the ground atom using objects matched by type
+                    goal_atom = GroundAtom(predicate, objects_by_type)
+                    goal.add(goal_atom)
+            else:
+                # This is a normal entry with specific object names, try name matching first
+                objects = []
+                found_all_objects = True
+                
+                for obj_name in obj_names:
+                    if obj_name in name_to_obj:
+                        objects.append(name_to_obj[obj_name])
+                    else:
+                        # Object not found by name, skip this atom
+                        found_all_objects = False
+                        break
+                
+                if found_all_objects and len(objects) == len(obj_names):
+                    # Create the ground atom using objects matched by name
+                    goal_atom = GroundAtom(predicate, objects)
+                    goal.add(goal_atom)
+                else:
+                    # Fallback: try to match by object types only
+                    objects_by_type = []
+                    found_all_types = True
+                    
+                    for obj_type_name in obj_type_names:
+                        # Find objects of this type in the current state
+                        matching_objs = [obj for obj in state if obj.type.name == obj_type_name]
+                        if matching_objs:
+                            # Use the first object of this type
+                            objects_by_type.append(matching_objs[0])
+                        else:
+                            # No objects of this type found
+                            found_all_types = False
+                            break
+                    
+                    if found_all_types and len(objects_by_type) == len(obj_type_names):
+                        # Create the ground atom using objects matched by type
+                        goal_atom = GroundAtom(predicate, objects_by_type)
+                        goal.add(goal_atom)
+                    
+        return goal
+
     def _convert_goal_for_clustering_reprocess(self, state, goal: Set[GroundAtom]) -> Set[GroundAtom]:
         """Convert goal atoms to relative pose predicates if clustering reprocess is enabled."""
         if (len(list(state)) == 0 or 
@@ -200,91 +287,95 @@ class RoboKitchenPerceiver(BasePerceiver):
         sink = RoboKitchenEnv.object_name_to_object("sink")
 
         goal_desc = env_task.goal_description
-        if goal_desc == 'OpenSingleDoor':
-            goal = {
-                # GroundAtom(DoorOpen, [handle, cabinet]),
-                GroundAtom(DoorOpen, [door, cabinet]),
-            }
-        elif goal_desc == 'OpenDoubleDoor':
-            goal = {
-                # GroundAtom(DoorOpen, [left_handle, cabinet]),
-                # GroundAtom(DoorOpen, [right_handle, cabinet]),
-                GroundAtom(DoorOpen, [left_door, cabinet]),
-                GroundAtom(DoorOpen, [right_door, cabinet]),
-            }
-        elif goal_desc == "CloseSingleDoor":
-            goal = {
-                GroundAtom(DoorClosed, [door, cabinet]),
-            }
-        elif goal_desc == "CloseDoubleDoor":
-            goal = {
-                GroundAtom(DoorClosed, [left_door, cabinet]),
-                GroundAtom(DoorClosed, [right_door, cabinet]),
-            }
-        elif goal_desc == 'PnPCounterToCab':
-            goal = {
-                GroundAtom(OnSurface, [obj, bottom]),
-                GroundAtom(GripperFarFromObj, [obj, obj]),
-            }
-        elif goal_desc == 'PnPCabToCounter':
-            goal = {
-                GroundAtom(OnCounter, [obj, counter]),
-            }
-        elif goal_desc == 'PnPCounterToStove':
-            goal = {
-                GroundAtom(InContainer, [obj, container]),
-                GroundAtom(GripperFarFromObj, [obj, obj]),
-            }
-        elif goal_desc == 'StoreFruit':
-            goal = {
-                GroundAtom(OnSurface, [obj, bottom]),
-            }
-        elif goal_desc == 'StoreFruitFull':
-            goal = {
-                GroundAtom(OnSurface, [obj, bottom]),
-                GroundAtom(DoorClosed, [door, cabinet]),
-            }
-        elif goal_desc == 'TurnOnMicrowave':
-            goal = {
-                GroundAtom(MicrowaveOn, [microwave])
-            }
-        elif goal_desc == 'TurnOnStove':
-            goal = {
-                GroundAtom(StoveOn, [stove]),
-            }
-        elif goal_desc == 'CloseDrawer':
-            goal = {
-                GroundAtom(DrawerClosed, [drawer_inner_box, drawer]),
-            }
-        elif goal_desc == 'PnPStoveToCounter':
-            goal = {
-                GroundAtom(InContainer, [obj, container]),
-            }
-        elif goal_desc == 'OpenDrawer':
-            goal = {
-                GroundAtom(DrawerOpen, [drawer_inner_box, drawer]),
-            }
-        elif goal_desc == 'TurnOffStove':
-            goal = {
-                GroundAtom(StoveOff, [stove]),
-            }
-        elif goal_desc == 'CookCheeseAndTomatoes':
-            goal = {
-                GroundAtom(InContainer, [tomato, plate]),
-                GroundAtom(InContainer, [cheese, plate]),
-            }
-        elif goal_desc == 'TurnOnSinkFaucet':
-            goal = {
-                GroundAtom(SinkFaucetOn, [sink_faucet_handle]),
-            }
-        elif goal_desc == 'TurnOffSinkFaucet':
-            goal = {
-                GroundAtom(SinkFaucetOff, [sink_faucet_handle]),
-            }
-        elif goal_desc == 'PnPCabToCounterTomato':
-            goal = {
-                GroundAtom(InContainer, [tomato, plate]),
-            }
+        # if goal_desc == 'OpenSingleDoor':
+        #     goal = {
+        #         # GroundAtom(DoorOpen, [handle, cabinet]),
+        #         GroundAtom(DoorOpen, [door, cabinet]),
+        #     }
+        # elif goal_desc == 'OpenDoubleDoor':
+        #     goal = {
+        #         # GroundAtom(DoorOpen, [left_handle, cabinet]),
+        #         # GroundAtom(DoorOpen, [right_handle, cabinet]),
+        #         GroundAtom(DoorOpen, [left_door, cabinet]),
+        #         GroundAtom(DoorOpen, [right_door, cabinet]),
+        #     }
+        # elif goal_desc == "CloseSingleDoor":
+        #     goal = {
+        #         GroundAtom(DoorClosed, [door, cabinet]),
+        #     }
+        # elif goal_desc == "CloseDoubleDoor":
+        #     goal = {
+        #         GroundAtom(DoorClosed, [left_door, cabinet]),
+        #         GroundAtom(DoorClosed, [right_door, cabinet]),
+        #     }
+        # elif goal_desc == 'PnPCounterToCab':
+        #     goal = {
+        #         GroundAtom(OnSurface, [obj, bottom]),
+        #         GroundAtom(GripperFarFromObj, [obj, obj]),
+        #     }
+        # elif goal_desc == 'PnPCabToCounter':
+        #     goal = {
+        #         GroundAtom(OnCounter, [obj, counter]),
+        #     }
+        # elif goal_desc == 'PnPCounterToStove':
+        #     goal = {
+        #         GroundAtom(InContainer, [obj, container]),
+        #         GroundAtom(GripperFarFromObj, [obj, obj]),
+        #     }
+        # elif goal_desc == 'StoreFruit':
+        #     goal = {
+        #         GroundAtom(OnSurface, [obj, bottom]),
+        #     }
+        # elif goal_desc == 'StoreFruitFull':
+        #     goal = {
+        #         GroundAtom(OnSurface, [obj, bottom]),
+        #         GroundAtom(DoorClosed, [door, cabinet]),
+        #     }
+        # elif goal_desc == 'TurnOnMicrowave':
+        #     goal = {
+        #         GroundAtom(MicrowaveOn, [microwave])
+        #     }
+        # elif goal_desc == 'TurnOnStove':
+        #     goal = {
+        #         GroundAtom(StoveOn, [stove]),
+        #     }
+        # elif goal_desc == 'CloseDrawer':
+        #     goal = {
+        #         GroundAtom(DrawerClosed, [drawer_inner_box, drawer]),
+        #     }
+        # elif goal_desc == 'PnPStoveToCounter':
+        #     goal = {
+        #         GroundAtom(InContainer, [obj, container]),
+        #     }
+        # elif goal_desc == 'OpenDrawer':
+        #     goal = {
+        #         GroundAtom(DrawerOpen, [drawer_inner_box, drawer]),
+        #     }
+        # elif goal_desc == 'TurnOffStove':
+        #     goal = {
+        #         GroundAtom(StoveOff, [stove]),
+        #     }
+        # elif goal_desc == 'CookCheeseAndTomatoes':
+        #     goal = {
+        #         GroundAtom(InContainer, [tomato, plate]),
+        #         GroundAtom(InContainer, [cheese, plate]),
+        #     }
+        # elif goal_desc == 'TurnOnSinkFaucet':
+        #     goal = {
+        #         GroundAtom(SinkFaucetOn, [sink_faucet_handle]),
+        #     }
+        # elif goal_desc == 'TurnOffSinkFaucet':
+        #     goal = {
+        #         GroundAtom(SinkFaucetOff, [sink_faucet_handle]),
+        #     }
+        # elif goal_desc == 'PnPCabToCounterTomato':
+        #     goal = {
+        #         GroundAtom(InContainer, [tomato, plate]),
+        #     }
+        # else:
+        if goal_desc in CFG.dict_gt_goal_predicate_to_dummy_goal_predicates:
+            # Use the stored common atoms to construct the goal
+            goal = self._construct_goal_from_stored_atoms(state, goal_desc)
         else:
             raise NotImplementedError(f"Unrecognized goal: {goal_desc} (This goal is what the algorithm sees online to convert each goal description to something it understands as relative pose predicates it met during training. e.g. InContainer(tomato, plate) -> RelPose(tomato, plate). Since no goal predicate is specified during training, so we need to save a goal dict for each goal description)")
 

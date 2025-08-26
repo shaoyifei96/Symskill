@@ -135,6 +135,8 @@ class RoboKitchenEnv(BaseEnv):
         "vegetable1": thing_type,
         "vegetable2": thing_type,
         "cutting_board": container_type,
+        "obj1": cookware_type,
+        "obj2": thing_type,
     }
 
     obj_name_to_type_mocap = {
@@ -368,6 +370,8 @@ class RoboKitchenEnv(BaseEnv):
         elif task_name == "PnPCabToCounterTomato":
             return [self.object_name_to_object("tomato"), self.object_name_to_object("plate")]
         elif task_name == "ArrangeVegetables":
+            return [self.object_name_to_object("tomato"), self.object_name_to_object("plate")]
+        elif task_name == "PreSoakPan":
             return [self.object_name_to_object("tomato"), self.object_name_to_object("plate")]
         else:
             raise ValueError(f"Task {task_name} not supported")
@@ -646,9 +650,12 @@ class RoboKitchenEnv(BaseEnv):
             assert plate is not None, "Expected exactly one plate object"
             if self._OnSurface_holds(state, [obj, plate]):
                 return True
+            
         
         else:
-            raise ValueError(f"Goal description {goal_desc} not supported")
+            logging.error(f"Goal description {goal_desc} not supported")
+            
+            return False
 
     def _reset_initial_state(self,
                                seed: int,
@@ -1553,6 +1560,8 @@ class RoboKitchenEnv(BaseEnv):
             goal_preds = {self._pred_name_to_pred["LidOnDishrack"]}
         elif goal_desc == "ArrangeVegetables":# NOT PROPERLY TESTED
             goal_preds = {self._pred_name_to_pred["InContainer"]}
+        elif goal_desc == "PreSoakPan":# NOT PROPERLY TESTED
+            goal_preds = {self._pred_name_to_pred["InContainer"]}  
         else:
             raise NotImplementedError(f"Goal description {goal_desc} not implemented for {CFG.robo_kitchen_task}")
         return goal_preds

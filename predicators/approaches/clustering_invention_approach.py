@@ -2769,12 +2769,74 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
 
        
             logging.warning("goal_predicate not implemented, so can't do online planning, breaking!")
-        # if env.goal_predicates : 
-        #     assert len(list(env.goal_predicates)) == 1
-        #     #this for running testing tasks! During testing, the goal is not the ground truth goal, but translated to a rel pose goal. During test time, the goal does not have to be just 1
-        #     goal_pred = list(env.goal_predicates)[0]
-        #     pred_key = tuple([goal_pred.name] + [t.name for t in goal_pred.types])
-        #     CFG.dict_gt_goal_predicate_to_dummy_goal_predicates[pred_key] = set([DummyPredicate(f"{CFG.robo_kitchen_task}-goal", [obj_type_of_reference_best, obj_type_contact_with_gripper])])
+        
+        # Collect atoms at the end of each demonstration episode
+        if env.goal_predicates:
+            # Get final atoms from each trajectory
+            final_atoms_per_episode = []
+            for i, (ll_traj, atom_seq) in enumerate(ground_atom_dataset):
+                if not ll_traj.states or not atom_seq:
+                    continue  # Skip empty trajectories
+                # Get atoms from the final timestep
+                final_atoms = atom_seq[-1] if atom_seq else set()
+                final_atoms_per_episode.append(final_atoms)
+            
+            if final_atoms_per_episode:
+                # Count frequency of each atom across all episodes
+                atom_counts = {}
+                total_episodes = len(final_atoms_per_episode)
+                
+                for final_atoms in final_atoms_per_episode:
+                    for atom in final_atoms:
+                        # Create a hashable key for the atom (predicate name + object types)
+                        atom_key = (atom.predicate.name, tuple(obj.name for obj in atom.objects), tuple(obj.type.name for obj in atom.objects))
+                        atom_counts[atom_key] = atom_counts.get(atom_key, 0) + 1
+                
+                # Find atoms that appear in most episodes (threshold: at least 80% of episodes)
+                threshold = max(1, int(0.8 * total_episodes))
+                common_atoms = {atom_key for atom_key, count in atom_counts.items() if count >= threshold}
+                
+                logging.info(f"Found {len(common_atoms)} atoms that appear in at least {threshold}/{total_episodes} episodes")
+                for atom_key, count in atom_counts.items():
+                    if atom_key in common_atoms:
+                        logging.info(f"  - {atom_key[0]}({', '.join(atom_key[1])}, {', '.join(atom_key[2])}): {count}/{total_episodes} episodes")
+                
+                # Update goal predicate mapping for each ground truth goal predicate
+                pred_key = CFG.robo_kitchen_task 
+                
+                if common_atoms:
+                    # If we found common atoms, save them with full details (predicate, obj_names, obj_types)
+                    CFG.dict_gt_goal_predicate_to_dummy_goal_predicates[pred_key] = common_atoms
+                    logging.info(f"Updated goal mapping for {CFG.robo_kitchen_task} with {len(common_atoms)} common final atoms")
+                else:
+                    # No common atoms found, create fallback entries
+                    logging.warning(f"No common atoms found with threshold {threshold}/{total_episodes}, creating fallback entries")
+                    
+                    # Create fallback entries with different levels of specificity
+                    fallback_atoms = set()
+                    
+                    # First fallback: predicate + object names + object types (same as original but with lower threshold)
+                    lower_threshold = max(1, int(0.5 * total_episodes))  # 50% threshold
+                    lower_common_atoms = {atom_key for atom_key, count in atom_counts.items() if count >= lower_threshold}
+                    
+                    if lower_common_atoms:
+                        fallback_atoms.update(lower_common_atoms)
+                        logging.info(f"Added {len(lower_common_atoms)} atoms with lower threshold ({lower_threshold}/{total_episodes})")
+                    else:
+                        # Second fallback: predicate + object types only (remove specific object names)
+                        predicate_type_atoms = set()
+                        for atom_key, count in atom_counts.items():
+                            pred_name, obj_names, obj_type_names = atom_key
+                            # Create key with just predicate and types (empty tuple for obj_names)
+                            type_only_key = (pred_name, (), obj_type_names)
+                            predicate_type_atoms.add(type_only_key)
+                        
+                        fallback_atoms.update(predicate_type_atoms)
+                        logging.info(f"Added {len(predicate_type_atoms)} predicate+type fallback atoms")
+                    
+                    CFG.dict_gt_goal_predicate_to_dummy_goal_predicates[pred_key] = fallback_atoms
+                    logging.info(f"Updated goal mapping for {CFG.robo_kitchen_task} with {len(fallback_atoms)} fallback atoms")
+        
         # --- End Debugging ---
        
         return ground_atom_dataset, ground_atom_dataset, different_seg_count_trajs, renamed_cluster_candidates, learnt_goal_predicates
