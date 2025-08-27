@@ -1464,7 +1464,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         
         # Fine-tune boundaries using combined velocities within 30 steps
         raw_motion_segments = self._fine_tune_motion_boundaries(
-            initial_motion_segments, combined_velocities, search_window=30
+            initial_motion_segments, combined_velocities, search_window=10
         )
         # logging.debug(f"    After fine-tuning with combined velocities: {len(raw_motion_segments)} refined segments")
         
@@ -1720,7 +1720,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
 
     def _visualize_object_motion_phases(self, traj_idx: int, gripper_velocity: np.ndarray, object_motion_phases: List[Dict], object_motion_data: Dict, gripper_motion_data: List):
         """Create visualization showing object motion phases with combined velocity boundary detection."""
-        plt.figure(figsize=(15, 10))
+        plt.figure(figsize=(20, 12))
         
         # Extract gripper rotational velocity from gripper_motion_data
         gripper_angular_velocity = np.zeros(len(gripper_velocity))
@@ -1729,7 +1729,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 gripper_angular_velocity[t] = angular_vel
         
         # Plot gripper linear velocity
-        plt.subplot(2, 2, 1)
+        plt.subplot(4, 1, 1)
         plt.plot(gripper_velocity, label='Gripper Linear Velocity', color='blue', linewidth=2)
         
         # Highlight object motion phases
@@ -1764,7 +1764,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         plt.grid(True, alpha=0.3)
         
         # Plot gripper angular velocity
-        plt.subplot(2, 2, 2)
+        plt.subplot(4, 1, 2)
         plt.plot(gripper_angular_velocity, label='Gripper Angular Velocity', color='red', linewidth=2)
         
         # Highlight object motion phases on angular velocity plot
@@ -1797,7 +1797,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         plt.grid(True, alpha=0.3)
         
         # Plot object linear velocities
-        plt.subplot(2, 2, 3)
+        plt.subplot(4, 1, 3)
         colors_obj = plt.cm.tab10(np.linspace(0, 1, len(object_motion_data)))
         
         for (obj, motion_list), color in zip(object_motion_data.items(), colors_obj):
@@ -1840,7 +1840,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         plt.grid(True, alpha=0.3)
         
         # Plot object angular velocities
-        plt.subplot(2, 2, 4)
+        plt.subplot(4, 1, 4)
         
         for (obj, motion_list), color in zip(object_motion_data.items(), colors_obj):
             if motion_list:  # Only plot if object has motion data
@@ -2686,7 +2686,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         # logging.error(f"Using ground truth reference object type: {obj_type_of_reference_best.name}")
         # assert obj_type_of_reference_best is not None, f"Reference object type not found in all_objs_types: {all_objs_types}"
         # assert obj_type_of_reference_best.name in gt_ref_obj_type, f"GT reference object type not matching correct solution, gt_ref_obj_type: {gt_ref_obj_type}, obj_type_of_reference_best: {obj_type_of_reference_best.name}"
-        
+        print(best_reference_per_moving_obj)
         # self._visualize_contact_period_trajectories(contact_period_rel_trajs, list_of_reconstruction_errors)
         ground_atom_dataset = self._update_atom_sequences_with_goal_predicates(ground_atom_dataset, traj_all_objs_all, best_reference_per_moving_obj)
         relative_pose_all_dict = self._update_rel_pose_dict_with_obj_obj(relative_pose_gripper_obj_dataset_dict, contact_period_obj_obj_rel_trajs, best_reference_per_moving_obj)
@@ -3140,9 +3140,12 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             
             best_ref_obj_type = None
             min_reconstruction_error = float('inf')
-            black_list = []
+            black_list = ["thing_type"]
             
             for ref_obj_type, rel_pose_trajs in ref_obj_dict.items():
+                if ref_obj_type.name in black_list:
+                    logging.debug(f"    Skipping blacklisted reference object: {ref_obj_type.name}")
+                    continue
                 if len(rel_pose_trajs) == 0: 
                     continue
                     
@@ -3159,6 +3162,14 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                     x_traj = np.array(rel_pose_traj)[:, :3]
                     quat_traj = np.array(rel_pose_traj)[:, 3:]
                     x_dot_traj, omega_traj = compute_vel_traj(x_traj, np.array([R.from_quat(q).as_matrix() for q in quat_traj]), 1/10)
+                    
+
+                    # Downsample data by taking every 5th datapoint
+                    n = 5
+                    x_traj = x_traj[::n]
+                    quat_traj = quat_traj[::n]
+                    x_dot_traj = x_dot_traj[::n]
+                    omega_traj = omega_traj[::n]
                     x.append(x_traj)
                     quat.append(quat_traj)
                     x_dot.append(x_dot_traj)

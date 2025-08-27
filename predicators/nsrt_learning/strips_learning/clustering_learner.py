@@ -108,9 +108,9 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
 
         # Log and return the PNADs.
         if self._verbose:
-            logging.info("Learned operators (before option learning):")
+            print("Learned operators (before option learning):")
             for pnad in pnads:
-                logging.info(pnad)
+                print(pnad)
         return pnads
 
     @abc.abstractmethod

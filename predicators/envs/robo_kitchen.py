@@ -106,56 +106,51 @@ class RoboKitchenEnv(BaseEnv):
         # "handle": handle_type,
         # "left_door_handle": handle_type,
         # "right_door_handle": handle_type,
-        "door": door_type,
-        "leftdoor": door_type,
-        "rightdoor": door_type,
+        # "door": door_type,
+        # "leftdoor": door_type,
+        # "rightdoor": door_type,
         "gripper": gripper_type,
         "wrist": wrist_type,
         "left_finger": left_finger_type,
         "right_finger": right_finger_type,
-        "cabinet": cabinet_type,
+        # "cabinet": cabinet_type,
         "robot0_base": base_type,
-        "obj": thing_type,
-        "bottom": surface_type,
-        "counter": counter_type,
-        "knob": knob_type,
-        "stovetop": stove_type,
-        "microwave": microwave_type,
-        "microwave_start_button": microwave_button_type,
-        "drawer": cabinet_type,  # The drawer fixture (stationary cabinet structure)
-        "drawer_inner_box": drawer_type,  # The movable sliding part
-        "sink_faucet_handle": sink_faucet_handle_type,  # The sink faucet object
-        "sink": sink_type,  # The sink object
+        # "obj": thing_type,
+        # "bottom": surface_type,
+        # "counter": counter_type,
+        # "knob": knob_type,
+        # "stovetop": stove_type,
+        # "microwave": microwave_type,
+        # "microwave_start_button": microwave_button_type,
+        # "drawer": cabinet_type,  # The drawer fixture (stationary cabinet structure)
+        # "drawer_inner_box": drawer_type,  # The movable sliding part
+        # "sink_faucet_handle": sink_faucet_handle_type,  # The sink faucet object
+        # "sink": sink_type,  # The sink object
         # CookCheeseAndTomatoes
         "plate": container_type,
-        "tomato": thing_type,
-        "cheese": thing_type,
+        # "tomato": thing_type,
+        # "cheese": thing_type,
         # "pan": container_type,
         # PnPStoveToCounter
-        "container": container_type,
-        "obj_container": container_type,
-        "door_obj": thing_type, # opensingledoor data have door obj in the cabinet
-        "dummy_object": object_type,
-        "vegetable1": thing_type,
-        "vegetable2": thing_type,
-        "cutting_board": container_type,
-        "obj1": cookware_type,
-        "obj2": thing_type,
-    }
-
-    obj_name_to_type_mocap = {
-        # "handle": handle_type,
-        # "left_door_handle": handle_type,
-        # "right_door_handle": handle_type,
-        # Mocap objects (previously in obj_name_to_type_mocap)
-        "mug": thing_type,
-        "cab_door": door_type,
+        # "container": container_type,
+        # "obj_container": container_type,
+        # "door_obj": thing_type, # opensingledoor data have door obj in the cabinet
+        # "dummy_object": object_type,
+        # "vegetable1": thing_type,
+        # "vegetable2": thing_type,
+        # "cutting_board": container_type,
+        # "obj1": cookware_type,
+        # "obj2": thing_type,
+        # "mug": thing_type,
+        # "cab_door": door_type,
         "lid": lid_type,
         "dishrack": cabinet_type,
-        "bowl": container_type,
+        # "bowl": container_type,
         "pan": cookware_type,
         "banana": thing_type,
+        "block": thing_type,
     }
+
 
     tasks_extended = [
         "Lift",
@@ -1787,6 +1782,8 @@ class RoboKitchenEnv(BaseEnv):
         elif goal_desc == "MocapPnPBanana":
             goal_preds = {self._pred_name_to_pred["InCookware"]}
         elif goal_desc == "MocapOpenLidPnPBanana":
+            goal_preds = {self._pred_name_to_pred["InCookware"]}
+        elif goal_desc == "MocapMulti":
             goal_preds = {self._pred_name_to_pred["InCookware"]}
         else:
             raise NotImplementedError(f"Goal description {goal_desc} not implemented for {CFG.robo_kitchen_task}")

@@ -46,11 +46,13 @@ class GlobalSettings:
         excluded_predicates = "all_goal" # "all_goal" will always be used
 
     # low speed is https://arxiv.org/abs/2503.21406, using relative low speed points as candidate predicates
-    motion_analysis_lin_vel_rot_vel_threshold = 0.002 # lin vel min thresh, under this, use rot vel
+    motion_analysis_lin_vel_rot_vel_threshold = 0.01 # lin vel min thresh, under this, use rot vel
     motion_analysis_contact_threshold = {"PnPCabToCounterTomato": 0.003, 
                                          "MocapOpenLid": 0.02, 
                                          "MocapPourWater": 0.02,
-                                         "MocapPnPBanana": 0.01}  # under this, use contact clustering
+                                         "MocapPnPBanana": 0.01,
+                                         "MocapMulti": 0.01,
+                                         "MocapOpenLidPourWater": 0.01}  # under this, use contact clustering
     clustering_inv_cov_reg_lin = 4.0 # gripper object
     clustering_inv_cov_reg_lin_low = 5.0 #object object
     clustering_inv_cov_reg_rot_gripper = 6.0
@@ -122,12 +124,12 @@ class GlobalSettings:
     # robo_kitchen_task = "PreSoakPan"
 
     # hardware tasks    
-    robo_kitchen_task = "MocapOpenLid"
+    # robo_kitchen_task = "MocapOpenLid"
     # robo_kitchen_task = "MocapPourWater"
     # robo_kitchen_task = "MocapPnPBanana"
     # robo_kitchen_task = "MocapOpenLidPourWater"  # New task combining both actions
     # robo_kitchen_task = "MocapOpenLidPnPBanana"  # New task combining both actions
-
+    robo_kitchen_task = "MocapMulti"  # New task combining both actions
     
     # robo_kitchen_task = "MocapTest"
 
@@ -156,8 +158,8 @@ class GlobalSettings:
 
 
 
-    composite_tasks = set(["CookCheeseAndTomatoes", "StoreFruit", "StoreFruitFull", "MocapOpenLidPourWater", "MocapOpenLidPnPBanana"])
-    mocap_tasks = set(["MocapOpenLid", "MocapPourWater", "MocapTest", "MocapOpenLidPourWater", "MocapPnPBanana", "MocapOpenLidPnPBanana"])
+    composite_tasks = set(["CookCheeseAndTomatoes", "StoreFruit", "StoreFruitFull", "MocapOpenLidPourWater", "MocapOpenLidPnPBanana", "MocapMulti"])
+    mocap_tasks = set(["MocapOpenLid", "MocapPourWater", "MocapTest", "MocapOpenLidPourWater", "MocapPnPBanana", "MocapOpenLidPnPBanana", "MocapMulti"])
     # tasks that won't work with current approach
     # robo_kitchen_task = "TurnOnMicrowave" # this is not working, nothing is in motion in the dataset button just clicks
     # robo_kitchen_viz_debug = False # i think the use_gui flag covers this
@@ -165,12 +167,14 @@ class GlobalSettings:
                          "MocapOpenLid": "/home/figueroa-lab-12n/Documents/task_planning/scripts/openlid_v8/",
                          "MocapPourWater": "/home/yifei/Documents/task_planning_2/real_data/pour_water_v2/",
                          "MocapTest": "/home/yifei/Documents/task_planning_2/real_data/mocap_test/",
-                         "MocapPnPBanana": "/home/figueroa-lab-12n/Documents/task_planning/scripts/banana_in_pod/"}
+                         "MocapPnPBanana": "/home/figueroa-lab-12n/Documents/task_planning/scripts/banana_in_pod/",
+                         "MocapMulti": "/home/figueroa-lab-12n/Documents/task_planning/scripts/cooking_multi/",
+                         "MocapOpenLidPourWater": "/home/yifei/Documents/task_planning_2/real_data/openlid_pour_water/",}
     if robo_kitchen_task == "PnPCabToCounterTomato" or robo_kitchen_task in mocap_tasks:
         robo_kitchen_user_demo = True
     else:
         robo_kitchen_user_demo = False # if True, this has priority, if False, then load flag is considered
-    robo_kitchen_load_dataset = True # this has priority, if False, then save flag is considered
+    robo_kitchen_load_dataset = False # this has priority, if False, then save flag is considered
     robo_kitchen_save_dataset = not robo_kitchen_load_dataset
     robo_kitchen_save_traj_by_segment = False
     robo_kitchen_contact_smoothing_window = 21
