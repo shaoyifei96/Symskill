@@ -2750,7 +2750,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
 
 
     
-    def _postprocess_cluster_predicates(self, env, dataset: Dataset, ground_atom_dataset: List[GroundAtomTrajectory], predicates_to_monitor: Set[Predicate], renamed_cluster_candidates: Dict[Predicate, float], best_reference_per_moving_obj: Dict[Type, Type], learnt_goal_predicates: Set[Predicate]):
+    def _postprocess_cluster_predicates(self, env, dataset: Dataset, ground_atom_dataset: List[GroundAtomTrajectory], predicates_to_monitor: Set[Predicate], renamed_cluster_candidates: Dict[Predicate, float], best_reference_per_moving_obj: Dict[Type, Dict[int, Type]], learnt_goal_predicates: Set[Predicate]):
 
         if CFG.reprocess_ground_atom_dataset_using_cluster_replacement: 
             #replace in contact atoms with rel pose atoms, so easier to do operator learning later
@@ -3037,7 +3037,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         renamed_cluster_candidates = self._rename_predicates_to_remove_incompatible_chars(candidate_cluster_preds)
         return renamed_cluster_candidates
 
-    def _update_atom_sequences_with_goal_predicates(self, ground_atom_dataset: List[GroundAtomTrajectory], traj_all_objs_all: List[List[Object]], best_reference_per_moving_obj: Dict[Type, Type]):
+    def _update_atom_sequences_with_goal_predicates(self, ground_atom_dataset: List[GroundAtomTrajectory], traj_all_objs_all: List[List[Object]], best_reference_per_moving_obj: Dict[Type, Dict[int, Type]]):
         for i, (ll_traj, atom_seq) in enumerate(ground_atom_dataset):
             traj_all_objs = traj_all_objs_all[i]
             # obj_type_of_reference_best = best_reference_per_moving_obj[traj_all_objs[0].type]
@@ -3054,7 +3054,16 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 for atom in atoms:
                     if isinstance(atom, DummyGroundAtom):
                         moving_obj = atom.entities[0]
-                        ref_obj_type = best_reference_per_moving_obj[moving_obj.type]
+                        # Get the best reference object type for this specific trajectory
+                        if moving_obj.type in best_reference_per_moving_obj and i in best_reference_per_moving_obj[moving_obj.type]:
+                            ref_obj_type = best_reference_per_moving_obj[moving_obj.type][i]
+                        else:
+                            # Fallback: use any available reference object type for this moving object type
+                            if moving_obj.type in best_reference_per_moving_obj and best_reference_per_moving_obj[moving_obj.type]:
+                                ref_obj_type = next(iter(best_reference_per_moving_obj[moving_obj.type].values()))
+                            else:
+                                continue  # Skip if no reference object type found
+                        
                         ref_obj = [o for o in traj_all_objs if o.type == ref_obj_type]
                         assert len(ref_obj) == 1, "Multiple reference objects found"
                         ref_obj = ref_obj[0]
@@ -3124,114 +3133,201 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             logging.info(f"Saved contact period trajectories visualization to feature_data/contact_period_trajectories_{o_ref.name}.png")
             plt.close(fig)
 
+    def _cluster_trajectory_endpoints(self, rel_pose_trajs: List[List[np.ndarray]]) -> Tuple[Dict[int, int], int]:
+        """
+        Helper method to cluster trajectory endpoints and find the cluster closest to origin.
+        Returns trajectory-to-cluster mapping and the closest cluster ID.
+        """
+        # Extract endpoints (final poses) from trajectories
+        endpoints = []
+        valid_traj_indices = []
+        for traj_idx, rel_pose_traj in enumerate(rel_pose_trajs):
+            if len(rel_pose_traj) > 0:
+                endpoints.append(rel_pose_traj[-1])  # Final pose of trajectory
+                valid_traj_indices.append(traj_idx)
+        
+        if len(endpoints) < 2:
+            return {}, None
+        
+        # Cluster endpoints using SE(3) distance
+        clustered_data, labels, unique_labels = self._cluster_feature_dataset(
+            endpoints, CFG.clustering_se3_epsilon/2.5, "pose"
+        )
+        
+        # Find cluster closest to origin
+        closest_cluster_id = None
+        cluster_distances_to_origin = {}
+        for cluster_id in unique_labels:
+            if cluster_id == -1:  # Skip noise
+                continue
+            cluster_points = clustered_data[labels == cluster_id]
+            
+            # Calculate distance to origin for translation component
+            cluster_center_trans = np.mean(cluster_points[:, :3], axis=0)
+            distance_to_origin = np.linalg.norm(cluster_center_trans)
+            cluster_distances_to_origin[cluster_id] = distance_to_origin
+        
+        # Select cluster closest to origin
+        if cluster_distances_to_origin:
+            closest_cluster_id = min(cluster_distances_to_origin.keys(), 
+                                    key=lambda cid: cluster_distances_to_origin[cid])
+        
+        # Create trajectory-to-cluster mapping
+        traj_to_cluster = {}
+        for i, (traj_idx, label) in enumerate(zip(valid_traj_indices, labels)):
+            traj_to_cluster[traj_idx] = label
+            
+        return traj_to_cluster, closest_cluster_id
+
     def _select_reference_object(self, 
                                 contact_period_rel_trajs: Dict[Type, Dict[Type, List[List[np.ndarray]]]], 
-                                ) -> Tuple[Type, float, List[float]]:
+                                ) -> Tuple[Dict[Type, Dict[int, Type]], Dict]:
         """
         Select the object of reference by learning a DS policy for each moving object type and each potential reference object type,
-        and selecting the reference object type with the lowest reconstruction error for each moving object type.
-        Returns the overall best reference object type.
+        and selecting the reference object type with the lowest reconstruction error for each trajectory individually.
+        First clusters trajectory endpoints to identify if there are multiple reference objects for a single moving object type.
+        Returns a dictionary mapping moving_obj_type -> {traj_idx: best_ref_obj_type}.
         """
-        best_reference_per_moving_obj = {}  # moving_obj_type -> (best_ref_obj_type, reconstruction_error)
+        best_reference_per_moving_obj = {}  # moving_obj_type -> {traj_idx: best_ref_obj_type}
         all_reconstruction_errors = {}
         
         for moving_obj_type, ref_obj_dict in contact_period_rel_trajs.items():
-            logging.info(f"Evaluating reference objects for moving object type: {moving_obj_type.name}")
+            print(f"Evaluating reference objects for moving object type: {moving_obj_type.name}")
             
-            best_ref_obj_type = None
-            min_reconstruction_error = float('inf')
             black_list = ["thing_type"]
             
+            # Initialize data structures for per-trajectory analysis
+            num_trajectories = max(len(rel_pose_trajs) for rel_pose_trajs in ref_obj_dict.values() if len(rel_pose_trajs) > 0) if ref_obj_dict else 0
+            if num_trajectories == 0:
+                print(f"  No trajectories found for moving object type: {moving_obj_type.name}")
+                continue
+                
+            # Initialize reconstruction error matrix: [num_traj x num_ref_objects]
+            ref_obj_types = [ref_type for ref_type in ref_obj_dict.keys() if ref_type.name not in black_list]
+            reconstruction_matrix = np.full((num_trajectories, len(ref_obj_types)), np.inf)
+            
+            # Step 1: Analyze trajectory endpoint clustering for each reference object
+            traj_to_cluster_mapping = {}  # ref_obj_type -> {traj_idx: cluster_id}
+            closest_cluster_per_ref = {}  # ref_obj_type -> closest_cluster_id
+            
             for ref_obj_type, rel_pose_trajs in ref_obj_dict.items():
-                if ref_obj_type.name in black_list:
-                    logging.debug(f"    Skipping blacklisted reference object: {ref_obj_type.name}")
+                if ref_obj_type.name in black_list or len(rel_pose_trajs) == 0:
                     continue
-                if len(rel_pose_trajs) == 0: 
+                
+                traj_to_cluster, closest_cluster_id = self._cluster_trajectory_endpoints(rel_pose_trajs)
+                
+                if len(traj_to_cluster) < 2:
+                    print(f"    Skipping {ref_obj_type.name}: not enough endpoints ({len(traj_to_cluster)})")
+                    continue
+                
+                num_clusters = len(set(traj_to_cluster.values()) - {-1})  # Exclude noise cluster (-1)
+                print(f"    {ref_obj_type.name}: Found {num_clusters} endpoint clusters from {len(rel_pose_trajs)} trajectories")
+                
+                if closest_cluster_id is not None:
+                    print(f"    Selected cluster {closest_cluster_id} (closest to origin) for {ref_obj_type.name}")
+                
+                # Store trajectory-to-cluster mapping and closest cluster
+                traj_to_cluster_mapping[ref_obj_type] = traj_to_cluster
+                closest_cluster_per_ref[ref_obj_type] = closest_cluster_id
+            
+            # Step 2: Compute reconstruction errors only for trajectories in the closest cluster
+            for ref_idx, ref_obj_type in enumerate(ref_obj_types):
+                if ref_obj_type not in ref_obj_dict or len(ref_obj_dict[ref_obj_type]) == 0:
                     continue
                     
-                # logging.debug(f"  Testing reference object: {ref_obj_type.name} with {len(rel_pose_trajs)} trajectories")
+                rel_pose_trajs = ref_obj_dict[ref_obj_type]
+                print(f"  Testing reference object: {ref_obj_type.name} with {len(rel_pose_trajs)} trajectories")
                 
+                # Get the closest cluster ID for this reference object
+                closest_cluster_id = closest_cluster_per_ref.get(ref_obj_type)
                 x = []
                 quat = []
                 x_dot = []
                 omega = []
-                
-                for rel_pose_traj in rel_pose_trajs:
+                # Process each trajectory individually
+                for traj_idx, rel_pose_traj in enumerate(rel_pose_trajs):
                     if len(rel_pose_traj) == 0:
                         continue
+                    
+                    # Check if this trajectory belongs to the closest cluster
+                    if (ref_obj_type in traj_to_cluster_mapping and 
+                        traj_idx in traj_to_cluster_mapping[ref_obj_type]):
+                        traj_cluster_id = traj_to_cluster_mapping[ref_obj_type][traj_idx]
+                        
+                        # Only compute reconstruction error for trajectories in the closest cluster
+                        if closest_cluster_id is not None and traj_cluster_id != closest_cluster_id:
+                            continue  # Skip trajectories not in closest cluster
+                    
+
+                    # Prepare data for this single trajectory
                     x_traj = np.array(rel_pose_traj)[:, :3]
                     quat_traj = np.array(rel_pose_traj)[:, 3:]
                     x_dot_traj, omega_traj = compute_vel_traj(x_traj, np.array([R.from_quat(q).as_matrix() for q in quat_traj]), 1/10)
                     
-
                     # Downsample data by taking every 5th datapoint
                     n = 5
                     x_traj = x_traj[::n]
                     quat_traj = quat_traj[::n]
                     x_dot_traj = x_dot_traj[::n]
                     omega_traj = omega_traj[::n]
+
                     x.append(x_traj)
                     quat.append(quat_traj)
                     x_dot.append(x_dot_traj)
                     omega.append(omega_traj)
-                
-                if len(x) == 0:
-                    continue
                     
-                # Check if start and end poses are almost the same (indicating no meaningful motion)
-                if len(x) > 0 and len(x[0]) > 1:
-                    start_pos = np.array([traj[0] for traj in x])
-                    end_pos = np.array([traj[-1] for traj in x])
-                    start_quat = np.array([traj[0] for traj in quat])
-                    end_quat = np.array([traj[-1] for traj in quat])
-                    
-                    # Calculate average distance between start and end poses
-                    avg_distance = np.mean([np.linalg.norm(end - start) for start, end in zip(start_pos, end_pos)])
-                    avg_quat_distance = np.mean([np.linalg.norm((R.from_quat(end) * R.from_quat(start).inv()).as_rotvec()) for start, end in zip(start_quat, end_quat)])
-                    
-                    # If average distance is very small, blacklist this reference object for this moving object
-                    if avg_distance < 0.01 and avg_quat_distance < 0.1:  
-                        black_list.append(ref_obj_type)
-                        logging.debug(f"    Blacklisting {ref_obj_type.name} as reference for {moving_obj_type.name} due to minimal motion (avg distance: {avg_distance:.4f})")
+                    if len(x_traj) == 0:
                         continue
-                
-                try:
-                    unified_config = UnifiedModelConfig(
-                        mode="se3_lpvds",
-                        K_candidates=[3]
-                    )
-                    ds_policy = DSPolicy(
-                        x=x,
-                        x_dot=x_dot,
-                        quat=quat,
-                        omega=omega,
-                        gripper=[],
-                        unified_config=unified_config,
-                        dt=1/10
-                    )
-                    _, reconstruction_error = ds_policy.compute_reconstruction_error()
-                    all_reconstruction_errors[(moving_obj_type, ref_obj_type)] = reconstruction_error
                     
-                    logging.debug(f"    {ref_obj_type.name} reconstruction error: {reconstruction_error:.6f}")
+                # try:
+                unified_config = UnifiedModelConfig(
+                    mode="se3_lpvds",
+                    K_candidates=[3]
+                )
+                ds_policy = DSPolicy(
+                    x = x,
+                    x_dot = x_dot,
+                    quat = quat,
+                    omega = omega,
+                    gripper = [],
+                    unified_config = unified_config,
+                    dt = 1/10
+                )
+                _, reconstruction_error = ds_policy.compute_reconstruction_error()
                     
-                    if reconstruction_error < min_reconstruction_error and ref_obj_type not in black_list:
-                        min_reconstruction_error = reconstruction_error
-                        best_ref_obj_type = ref_obj_type
-                        
-                except Exception as e:
-                    logging.warning(f"    Failed to compute DS policy for {ref_obj_type.name} as reference for {moving_obj_type.name}: {e}")
+                    # Store reconstruction error in matrix
+                # Find all trajectories in the closest cluster and assign the same reconstruction error
+                for traj_id, cluster_id in traj_to_cluster_mapping[ref_obj_type].items():
+                    if cluster_id == closest_cluster_id:
+                        if traj_id < reconstruction_matrix.shape[0]:
+                            reconstruction_matrix[traj_id, ref_idx] = reconstruction_error
+                            print(f"    Traj {traj_id}, {ref_obj_type.name} reconstruction error: {reconstruction_error:.6f}")
+
+
+            # Step 3: Select best reference object for each trajectory
+            best_reference_per_moving_obj[moving_obj_type] = {}
+            for traj_idx in range(num_trajectories):
+                traj_errors = reconstruction_matrix[traj_idx, :]
+                if np.all(np.isinf(traj_errors)):
+                    print(f"    No valid reference object found for trajectory {traj_idx}")
                     continue
+                
+                best_ref_idx = np.argmin(traj_errors)
+                best_ref_obj_type = ref_obj_types[best_ref_idx]
+                best_error = traj_errors[best_ref_idx]
+                
+                best_reference_per_moving_obj[moving_obj_type][traj_idx] = best_ref_obj_type
+                print(f"    Trajectory {traj_idx}: Best reference is {best_ref_obj_type.name} (error: {best_error:.6f})")
             
-            if best_ref_obj_type is not None:
-                best_reference_per_moving_obj[moving_obj_type] = best_ref_obj_type
-                logging.info(f"  Best reference for {moving_obj_type.name}: {best_ref_obj_type.name} (error: {min_reconstruction_error:.6f})")
-            else:
-                logging.warning(f"  No suitable reference object found for moving object type: {moving_obj_type.name}")
-        
-        # Select the overall best reference object type (lowest reconstruction error across all moving objects)
+            # Store reconstruction matrix for this moving object type
+            all_reconstruction_errors[moving_obj_type] = {
+                'matrix': reconstruction_matrix,
+                'ref_obj_types': ref_obj_types
+            }
+
+        # Check if any valid reference objects were found
         if not best_reference_per_moving_obj:
             raise ValueError("No suitable reference objects found for any moving object type")
-        
         
         return best_reference_per_moving_obj, all_reconstruction_errors
 
@@ -3927,7 +4023,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             self._last_cluster_ax = None
             self._last_cluster_title = None
 
-    def _update_rel_pose_dict_with_obj_obj(self,  relative_pose_gripper_obj_dataset_dict: Dict[Tuple[Predicate, Type, Type, str], List[np.ndarray]], contact_period_obj_obj_rel_trajs: Dict[Type, Dict[Type, List[List[np.ndarray]]]], best_reference_per_moving_obj: Dict[Type, Type]) -> Dict[Tuple[Predicate, Type, Type, str], List[np.ndarray]]:
+    def _update_rel_pose_dict_with_obj_obj(self,  relative_pose_gripper_obj_dataset_dict: Dict[Tuple[Predicate, Type, Type, str], List[np.ndarray]], contact_period_obj_obj_rel_trajs: Dict[Type, Dict[Type, List[List[np.ndarray]]]], best_reference_per_moving_obj: Dict[Type, Dict[int, Type]]) -> Dict[Tuple[Predicate, Type, Type, str], List[np.ndarray]]:
         """
         Merge gripper-object relative poses with object-object relative poses into a unified dictionary.
         
@@ -3951,10 +4047,17 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         
         # Add object-object relative poses
         for moving_obj_type, reference_dict in contact_period_obj_obj_rel_trajs.items():
-            ref_obj_type_best = best_reference_per_moving_obj[moving_obj_type]
+            # Get all reference object types used for this moving object type across all trajectories
+            if moving_obj_type not in best_reference_per_moving_obj:
+                continue
+            
+            ref_obj_types_used = set(best_reference_per_moving_obj[moving_obj_type].values())
+            
             for ref_obj_type, trajectory_segments in reference_dict.items():
-                if ref_obj_type != ref_obj_type_best:
+                # Only include trajectories where this reference object type was selected
+                if ref_obj_type not in ref_obj_types_used:
                     continue
+                    
                 # Create a dummy predicate for object-object relationships
                 # This follows the pattern used elsewhere in the code
                 obj_obj_pred = DummyPredicate(f"{CFG.robo_kitchen_task}-subgoal")
@@ -3962,12 +4065,20 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 # Create key in the same format as gripper-object data
                 # Use "2in1" direction (moving object relative to reference object)
                 key = (obj_obj_pred, ref_obj_type, moving_obj_type, "2in1")
-                logging.info(f"Adding key: {key}")        
-                # Flatten trajectory segments into individual poses
-                for trajectory_segment in trajectory_segments:
-                    for pose in trajectory_segment:
-                        if pose is not None:
-                            relative_pose_all_dict[key].append(pose)
+                logging.info(f"Adding key: {key}")
+                
+                # Only include trajectory segments for trajectories that use this reference object
+                trajectory_indices_for_this_ref = [
+                    traj_idx for traj_idx, selected_ref_type in best_reference_per_moving_obj[moving_obj_type].items()
+                    if selected_ref_type == ref_obj_type
+                ]
+                
+                # Flatten trajectory segments into individual poses, but only for selected trajectories
+                for traj_idx, trajectory_segment in enumerate(trajectory_segments):
+                    if traj_idx in trajectory_indices_for_this_ref:
+                        for pose in trajectory_segment:
+                            if pose is not None:
+                                relative_pose_all_dict[key].append(pose)
         
         logging.info(f"Merged relative pose data: {len(relative_pose_gripper_obj_dataset_dict)} gripper-object entries + "
                     f"{sum(len(ref_dict) for ref_dict in contact_period_obj_obj_rel_trajs.values())} object-object entries = "
