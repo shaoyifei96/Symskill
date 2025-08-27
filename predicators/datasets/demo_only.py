@@ -448,7 +448,7 @@ def create_demo_data_from_robocasa(env: RoboKitchenEnv,
             frames_center = []
             frames_left = []
             frames_right = []
-            first_key = next(iter(demo["datagen_info"]))
+            # first_key = next(iter(demo["datagen_info"]))
             actions = demo["actions"][()]  # Get actions array
             raw_robosuite_states = demo["states"][()]
 

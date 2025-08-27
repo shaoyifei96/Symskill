@@ -72,6 +72,7 @@ class RoboKitchenEnv(BaseEnv):
     gripper_fingers_distance_thresh = 0.08  # m
     place_close_z_thresh = 0.10  # m
     place_close_xy_thresh = 0.15  # m
+    gripper_obj_far_thresh = 0.25  # m
 
     online_door_open_thresh = np.deg2rad(70)  # rad
     online_door_close_thresh = np.deg2rad(10)  # rad
@@ -135,6 +136,17 @@ class RoboKitchenEnv(BaseEnv):
         "obj_container": container_type,
         "door_obj": thing_type, # opensingledoor data have door obj in the cabinet
         "dummy_object": object_type,
+        "vegetable1": thing_type,
+        "vegetable2": thing_type,
+        "cutting_board": container_type,
+        "obj1": cookware_type,
+        "obj2": thing_type,
+    }
+
+    obj_name_to_type_mocap = {
+        # "handle": handle_type,
+        # "left_door_handle": handle_type,
+        # "right_door_handle": handle_type,
         # Mocap objects (previously in obj_name_to_type_mocap)
         "mug": thing_type,
         "cab_door": door_type,
@@ -362,6 +374,10 @@ class RoboKitchenEnv(BaseEnv):
         elif task_name == "CookCheeseAndTomatoes":
             return [self.object_name_to_object("tomato"), self.object_name_to_object("cheese"), self.object_name_to_object("plate")]
         elif task_name == "PnPCabToCounterTomato":
+            return [self.object_name_to_object("tomato"), self.object_name_to_object("plate")]
+        elif task_name == "ArrangeVegetables":
+            return [self.object_name_to_object("tomato"), self.object_name_to_object("plate")]
+        elif task_name == "PreSoakPan":
             return [self.object_name_to_object("tomato"), self.object_name_to_object("plate")]
         else:
             raise ValueError(f"Task {task_name} not supported")
@@ -640,6 +656,7 @@ class RoboKitchenEnv(BaseEnv):
             assert plate is not None, "Expected exactly one plate object"
             if self._OnSurface_holds(state, [obj, plate]):
                 return True
+            
         
         else:
             return False
@@ -1729,13 +1746,13 @@ class RoboKitchenEnv(BaseEnv):
         if goal_desc == "OpenSingleDoor":
             goal_preds = {self._pred_name_to_pred["DoorOpen"]}
         elif goal_desc == "PnPCounterToCab":
-            goal_preds = {self._pred_name_to_pred["OnSurface"]}
+            goal_preds = {self._pred_name_to_pred["OnSurface"],  self._pred_name_to_pred["GripperFarFromObj"]}   
         elif goal_desc == "PnPStoveToCounter":
             goal_preds = {self._pred_name_to_pred["InContainer"]}
         elif goal_desc == "PnPCabToCounter":
             goal_preds = {self._pred_name_to_pred["OnCounter"]}
         elif goal_desc == "PnPCounterToStove":
-            goal_preds = {self._pred_name_to_pred["InContainer"]}
+            goal_preds = {self._pred_name_to_pred["InContainer"], self._pred_name_to_pred["GripperFarFromObj"]}
         elif goal_desc == "CloseSingleDoor":
             goal_preds = {self._pred_name_to_pred["DoorClosed"]}
         elif goal_desc == "StoreFruit":
@@ -1849,7 +1866,8 @@ class RoboKitchenEnv(BaseEnv):
             found_objects.append(Object(found_name, cls.obj_name_to_type[obj_name_no_num]))
 # deal with case with objects that we need to add offline for user demo data, where no env is avaliable.
         if len(found_objects) > 1:
-            raise ValueError(f"Expected exactly 1 object for {obj_name}, got {len(found_objects)}")
+            warnings.warn(f"Expected exactly 1 object for {obj_name}, got {len(found_objects)}")
+            # raise ValueError(f"Expected exactly 1 object for {obj_name}, got {len(found_objects)}")
             # if len(found_objects) != 2:
             #     raise ValueError(f"Expected exactly 2 objects for {obj_name}, got {len(found_objects)}")
             
@@ -1950,13 +1968,24 @@ class RoboKitchenEnv(BaseEnv):
         if "sink_faucet_on" in state_info:
             sink_faucet_objs = cls.object_name_to_objects("sink_faucet_handle", test_time=True)
             for sink_faucet_obj in sink_faucet_objs:
-                state_dict[sink_faucet_obj]["on"] = np.array([state_info["sink_faucet_on"]])
+                if sink_faucet_obj in state_dict:
+                    state_dict[sink_faucet_obj]["on"] = np.array([state_info["sink_faucet_on"]])
 
         state = utils.create_state_from_dict(state_dict)
         state.simulator_state = {}
         state.items_in_contact = contact_set  # when defaults, it means Not populated, when empty means no contact
         cls._current_state = state
         return state
+
+
+    @classmethod
+    def _GripperFarFromObj_holds(cls, state: State, objects: Sequence[Object]) -> bool:
+        """Check if gripper is far from object."""
+        gripper, obj = objects
+        gripper_pos = state.get(gripper, "translation")
+        obj_pos = state.get(obj, "translation")
+        gripper_obj_far = np.linalg.norm(gripper_pos - obj_pos) > cls.gripper_obj_far_thresh
+        return gripper_obj_far
 
     @classmethod
     def _InOrigin_holds(cls, state: State, objects: Sequence[Object]) -> bool:

@@ -39,7 +39,7 @@ from predicators.nsrt_learning.segmentation import segment_trajectory
 from predicators.nsrt_learning.strips_learning import learn_strips_operators
 from predicators.planning import PlanningFailure, PlanningTimeout, run_task_plan_once
 from predicators.settings import CFG
-from predicators.structs import Dataset, GroundAtomTrajectory, NSRT, LiftedAtom, Object, ParameterizedOption, Predicate, Segment, State, Task, Type, STRIPSOperator, GroundAtom, DummyPredicate, Variable
+from predicators.structs import Dataset, GroundAtomTrajectory, NSRT, LiftedAtom, Object, ParameterizedOption, Predicate, Segment, State, Task, Type, STRIPSOperator, GroundAtom, DummyPredicate, Variable, DummyGroundAtom
 import warnings
 from scipy.stats import chi2
 from scipy.spatial.transform import Rotation as R
@@ -879,6 +879,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             candidates = self._generate_candidate_predicates(dataset)
             logging.info(f"Generated {len(candidates)} candidate predicates.")
             logging.info(f"Candidate predicates: {candidates}")
+            different_seg_count_trajs = []
             if not candidates:
                 logging.warning("No candidate predicates generated. Learning NSRTs with initial predicates only.")
                 self._learned_predicates = set()
@@ -886,6 +887,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 logging.info("Selecting predicates via beam search...")
                 self._learned_predicates = self._select_predicates_by_beam_search(candidates, dataset, self._train_tasks)
                 logging.info(f"Selected {len(self._learned_predicates)} predicates.")
+                og_pred_atom_dataset = self._create_atom_dataset(dataset, self._learned_predicates | self._initial_predicates)
         elif CFG.predicate_candidates_method == "contact_clustering":
             logging.info("Generating candidate predicates via contact clustering method...")
             og_pred_atom_dataset, cluster_pred_atom_dataset, different_seg_count_trajs, candidates, initial_monitor_preds = self._generate_candidate_predicates_contact_goal_clustering_refactored(dataset)
@@ -988,17 +990,9 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
 
             logging.info(f"Saved {len(data)} data points for feature {feature_key} to {data_path}")
 
-            # Select clustering epsilon based on feature type
-            if feat_name == CFG.trans_feat_name:
-                epsilon = CFG.clustering_translation_epsilon
-            elif feat_name == CFG.quat_feat_name:
-                epsilon = CFG.clustering_quaternion_epsilon
-            else: #pose_feature
-                epsilon = CFG.clustering_epsilon
 
-            # logging.debug(f"Using epsilon: {epsilon:.4f} for feature {feat_name}")
             # Perform clustering
-            data_array, labels, unique_labels = self._cluster_feature_dataset(data, epsilon, feat_name)
+            data_array, labels, unique_labels = self._cluster_feature_dataset(data, CFG.clustering_baseline_epsilon, feat_name)
             diff_fn = self._get_feature_difference_function(feat_name)
 
             if data_array.size == 0: continue # Skip if clustering returned empty
@@ -1068,20 +1062,53 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
 
             # Now calculate covariance etc. ONLY for kept clusters and add to info dict
             kept_cluster_labels_list = list(kept_clusters_info.keys())
+            
+            # Compute and print distances between all cluster center pairs
+            if len(kept_cluster_labels_list) > 1:
+                print(f"\n=== Cluster Center Distances for {type1.name}-{type2.name}-{feat_name} ===")
+                for i, label1 in enumerate(kept_cluster_labels_list):
+                    for j, label2 in enumerate(kept_cluster_labels_list):
+                        if i < j:  # Only compute upper triangle to avoid duplicates
+                            center1 = kept_clusters_info[label1]['center']
+                            center2 = kept_clusters_info[label2]['center']
+                            
+                            # Compute linear distance (translation only)
+                            trans1, trans2 = center1[:3], center2[:3]
+                            linear_distance = np.linalg.norm(trans1 - trans2)
+                            
+                            # Compute rotational distance (quaternion only)
+                            quat1, quat2 = center1[3:], center2[3:]
+                            try:
+                                from scipy.spatial.transform import Rotation
+                                # Normalize quaternions
+                                quat1_norm = quat1 / np.linalg.norm(quat1)
+                                quat2_norm = quat2 / np.linalg.norm(quat2)
+                                
+                                rot1 = Rotation.from_quat(quat1_norm)
+                                rot2 = Rotation.from_quat(quat2_norm)
+                                relative_rot = rot1.inv() * rot2
+                                rotational_distance = relative_rot.magnitude()  # Angle in radians
+                            except Exception as e:
+                                logging.warning(f"Error computing rotational distance: {e}")
+                                rotational_distance = float('nan')
+                            
+                            print(f"Clusters {label1} <-> {label2}:")
+                            print(f"  Linear distance:     {linear_distance:.6f}")
+                            print(f"  Rotational distance: {rotational_distance:.6f} rad ({np.degrees(rotational_distance):.2f}°)")
+                            
+                            # Also compute the combined SE3 distance using the existing utility
+                            se3_distance = utils.calculate_se3_distance(center1, center2, 
+                                                                      CFG.clustering_se3_trans_weight, 
+                                                                      CFG.clustering_se3_rot_weight)
+                            print(f"  Weighted SE3 distance: {se3_distance:.6f}")
+                            print()
+            
             for cluster_label in kept_cluster_labels_list: # Iterate over keys
                 cluster_info = kept_clusters_info[cluster_label]
                 cluster_points = cluster_info['points'] # Retrieve stored points
                 # compute the SE(3) covariance matrix
 
-            # Now, optionally visualize clusters if in debug mode, passing the *updated* info
-            if CFG.clustering_debug and data_array.size > 0: # Check if there is data to plot
-                # The kept_clusters_info dict now contains cov matrix and threshold for plot
-                self._plot_cluster_results(data_array, labels, unique_labels, kept_clusters_info,
-                                           type1.name, type2.name if type2 else None, feat_name)
 
-                # Plot relative trajectories *after* cluster plot, if applicable
-                if feat_name == CFG.pose_feature_name and type2 is not None:
-                    self._plot_relative_trajectories(dataset, type1.name, type2.name)
 
             # Sort kept clusters by size (descending) for top_k selection AFTER plotting
             # Filter out any clusters where covariance calculation failed (if needed, though `continue` above handles it)
@@ -1090,7 +1117,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             sorted_valid_kept_clusters = sorted(valid_kept_clusters.items(), key=lambda item: item[1]['size'], reverse=True)
 
             # Create predicates for the top_k *valid* kept clusters
-            top_k = min(CFG.clustering_max_clusters, len(sorted_valid_kept_clusters))
+            top_k = len(sorted_valid_kept_clusters)
             logging.debug(f"Selecting top {top_k} valid kept clusters for {feat_name}:{type1.name}-{type2.name}.")
 
             for i, (cluster_label, cluster_info) in enumerate(sorted_valid_kept_clusters[:top_k]):
@@ -1100,71 +1127,70 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                     type1, type2, feat_name, cluster_info['center'],
                     cluster_info['cluster_radius'],
                     diff_fn, cluster_label) # Use cluster_label for ID
-                candidates[pred] = pred.arity + 1.0
+                candidates[pred] = pred.arity 
                 predicate_counter += 1
+
+                # Now, optionally visualize clusters if in debug mode, passing the *updated* info with pred
+                if CFG.clustering_debug and data_array.size > 0: # Check if there is data to plot
+                    # The kept_clusters_info dict now contains cov matrix and threshold for plot
+                    self._plot_cluster_results(data_array, labels, unique_labels, kept_clusters_info,
+                                               type1.name, type2.name if type2 else None, feat_name, pred)
+
+                    # Plot relative trajectories *after* cluster plot, if applicable
+                    if feat_name == CFG.pose_feature_name and type2 is not None:
+                        self._plot_relative_trajectories(dataset, type1.name, type2.name, pred)
 
         # Rename predicates for PDDL compatibility (reuse from grammar search)
         renamed_candidates = self._rename_predicates_to_remove_incompatible_chars(candidates)
         return renamed_candidates
 
-    def _update_incontact_predicate_using_motion_analysis(self, dataset: Dataset, in_contact_pred: Predicate, gripper_type: Type) -> Dict[Tuple[Type, Type, str], List[np.ndarray]]:
-        """Update incontact predicates using motion analysis.
-        Incontact is a previledged predicate, this function removes it
-        and replaces it with a more general predicate that is based on motion analysis.
-        It looks at which object is in motion to determine if it is in contact with the gripper.
+    def _update_incontact_predicate_using_motion_analysis(self, dataset: Dataset, in_contact_pred: Predicate, gripper_type: Type) -> Tuple[Dict[int, List[Dict]], Dict[int, List[Object]], Object, Dict[int, List[Tuple[int, int]]]]:
+        """Update incontact predicates using multi-phase motion analysis.
+        This function analyzes motion patterns to identify different phases:
+        1. Gripper-only motion (approaching/repositioning)
+        2. Gripper+Object motion (manipulation)
+        3. Sequential object interactions in long horizon demos
         """
-
-
         # Filter types so things other than gripper and are useful are kept!!!
-        # types = {obj.type for traj in dataset.trajectories for obj in traj.states[0]}
-        # Example filter (adjust as needed):
-        disallowed_type_names = {"wrist_type", "gripper_type", "left_finger_type", "right_finger_type", "base_type", "drawer_type"} # Added door_type based on usage # drawer and inner drawer are the same, so just choose one
+        disallowed_type_names = {"wrist_type", "gripper_type", "left_finger_type", "right_finger_type", "base_type", "drawer_type"}
 
         # Dictionary to store motion data for each object in each trajectory
         motion_data = defaultdict(lambda: defaultdict(list))
+        gripper_motion_data = defaultdict(list)  # Separate tracking for gripper
+        
+        # Data to return for _extract_relative_pose_data
+        trajectory_motion_phases = {}  # trajectory_idx -> List[Dict] (motion phases)
+        trajectory_all_objects = {}    # trajectory_idx -> List[Object] 
+        contact_lost_periods = {}      # trajectory_idx -> List[Tuple[int, int]] (contact lost periods)
 
         gripper_obj = None
         for obj in dataset.trajectories[0].states[0].get_objects(gripper_type):
             gripper_obj = obj
             break
         assert gripper_obj is not None, "No gripper object found in the dataset"
-        
-        # hack here, since some task the motion stops at the end, so we need 2 change points
-        # others achieve the goal and the episode ends, so we need 1 change point detections
-        if CFG.robo_kitchen_task == "OpenSingleDoor" \
-            or CFG.robo_kitchen_task == "CloseSingleDoor" \
-            or CFG.robo_kitchen_task == "CloseDrawer" \
-            or CFG.robo_kitchen_task == "OpenDrawer" \
-            or CFG.robo_kitchen_task == "TurnOnStove" \
-            or CFG.robo_kitchen_task == "TurnOffStove" \
-            or CFG.robo_kitchen_task == "TurnOnSinkFaucet" \
-            or CFG.robo_kitchen_task == "TurnOffSinkFaucet":
-            n_bkps = 1
-        else:
-            # or CFG.robo_kitchen_task == "PnPCounterToStove":
-            # or CFG.robo_kitchen_task == "PnPCounterToCab" \
-            # or CFG.robo_kitchen_task == "PnPStoveToCounter" \
-            # or CFG.robo_kitchen_task == "PnPCabToCounterTomato" \
-            n_bkps = 2
 
         for i, traj in enumerate(dataset.trajectories):
-            logging.debug(f"Processing trajectory {i+1}/{len(dataset.trajectories)} for motion analysis")
+            logging.debug(f"Processing trajectory {i+1}/{len(dataset.trajectories)} for multi-phase motion analysis")
             
             # Get all objects in the trajectory
             all_objects = set()
             for state in traj.states:
                 all_objects.update(state.data.keys())
             
-            # Calculate velocity for each object
+            # Filter and store objects for later use (excluding disallowed types)
+            filtered_objects = [obj for obj in all_objects if obj.type.name not in disallowed_type_names]
+            trajectory_all_objects[i] = filtered_objects
+            
+            # Calculate velocity for each object INCLUDING gripper
             for t in range(len(traj.states) - 1):
                 state_t = traj.states[t]
                 state_t1 = traj.states[t+1]
                 
                 for obj in all_objects:
-                    if obj not in state_t.data or obj not in state_t1.data or obj.type.name in disallowed_type_names:
+                    if obj not in state_t.data or obj not in state_t1.data:
                         continue
                         
-                    # Get translation data
+                    # Get translation and rotation data
                     trans_t = state_t.get(obj, CFG.trans_feat_name)
                     trans_t1 = state_t1.get(obj, CFG.trans_feat_name)
                     rot_t = state_t.get(obj, CFG.quat_feat_name)
@@ -1177,85 +1203,733 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                         q2 = R.from_quat(rot_t1)
                         q_diff = q2 * q1.inv()
                         delta2 = q_diff.magnitude()
-                        motion_data[i][obj].append((t, delta1, delta2)) # NOTE: adjust weight here
             
+                        if obj == gripper_obj:
+                            gripper_motion_data[i].append((t, delta1, delta2))
+                        elif obj.type.name not in disallowed_type_names:
+                            motion_data[i][obj].append((t, delta1, delta2))
             
-            # clear in contact set for each state !!!! This makes our method not previledged, good!
+            # Clear in contact set for each state
             for state in dataset.trajectories[i].states:
                 state.items_in_contact = set()
             
-            # For each trajectory, find the object with most motion
-            max_motion_obj = None
-            max_motion = 0
-            for obj, motion_list in motion_data[i].items():
-                total_motion = sum(vel for _, vel, _ in motion_list)
-                if total_motion > max_motion:
-                    max_motion = total_motion
-                    max_motion_obj = obj
+            # Multi-phase motion analysis and collect motion phases
+            motion_phases = self._analyze_multi_phase_motion(i, traj, motion_data[i], gripper_motion_data[i], gripper_obj, dataset)
+            trajectory_motion_phases[i] = motion_phases
             
-            os.makedirs("feature_data", exist_ok=True)
-            if max_motion_obj is not None:
-                # Find first and last frame of significant motion
-                # Compute a dynamic threshold for this object based on its motion statistics
-                velocities = [(vel, rot_vel) for _, vel, rot_vel in motion_data[i][max_motion_obj]]
-                lin_vel = np.array([vel for vel, _ in velocities])
-                rot_vel = np.array([rot_vel for _, rot_vel in velocities])
-                lin_vel_smooth = uniform_filter1d(lin_vel, size=4)    # ≈ 5 samples
-                rot_vel_smooth = uniform_filter1d(rot_vel, size=4)    # ≈ 5 samples
-                #add small noise to signal to make it more robust to noise
-                lin_vel_smooth = lin_vel_smooth + np.random.normal(0, 0.0008, lin_vel_smooth.shape)
-                rot_vel_smooth = rot_vel_smooth + np.random.normal(0, 0.0008, rot_vel_smooth.shape)
+            # Extract contact lost periods from motion phases
+            contact_lost_periods[i] = self._extract_contact_lost_periods(motion_phases, len(traj.states))
+        
+        return trajectory_motion_phases, trajectory_all_objects, gripper_obj, contact_lost_periods
 
-                algo = rpt.Dynp(model="l2", min_size=20, jump=10).fit(lin_vel_smooth)
-                if np.max(lin_vel_smooth) > CFG.motion_analysis_lin_vel_rot_vel_threshold: # if there is lin motion, use lin vel to find change points
-                    logging.warning(f"Using LINEAR velocity to find change points for {max_motion_obj.name}")
-                    
-                    if CFG.robo_kitchen_task in CFG.motion_analysis_contact_threshold:
-                        # For tomato task, use simple threshold crossing for breakpoints
-                        threshold = CFG.motion_analysis_contact_threshold[CFG.robo_kitchen_task]
-                        above_threshold = np.where(lin_vel_smooth > threshold)[0]
-                        if len(above_threshold) > 0:
-                            first_motion = above_threshold[0]
-                            last_motion = above_threshold[-1]
-                            my_bkps = [first_motion, last_motion]
-                        else:
-                            my_bkps = algo.predict(n_bkps=n_bkps)
+    def _analyze_multi_phase_motion(self, traj_idx: int, traj, object_motion_data: Dict, gripper_motion_data: List, gripper_obj, dataset: Dataset) -> List[Dict]:
+        """Analyze trajectory for object motion phases and mark contacts accordingly.
+        Focuses on object motion analysis while using combined object+gripper velocities for boundary detection.
+        """
+        os.makedirs("feature_data", exist_ok=True)
+        
+        if not gripper_motion_data:
+            logging.warning(f"No gripper motion data for trajectory {traj_idx}")
+            return
+        
+        if not object_motion_data:
+            logging.warning(f"No object motion data for trajectory {traj_idx}")
+            return
+            
+        # Extract gripper velocity profile for boundary detection
+        gripper_velocities = [(vel, rot_vel) for _, vel, rot_vel in gripper_motion_data]
+        gripper_lin_vel = np.array([vel for vel, _ in gripper_velocities])
+        gripper_rot_vel = np.array([rot_vel for _, rot_vel in gripper_velocities])
+        
+        # Smooth gripper velocities
+        gripper_lin_vel_smooth = uniform_filter1d(gripper_lin_vel, size=4)
+        gripper_rot_vel_smooth = uniform_filter1d(gripper_rot_vel, size=4)
+        
+        # Add small noise for robustness
+        gripper_lin_vel_smooth += np.random.normal(0, 0.0008, gripper_lin_vel_smooth.shape)
+        gripper_rot_vel_smooth += np.random.normal(0, 0.0008, gripper_rot_vel_smooth.shape)
+        
+        motion_threshold = CFG.motion_analysis_lin_vel_rot_vel_threshold if hasattr(CFG, 'motion_analysis_lin_vel_rot_vel_threshold') else 0.01
+        
+        # Find motion phases based on object motion but using combined velocities for boundary detection
+        object_motion_phases = self._find_object_motion_phases(object_motion_data, gripper_lin_vel_smooth, motion_threshold)
+        
+        logging.info(f"Trajectory {traj_idx}: Found {len(object_motion_phases)} object motion phases")
+        
+        # Process object motion phases and mark contacts
+        for phase_idx, phase in enumerate(object_motion_phases):
+            start_frame = phase['start_frame']
+            end_frame = phase['end_frame']
+            moving_objects = phase['moving_objects']
+            
+            logging.debug(f"  Phase {phase_idx}: Object motion (frames {start_frame}-{end_frame})")
+            logging.debug(f"    -> Objects in motion: {[obj.name for obj in moving_objects]}")
+            
+
+            contact_start = max(0, start_frame ) 
+            contact_end = min(len(traj.states) - 1, end_frame )
+            
+            for t in range(contact_start, contact_end + 1):
+                if t < len(traj.states):
+                    # Mark contact with ALL moving objects during this phase
+                    contacts = {(gripper_obj, obj) for obj in moving_objects}
+                    if dataset.trajectories[traj_idx].states[t].items_in_contact is None:
+                        dataset.trajectories[traj_idx].states[t].items_in_contact = set()
+                    dataset.trajectories[traj_idx].states[t].items_in_contact.update(contacts)
+        
+        # Visualization with object motion phases
+        self._visualize_object_motion_phases(traj_idx, gripper_lin_vel_smooth, object_motion_phases, object_motion_data, gripper_motion_data)
+        
+        return object_motion_phases
+
+    def _extract_contact_lost_periods(self, motion_phases: List[Dict], traj_length: int) -> List[Tuple[int, int]]:
+        """Extract periods between motion phases where contact is lost."""
+        contact_lost_periods = []
+        
+        if not motion_phases:
+            return contact_lost_periods
+            
+        # Add period from start to first motion phase
+        if motion_phases[0]['start_frame'] > 0:
+            contact_lost_periods.append((0, motion_phases[0]['start_frame'] - 1))
+        
+        # Add periods between motion phases
+        for i in range(len(motion_phases) - 1):
+            end_current = motion_phases[i]['end_frame']
+            start_next = motion_phases[i + 1]['start_frame']
+            if start_next > end_current + 1:
+                contact_lost_periods.append((end_current + 1, start_next - 1))
+        
+        # Add period from last motion phase to end
+        if motion_phases[-1]['end_frame'] < traj_length - 1:
+            contact_lost_periods.append((motion_phases[-1]['end_frame'] + 1, traj_length - 1))
+            
+        return contact_lost_periods
+
+    def _find_contiguous_segments(self, motion_mask: np.ndarray, min_length: int = 10) -> List[Tuple[int, int]]:
+        """Find contiguous segments where motion_mask is True."""
+        segments = []
+        in_segment = False
+        start_idx = 0
+        
+        for i, is_moving in enumerate(motion_mask):
+            if is_moving and not in_segment:
+                # Start of new segment
+                start_idx = i
+                in_segment = True
+            elif not is_moving and in_segment:
+                # End of current segment
+                if i - start_idx >= min_length:
+                    segments.append((start_idx, i - 1))
+                in_segment = False
+        
+        # Handle case where segment continues to end
+        if in_segment and len(motion_mask) - start_idx >= min_length:
+            segments.append((start_idx, len(motion_mask) - 1))
+            
+        return segments
+
+    def _fine_tune_motion_boundaries(self, initial_segments: List[Tuple[int, int]], combined_velocities: np.ndarray, search_window: int = 30) -> List[Tuple[int, int]]:
+        """Fine-tune motion boundaries by finding minimum combined velocity within search window."""
+        if not initial_segments:
+            return []
+        
+        refined_segments = []
+        
+        for start_frame, end_frame in initial_segments:
+            # Fine-tune start boundary
+            refined_start = self._find_velocity_minimum_in_window(
+                combined_velocities, start_frame, search_window, direction='backward'
+            )
+            
+            # Fine-tune end boundary
+            refined_end = self._find_velocity_minimum_in_window(
+                combined_velocities, end_frame, search_window, direction='forward'
+            )
+            
+            # Ensure refined boundaries are valid
+            refined_start = max(0, min(refined_start, len(combined_velocities) - 1))
+            refined_end = max(0, min(refined_end, len(combined_velocities) - 1))
+            
+            # Only keep segment if it's still meaningful after refinement
+            if refined_end > refined_start:
+                refined_segments.append((refined_start, refined_end))
+                # logging.debug(f"    Refined boundary: {start_frame}-{end_frame} -> {refined_start}-{refined_end}")
+        
+        return refined_segments
+
+    def _find_velocity_minimum_in_window(self, velocities: np.ndarray, center_frame: int, window_size: int, direction: str) -> int:
+        """Find the frame with minimum velocity within a window around center_frame."""
+        if direction == 'backward':
+            # Search backward from center_frame
+            start_idx = max(0, center_frame - window_size)
+            end_idx = min(len(velocities), center_frame + 1)
+        else:  # direction == 'forward'
+            # Search forward from center_frame
+            start_idx = max(0, center_frame)
+            end_idx = min(len(velocities), center_frame + window_size + 1)
+        
+        if start_idx >= end_idx:
+            return center_frame
+        
+        # Find the index with minimum velocity in the window
+        window_velocities = velocities[start_idx:end_idx]
+        min_idx_relative = np.argmin(window_velocities)
+        min_idx_absolute = start_idx + min_idx_relative
+        
+        return min_idx_absolute
+
+    def _combine_overlapping_segments(self, motion_phases: List[Dict], max_gap: int = 10) -> List[Dict]:
+        """Combine segments of the same object that have overlap or small gaps."""
+        if not motion_phases:
+            return []
+        
+        # Group phases by moving objects (since each phase has only one moving object)
+        object_phases = {}
+        for phase in motion_phases:
+            # Get the object name (there should be only one moving object per phase)
+            if phase['moving_objects']:
+                obj_name = phase['moving_objects'][0].name
+                if obj_name not in object_phases:
+                    object_phases[obj_name] = []
+                object_phases[obj_name].append(phase)
+        
+        # Combine overlapping/close segments for each object
+        combined_phases = []
+        for obj_name, phases in object_phases.items():
+            if not phases:
+                continue
+                
+            # Sort phases by start frame
+            phases.sort(key=lambda p: p['start_frame'])
+            
+            if len(phases) == 1:
+                # Only one phase for this object, no combining needed
+                combined_phases.append(phases[0])
+                continue
+            
+            combined_obj_phases = []
+            current_phase = phases[0].copy()
+            
+            for i in range(1, len(phases)):
+                next_phase = phases[i]
+                
+                # Check if phases overlap or have small gap
+                gap = next_phase['start_frame'] - current_phase['end_frame']
+                
+                if gap <= max_gap:  # Overlapping or small gap (including negative gaps for overlap)
+                    # Combine phases by extending the current phase
+                    current_phase['end_frame'] = max(current_phase['end_frame'], next_phase['end_frame'])
+                    logging.debug(f"    Combined {obj_name} segments: gap={gap}, new range={current_phase['start_frame']}-{current_phase['end_frame']}")
+                else:
+                    # Gap too large, save current phase and start new one
+                    combined_obj_phases.append(current_phase)
+                    current_phase = next_phase.copy()
+            
+            # Add the last phase
+            combined_obj_phases.append(current_phase)
+            combined_phases.extend(combined_obj_phases)
+        
+        # Sort final phases by start frame
+        combined_phases.sort(key=lambda p: p['start_frame'])
+        
+        return combined_phases
+
+    def _find_object_motion_phases(self, object_motion_data: Dict, gripper_lin_vel_smooth: np.ndarray, motion_threshold: float) -> List[Dict]:
+        """Find motion phases based on object motion, using object velocities primarily and fine-tuning boundaries with combined velocities."""
+        if not object_motion_data:
+            return []
+        
+        # Create object-only velocities signal for primary boundary detection
+        object_only_velocities = np.zeros_like(gripper_lin_vel_smooth)
+        combined_velocities = np.copy(gripper_lin_vel_smooth)  # For fine-tuning
+        
+        # Add object velocities to both signals
+        for obj, motion_list in object_motion_data.items():
+            # Create object velocity array aligned with gripper data
+            obj_velocities = np.zeros_like(gripper_lin_vel_smooth)
+            for t, lin_vel, rot_vel in motion_list:
+                if 0 <= t < len(obj_velocities):
+                    obj_velocities[t] = lin_vel
+            
+            # Add to object-only signal for primary detection
+            object_only_velocities += obj_velocities
+            # Add to combined signal for fine-tuning
+            combined_velocities += obj_velocities
+        
+        # Find initial motion boundaries using object velocities only
+        object_in_motion = object_only_velocities > motion_threshold
+        initial_motion_segments = self._find_contiguous_segments(object_in_motion, min_length=10)
+        # logging.debug(f"    Found {len(initial_motion_segments)} initial object motion segments using object velocities only")
+        
+        # Fine-tune boundaries using combined velocities within 30 steps
+        raw_motion_segments = self._fine_tune_motion_boundaries(
+            initial_motion_segments, combined_velocities, search_window=30
+        )
+        # logging.debug(f"    After fine-tuning with combined velocities: {len(raw_motion_segments)} refined segments")
+        
+        # For each detected segment, determine which objects are actually moving
+        object_motion_phases = []
+        for start_frame, end_frame in raw_motion_segments:
+            moving_objects = self._find_moving_objects_in_segment(
+                object_motion_data, start_frame, end_frame, motion_threshold
+            )
+            
+            # Only create a phase if there are actually moving objects
+            if moving_objects:
+                object_motion_phases.append({
+                    'start_frame': start_frame,
+                    'end_frame': end_frame,
+                    'moving_objects': moving_objects
+                })
+                # logging.debug(f"    Found object motion phase: frames {start_frame}-{end_frame}, objects: {[obj.name for obj in moving_objects]}")
+        
+        # Combine segments of the same object with overlap or small gaps (<10 frames)
+        combined_phases = self._combine_overlapping_segments(object_motion_phases, max_gap=10)
+        # logging.debug(f"    After combining overlapping segments: {len(combined_phases)} final phases")
+        
+        return combined_phases
+
+    def _find_moving_objects_in_segment(self, object_motion_data: Dict, start_frame: int, end_frame: int, threshold: float) -> List:
+        """Find objects that are moving significantly during the given time segment.
+        Returns list with single object (the one with highest average velocity) if multiple objects are moving.
+        """
+        moving_objects_with_velocities = []
+        
+        for obj, motion_list in object_motion_data.items():
+            # Calculate average velocity during this segment
+            segment_velocities = []
+            for t, lin_vel, rot_vel in motion_list:
+                if start_frame <= t <= end_frame:
+                    segment_velocities.append(lin_vel)
+            
+            if segment_velocities:
+                avg_velocity = np.mean(segment_velocities)
+                max_velocity = np.max(segment_velocities)
+                
+                # Object is considered moving if average velocity exceeds threshold
+                # OR if peak velocity is significantly high
+                if avg_velocity > threshold or max_velocity > threshold * 2:
+                    moving_objects_with_velocities.append((obj, avg_velocity, max_velocity))
+                    logging.debug(f"      Object {obj.name}: avg_vel={avg_velocity:.4f}, max_vel={max_velocity:.4f}")
+        
+        # If multiple objects are moving, pick the one with highest average velocity
+        if len(moving_objects_with_velocities) == 0:
+            return []
+        elif len(moving_objects_with_velocities) == 1:
+            return [moving_objects_with_velocities[0][0]]
+        else:
+            # Sort by average velocity (descending) and pick the top one
+            moving_objects_with_velocities.sort(key=lambda x: x[1], reverse=True)
+            primary_obj = moving_objects_with_velocities[0]
+            logging.debug(f"      Multiple objects moving, selected {primary_obj[0].name} with highest avg_vel={primary_obj[1]:.4f}")
+            return [primary_obj[0]]
+
+
+
+    def _visualize_alternating_phases(self, traj_idx: int, gripper_velocity: np.ndarray, alternating_phases: List[Dict], object_motion_data: Dict, gripper_motion_data: List):
+        """Create visualization showing gripper motion and alternating phases."""
+        plt.figure(figsize=(15, 10))
+        
+        # Extract gripper rotational velocity from gripper_motion_data
+        gripper_angular_velocity = np.zeros(len(gripper_velocity))
+        for t, linear_vel, angular_vel in gripper_motion_data:
+            if t < len(gripper_angular_velocity):
+                gripper_angular_velocity[t] = angular_vel
+        
+        # Plot gripper linear velocity
+        plt.subplot(2, 2, 1)
+        plt.plot(gripper_velocity, label='Gripper Linear Velocity', color='blue', linewidth=2)
+        
+        # Highlight alternating phases with different colors
+        colors = ['lightcoral', 'lightgreen']  # Red for gripper-only, Green for manipulation
+        legend_labels_added = {'gripper_only': False, 'manipulation': False}
+        
+        for i, phase in enumerate(alternating_phases):
+            start, end = phase['start_frame'], phase['end_frame']
+            phase_type = phase['type']
+            color = colors[0] if phase_type == 'gripper_only' else colors[1]
+            alpha = 0.3
+            
+            # Create descriptive label for legend (only once per type)
+            legend_label = None
+            if not legend_labels_added[phase_type]:
+                if phase_type == 'gripper_only':
+                    legend_label = 'Gripper Motion'
+                else:  # manipulation
+                    moving_objects = phase.get('moving_objects', [])
+                    if moving_objects:
+                        # Since we now select only the primary object, this should always be length 1
+                        obj_names = [obj.name for obj in moving_objects]
+                        legend_label = f'Object Motion ({obj_names[0]})'
                     else:
-                        # data is 10 hz, so min size being 1 sec, jump being 0.3 sec
-                        my_bkps = algo.predict(n_bkps=n_bkps)
-                    
-                    # Display and save the visualization
-                    rpt.show.display(lin_vel_smooth, my_bkps, my_bkps, figsize=(10, 6))
-                    plt.savefig(f"feature_data/motion_analysis_traj{i}_obj_lin_{max_motion_obj.name}.png")
-                    plt.close()
+                        legend_label = 'Object Motion'
+                legend_labels_added[phase_type] = True
+            
+            plt.axvspan(start, end, alpha=alpha, color=color, label=legend_label)
+        
+        # Add vertical lines at refined boundaries
+        for i in range(len(alternating_phases) - 1):
+            boundary_frame = alternating_phases[i]['end_frame']
+            plt.axvline(x=boundary_frame, color='black', linestyle='--', alpha=0.7, linewidth=1)
+        
+        plt.xlabel('Time Step')
+        plt.ylabel('Linear Velocity (m/s)')
+        plt.title(f'Gripper Linear Velocity')
+        plt.legend()
+        plt.grid(True, alpha=0.3)
+        
+        # Plot gripper angular velocity
+        plt.subplot(2, 2, 2)
+        plt.plot(gripper_angular_velocity, label='Gripper Angular Velocity', color='red', linewidth=2)
+        
+        # Highlight alternating phases on angular velocity plot
+        legend_labels_added_ang = {'gripper_only': False, 'manipulation': False}
+        for i, phase in enumerate(alternating_phases):
+            start, end = phase['start_frame'], phase['end_frame']
+            phase_type = phase['type']
+            color = colors[0] if phase_type == 'gripper_only' else colors[1]
+            alpha = 0.3
+            
+            # Create descriptive label for legend (only once per type)
+            legend_label = None
+            if not legend_labels_added_ang[phase_type]:
+                if phase_type == 'gripper_only':
+                    legend_label = 'Gripper Motion'
+                else:  # manipulation
+                    moving_objects = phase.get('moving_objects', [])
+                    if moving_objects:
+                        obj_names = [obj.name for obj in moving_objects]
+                        legend_label = f'Object Motion ({obj_names[0]})'
+                    else:
+                        legend_label = 'Object Motion'
+                legend_labels_added_ang[phase_type] = True
+            
+            plt.axvspan(start, end, alpha=alpha, color=color, label=legend_label)
+        
+        # Add vertical lines at refined boundaries
+        for i in range(len(alternating_phases) - 1):
+            boundary_frame = alternating_phases[i]['end_frame']
+            plt.axvline(x=boundary_frame, color='black', linestyle='--', alpha=0.7, linewidth=1)
+        
+        plt.xlabel('Time Step')
+        plt.ylabel('Angular Velocity (rad/s)')
+        plt.title(f'Gripper Angular Velocity')
+        plt.legend()
+        plt.grid(True, alpha=0.3)
+        
+        # Plot object linear velocities
+        plt.subplot(2, 2, 3)
+        colors_obj = plt.cm.tab10(np.linspace(0, 1, len(object_motion_data)))
+        
+        for (obj, motion_list), color in zip(object_motion_data.items(), colors_obj):
+            if motion_list:  # Only plot if object has motion data
+                times = [t for t, _, _ in motion_list]
+                velocities = [vel for _, vel, _ in motion_list]
+                plt.plot(times, velocities, label=f'{obj.name}', color=color, alpha=0.7)
+        
+        # Highlight alternating phases on object plot
+        for i, phase in enumerate(alternating_phases):
+            start, end = phase['start_frame'], phase['end_frame']
+            phase_type = phase['type']
+            color = colors[0] if phase_type == 'gripper_only' else colors[1]
+            plt.axvspan(start, end, alpha=0.2, color=color)
+            
+            # Add text annotation for phase type with object names
+            mid_point = (start + end) / 2
+            max_vel = max([max([vel for _, vel, _ in motion_list]) for motion_list in object_motion_data.values() if motion_list] + [0])
+            
+            # Create informative label
+            if phase_type == 'gripper_only':
+                label = f'P{i}\ngripper'
+            else:  # manipulation phase
+                moving_objects = phase.get('moving_objects', [])
+                if moving_objects:
+                    # Since we now select only the primary object, this should always be length 1
+                    obj_names = [obj.name for obj in moving_objects]
+                    label = f'P{i}\n{obj_names[0]}'
                 else:
-                    logging.warning(f"Using ROTATIONAL velocity to find change points for {max_motion_obj.name}")
-                    algo = rpt.Dynp(model="l2", min_size=20, jump=10).fit(rot_vel_smooth)
-                    my_bkps = algo.predict(n_bkps=n_bkps)
-                    rpt.show.display(rot_vel_smooth, my_bkps, my_bkps, figsize=(10, 6))
-                    plt.savefig(f"feature_data/motion_analysis_traj{i}_obj_rot_{max_motion_obj.name}.png")
-                    plt.close()
-                if n_bkps == 1:
-                    motion_frames = range(my_bkps[0]-10, len(dataset.trajectories[i].states)) # -10 is a hack , assume 1 sec of contact before the motion
+                    label = f'P{i}\nmanip'
+            
+            plt.text(mid_point, max_vel * 0.8, label, 
+                    ha='center', va='center', fontsize=8, 
+                    bbox=dict(boxstyle='round,pad=0.2', facecolor=color, alpha=0.7))
+        
+        # Add vertical lines at refined boundaries
+        for i in range(len(alternating_phases) - 1):
+            boundary_frame = alternating_phases[i]['end_frame']
+            plt.axvline(x=boundary_frame, color='black', linestyle='--', alpha=0.7, linewidth=1)
+            
+        plt.xlabel('Time Step')
+        plt.ylabel('Linear Velocity (m/s)')
+        plt.title('Object Linear Velocity')
+        plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+        plt.grid(True, alpha=0.3)
+        
+        # Plot object angular velocities
+        plt.subplot(2, 2, 4)
+        
+        for (obj, motion_list), color in zip(object_motion_data.items(), colors_obj):
+            if motion_list:  # Only plot if object has motion data
+                times = [t for t, _, _ in motion_list]
+                angular_velocities = [ang_vel for _, _, ang_vel in motion_list]
+                plt.plot(times, angular_velocities, label=f'{obj.name}', color=color, alpha=0.7)
+        
+        # Highlight alternating phases on object angular plot
+        for i, phase in enumerate(alternating_phases):
+            start, end = phase['start_frame'], phase['end_frame']
+            phase_type = phase['type']
+            color = colors[0] if phase_type == 'gripper_only' else colors[1]
+            plt.axvspan(start, end, alpha=0.2, color=color)
+            
+            # Add text annotation for phase type with object names
+            mid_point = (start + end) / 2
+            max_ang_vel = max([max([ang_vel for _, _, ang_vel in motion_list]) for motion_list in object_motion_data.values() if motion_list] + [0])
+            
+            # Create informative label
+            if phase_type == 'gripper_only':
+                label = f'P{i}\ngripper'
+            else:  # manipulation phase
+                moving_objects = phase.get('moving_objects', [])
+                if moving_objects:
+                    obj_names = [obj.name for obj in moving_objects]
+                    label = f'P{i}\n{obj_names[0]}'
                 else:
-                    motion_frames = range(my_bkps[0]-10, my_bkps[1]) 
-                    # dynamic_threshold = CFG.motion_analysis_contact_threshold
+                    label = f'P{i}\nmanip'
+            
+            plt.text(mid_point, max_ang_vel * 0.8, label, 
+                    ha='center', va='center', fontsize=8, 
+                    bbox=dict(boxstyle='round,pad=0.2', facecolor=color, alpha=0.7))
+        
+        # Add vertical lines at refined boundaries
+        for i in range(len(alternating_phases) - 1):
+            boundary_frame = alternating_phases[i]['end_frame']
+            plt.axvline(x=boundary_frame, color='black', linestyle='--', alpha=0.7, linewidth=1)
+            
+        plt.xlabel('Time Step')
+        plt.ylabel('Angular Velocity (rad/s)')
+        plt.title('Object Angular Velocity')
+        plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+        plt.grid(True, alpha=0.3)
+        
+        plt.tight_layout()
+        plt.savefig(f"feature_data/alternating_phase_motion_analysis_traj{traj_idx}.png", dpi=150, bbox_inches='tight')
+        plt.close()
+        
+        logging.info(f"Saved alternating phase motion visualization for trajectory {traj_idx}")
 
-                # motion_frames = [t for t, vel, _ in motion_data[i][max_motion_obj]
-                #                  if vel > dynamic_threshold and t > 5]
-                # NOTE: we are only looking at motion after 5 steps, since the first few steps are noisy 
-                assert len(motion_frames) > 0, "No motion frames found for object"
-                first_motion = min(motion_frames)
-                last_motion = max(motion_frames)
-                    
-                # Mark the object as in contact during the motion period
-                for t in range(first_motion, last_motion + 1):
-                    if t < len(traj.states):
-                        
-                        dataset.trajectories[i].states[t].items_in_contact = {(gripper_obj, max_motion_obj)}
-                        # Update the state to mark the object as in contact
-                        # This assumes you have a way to mark objects as in contact
-                        # You might need to modify this based on your state representation
+    def _visualize_object_motion_phases(self, traj_idx: int, gripper_velocity: np.ndarray, object_motion_phases: List[Dict], object_motion_data: Dict, gripper_motion_data: List):
+        """Create visualization showing object motion phases with combined velocity boundary detection."""
+        plt.figure(figsize=(15, 10))
+        
+        # Extract gripper rotational velocity from gripper_motion_data
+        gripper_angular_velocity = np.zeros(len(gripper_velocity))
+        for t, linear_vel, angular_vel in gripper_motion_data:
+            if t < len(gripper_angular_velocity):
+                gripper_angular_velocity[t] = angular_vel
+        
+        # Plot gripper linear velocity
+        plt.subplot(2, 2, 1)
+        plt.plot(gripper_velocity, label='Gripper Linear Velocity', color='blue', linewidth=2)
+        
+        # Highlight object motion phases
+        colors = ['lightgreen']  # Single color for object motion phases
+        
+        for i, phase in enumerate(object_motion_phases):
+            start, end = phase['start_frame'], phase['end_frame']
+            moving_objects = phase.get('moving_objects', [])
+            color = colors[0]
+            alpha = 0.3
+            
+            # Create descriptive label for legend (only once)
+            legend_label = None
+            if i == 0:  # Only add legend for first phase
+                if moving_objects:
+                    obj_names = [obj.name for obj in moving_objects]
+                    legend_label = f'Object Motion ({obj_names[0]})'
+                else:
+                    legend_label = 'Object Motion'
+            
+            plt.axvspan(start, end, alpha=alpha, color=color, label=legend_label)
+        
+        # Add vertical lines at phase boundaries
+        for i in range(len(object_motion_phases) - 1):
+            boundary_frame = object_motion_phases[i]['end_frame']
+            plt.axvline(x=boundary_frame, color='black', linestyle='--', alpha=0.7, linewidth=1)
+        
+        plt.xlabel('Time Step')
+        plt.ylabel('Linear Velocity (m/s)')
+        plt.title(f'Gripper Linear Velocity')
+        plt.legend()
+        plt.grid(True, alpha=0.3)
+        
+        # Plot gripper angular velocity
+        plt.subplot(2, 2, 2)
+        plt.plot(gripper_angular_velocity, label='Gripper Angular Velocity', color='red', linewidth=2)
+        
+        # Highlight object motion phases on angular velocity plot
+        for i, phase in enumerate(object_motion_phases):
+            start, end = phase['start_frame'], phase['end_frame']
+            moving_objects = phase.get('moving_objects', [])
+            color = colors[0]
+            alpha = 0.3
+            
+            # Create descriptive label for legend (only once)
+            legend_label = None
+            if i == 0:  # Only add legend for first phase
+                if moving_objects:
+                    obj_names = [obj.name for obj in moving_objects]
+                    legend_label = f'Object Motion ({obj_names[0]})'
+                else:
+                    legend_label = 'Object Motion'
+            
+            plt.axvspan(start, end, alpha=alpha, color=color, label=legend_label)
+        
+        # Add vertical lines at phase boundaries
+        for i in range(len(object_motion_phases) - 1):
+            boundary_frame = object_motion_phases[i]['end_frame']
+            plt.axvline(x=boundary_frame, color='black', linestyle='--', alpha=0.7, linewidth=1)
+        
+        plt.xlabel('Time Step')
+        plt.ylabel('Angular Velocity (rad/s)')
+        plt.title(f'Gripper Angular Velocity')
+        plt.legend()
+        plt.grid(True, alpha=0.3)
+        
+        # Plot object linear velocities
+        plt.subplot(2, 2, 3)
+        colors_obj = plt.cm.tab10(np.linspace(0, 1, len(object_motion_data)))
+        
+        for (obj, motion_list), color in zip(object_motion_data.items(), colors_obj):
+            if motion_list:  # Only plot if object has motion data
+                times = [t for t, _, _ in motion_list]
+                velocities = [vel for _, vel, _ in motion_list]
+                plt.plot(times, velocities, label=f'{obj.name}', color=color, alpha=0.7)
+        
+        # Highlight object motion phases on object plot
+        for i, phase in enumerate(object_motion_phases):
+            start, end = phase['start_frame'], phase['end_frame']
+            color = colors[0]
+            plt.axvspan(start, end, alpha=0.2, color=color)
+            
+            # Add text annotation for phase with object names
+            mid_point = (start + end) / 2
+            max_vel = max([max([vel for _, vel, _ in motion_list]) for motion_list in object_motion_data.values() if motion_list] + [0])
+            
+            # Create informative label
+            moving_objects = phase.get('moving_objects', [])
+            if moving_objects:
+                obj_names = [obj.name for obj in moving_objects]
+                label = f'P{i}\n{obj_names[0]}'
+            else:
+                label = f'P{i}\nobj'
+            
+            plt.text(mid_point, max_vel * 0.8, label, 
+                    ha='center', va='center', fontsize=8, 
+                    bbox=dict(boxstyle='round,pad=0.2', facecolor=color, alpha=0.7))
+        
+        # Add vertical lines at phase boundaries
+        for i in range(len(object_motion_phases) - 1):
+            boundary_frame = object_motion_phases[i]['end_frame']
+            plt.axvline(x=boundary_frame, color='black', linestyle='--', alpha=0.7, linewidth=1)
+            
+        plt.xlabel('Time Step')
+        plt.ylabel('Linear Velocity (m/s)')
+        plt.title('Object Linear Velocity')
+        plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+        plt.grid(True, alpha=0.3)
+        
+        # Plot object angular velocities
+        plt.subplot(2, 2, 4)
+        
+        for (obj, motion_list), color in zip(object_motion_data.items(), colors_obj):
+            if motion_list:  # Only plot if object has motion data
+                times = [t for t, _, _ in motion_list]
+                angular_velocities = [ang_vel for _, _, ang_vel in motion_list]
+                plt.plot(times, angular_velocities, label=f'{obj.name}', color=color, alpha=0.7)
+        
+        # Highlight object motion phases on object angular plot
+        for i, phase in enumerate(object_motion_phases):
+            start, end = phase['start_frame'], phase['end_frame']
+            color = colors[0]
+            plt.axvspan(start, end, alpha=0.2, color=color)
+            
+            # Add text annotation for phase with object names
+            mid_point = (start + end) / 2
+            max_ang_vel = max([max([ang_vel for _, _, ang_vel in motion_list]) for motion_list in object_motion_data.values() if motion_list] + [0])
+            
+            # Create informative label
+            moving_objects = phase.get('moving_objects', [])
+            if moving_objects:
+                obj_names = [obj.name for obj in moving_objects]
+                label = f'P{i}\n{obj_names[0]}'
+            else:
+                label = f'P{i}\nobj'
+            
+            plt.text(mid_point, max_ang_vel * 0.8, label, 
+                    ha='center', va='center', fontsize=8, 
+                    bbox=dict(boxstyle='round,pad=0.2', facecolor=color, alpha=0.7))
+        
+        # Add vertical lines at phase boundaries
+        for i in range(len(object_motion_phases) - 1):
+            boundary_frame = object_motion_phases[i]['end_frame']
+            plt.axvline(x=boundary_frame, color='black', linestyle='--', alpha=0.7, linewidth=1)
+        
+        plt.xlabel('Time Step')
+        plt.ylabel('Angular Velocity (rad/s)')
+        plt.title('Object Angular Velocity')
+        plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+        plt.grid(True, alpha=0.3)
+        
+        plt.tight_layout()
+        plt.savefig(f"feature_data/object_motion_analysis_traj{traj_idx}.png", dpi=150, bbox_inches='tight')
+        plt.close()
+        
+        logging.info(f"Saved object motion phase visualization for trajectory {traj_idx}")
+
+    def _visualize_multi_phase_motion(self, traj_idx: int, gripper_velocity: np.ndarray, motion_segments: List[Tuple[int, int]], object_motion_data: Dict):
+        """Create visualization showing gripper motion and detected phases."""
+        plt.figure(figsize=(12, 8))
+        
+        # Plot gripper velocity
+        plt.subplot(2, 1, 1)
+        plt.plot(gripper_velocity, label='Gripper Linear Velocity', color='blue', linewidth=2)
+        
+        # Highlight motion segments
+        for i, (start, end) in enumerate(motion_segments):
+            plt.axvspan(start, end, alpha=0.3, color=f'C{i}', label=f'Motion Segment {i}')
+        
+        plt.xlabel('Time Step')
+        plt.ylabel('Linear Velocity (m/s)')
+        plt.title(f'Trajectory {traj_idx}: Gripper Motion Analysis')
+        plt.legend()
+        plt.grid(True, alpha=0.3)
+        
+        # Plot object velocities
+        plt.subplot(2, 1, 2)
+        colors = plt.cm.tab10(np.linspace(0, 1, len(object_motion_data)))
+        
+        for (obj, motion_list), color in zip(object_motion_data.items(), colors):
+            if motion_list:  # Only plot if object has motion data
+                times = [t for t, _, _ in motion_list]
+                velocities = [vel for _, vel, _ in motion_list]
+                plt.plot(times, velocities, label=f'{obj.name}', color=color, alpha=0.7)
+        
+        # Highlight motion segments on object plot too
+        for i, (start, end) in enumerate(motion_segments):
+            plt.axvspan(start, end, alpha=0.2, color=f'C{i}')
+            
+        plt.xlabel('Time Step')
+        plt.ylabel('Linear Velocity (m/s)')
+        plt.title('Object Motion During Gripper Motion Phases')
+        plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+        plt.grid(True, alpha=0.3)
+        
+        plt.tight_layout()
+        plt.savefig(f"feature_data/multi_phase_motion_analysis_traj{traj_idx}.png", dpi=150, bbox_inches='tight')
+        plt.close()
+        
+        logging.info(f"Saved multi-phase motion visualization for trajectory {traj_idx}")
 
     def _generate_relative_low_speed_feature_datasets(self, dataset: Dataset) -> Dict[Tuple[Type, Type, str], List[np.ndarray]]:
         """Extracts relative features constant between consecutive states.
@@ -1269,39 +1943,34 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         # Optional: Filter types as before
         filtered_types = set()
         # Example filter (adjust as needed):
-        allowed_type_names = {"handle", "cabinet"} # Added door_type based on usage
+        blacklisted_type_names = {"left_finger_type", "right_finger_type", "base_type", "wrist_type","counter_type","surface_type","door_type"}#"thing_type"}
         for type_obj in types:
-            if any(name in type_obj.name for name in allowed_type_names):
+            if type_obj.name not in blacklisted_type_names:
                 filtered_types.add(type_obj)
                 logging.info(f"Keeping type for relative features: {type_obj.name}")
             else:
-                logging.debug(f"Filtering out type: {type_obj.name}")
+                logging.debug(f"Filtering out blacklisted type: {type_obj.name}")
 
-        gripper_type = "gripper"
-        gripper_type_obj = None
-        for type_obj in types:
-            if gripper_type in type_obj.name:
-                gripper_type_obj = type_obj
-                logging.info(f"Keeping gripper type: {type_obj.name}")
-                break
+        # gripper_type = "gripper"
+        # gripper_type_obj = None
+        # for type_obj in types:
+        #     if gripper_type in type_obj.name:
+        #         gripper_type_obj = type_obj
+        #         logging.info(f"Keeping gripper type: {type_obj.name}")
+        #         break
 
-        if gripper_type_obj is None:
-            logging.warning(f"No gripper type found in the dataset. Skipping relative features.")
-            return {}
+        # if gripper_type_obj is None:
+        #     raise ValueError("No gripper type found in the dataset. Skipping relative features.")
 
         type_pairs = list(utils.combinations_no_self_pairs(sorted(list(filtered_types)), 2))
         # Create type pairs that include combinations with gripper
-        for type_obj in filtered_types:
-            # Add both (gripper, obj) and (obj, gripper) pairs
-            type_pairs.append((type_obj, gripper_type_obj))
-            logging.info(f"Adding gripper pair: ({gripper_type_obj.name}, {type_obj.name}) and ({type_obj.name}, {gripper_type_obj.name})")
+        # for type_obj in filtered_types:
+        #     # Add both (gripper, obj) and (obj, gripper) pairs
+        #     type_pairs.append((type_obj, gripper_type_obj))
+        #     logging.info(f"Adding gripper pair: ({gripper_type_obj.name}, {type_obj.name}) and ({type_obj.name}, {gripper_type_obj.name})")
 
         logging.info(f"Total type pairs for relative features: {len(type_pairs)}")
-        # type_pairs = list(product(sorted(list(types)), repeat=2))
 
-        quat_feat_name = "quaternion"
-        trans_feat_name = "translation"
-        pose_feat_name = "pose" # New combined feature name
 
         for i, traj in enumerate(dataset.trajectories):
             logging.debug(f"Processing trajectory {i+1}/{len(dataset.trajectories)} for relative features")
@@ -1325,8 +1994,8 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                         # Handle type1 == type2 case
                         obj2_list = objs2 if type1 != type2 else [o for o in objs2 if o != o1]
                         for o2 in obj2_list:
-                            rel_pose_t = utils.calculate_relative_pose_from_state(state_t, o1, o2, trans_feat_name, quat_feat_name)
-                            rel_pose_t1 = utils.calculate_relative_pose_from_state(state_t1, o1, o2, trans_feat_name, quat_feat_name)
+                            rel_pose_t = utils.calculate_relative_pose_from_state(state_t, o1, o2, CFG.trans_feat_name, CFG.quat_feat_name)
+                            rel_pose_t1 = utils.calculate_relative_pose_from_state(state_t1, o1, o2, CFG.trans_feat_name, CFG.quat_feat_name)
 
                             if rel_pose_t is not None and rel_pose_t1 is not None:
                                 # Calculate change in relative pose (using SE(3) distance concept)
@@ -1336,7 +2005,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                                                                                 CFG.clustering_se3_rot_weight)
 
                                 # Add the pose at time t to the dataset
-                                feature_key = (type1, type2, pose_feat_name)
+                                feature_key = (type1, type2, CFG.pose_feature_name)
                                 feature_data[feature_key].append(rel_pose_t)
                                 feature_changes[feature_key].append(pose_diff_norm)
 
@@ -1347,11 +2016,23 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             if len(changes) > 1: # Need at least 2 points to compute percentile
                 # get moving average of changes first
                 changes_ma = np.convolve(changes, np.ones(CFG.clustering_moving_average_window) / CFG.clustering_moving_average_window, mode='valid')
-                constancy_threshold = np.percentile(changes_ma, CFG.clustering_feature_constancy_percentile) # Default 30?
-                logging.debug(f"Constancy threshold for {feature_key}: {constancy_threshold:.4f} ({CFG.clustering_feature_constancy_percentile}th percentile)")
+                percentile_threshold = np.percentile(changes_ma, CFG.clustering_feature_constancy_percentile) # Default 10th percentile
+                fixed_threshold = CFG.clustering_constancy_threshold
+                # Use the higher threshold (more permissive, keeps more data)
+                constancy_threshold = max(percentile_threshold, fixed_threshold)
+                logging.debug(f"Constancy threshold for {feature_key}: {constancy_threshold:.4f} (max of {CFG.clustering_feature_constancy_percentile}th percentile: {percentile_threshold:.4f} and fixed: {fixed_threshold:.4f})")
                 mask = changes <= constancy_threshold
-                final_feature_data[feature_key] = [pt for pt, keep in zip(data_points, mask) if keep]
-                logging.debug(f"Kept {sum(mask)} / {len(data_points)} points for {feature_key} based on constancy.")
+                filtered_points = [pt for pt, keep in zip(data_points, mask) if keep]
+                
+                # Additional layer: limit to 500 points maximum
+                if len(filtered_points) > 500:
+                    # Randomly sample 500 points to maintain diversity
+                    indices = np.random.choice(len(filtered_points), 500, replace=False)
+                    filtered_points = [filtered_points[i] for i in sorted(indices)]
+                    # logging.debug(f"Further reduced from {sum(mask)} to 500 points for {feature_key} via random sampling.")
+                
+                final_feature_data[feature_key] = filtered_points
+                # logging.debug(f"Final count: {len(filtered_points)} points for {feature_key} after all filtering.")
             else:
                 logging.debug(f"No data points collected for {feature_key}.")
 
@@ -1368,6 +2049,12 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             return np.array([]), np.array([]), set()
 
         data_array = np.array(feature_data)
+        # If there are more than 500 data points, randomly sample to reduce to 500
+        if len(data_array) > 500:
+            logging.debug(f"Reducing dataset from {len(data_array)} to 500 points via random sampling.")
+            indices = np.random.choice(len(data_array), 500, replace=False)
+            data_array = data_array[indices]
+            # If feature_data is a list, also update it for consistency
         if data_array.ndim == 1:
             data_array = data_array.reshape(-1, 1)
 
@@ -1386,7 +2073,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                                                             CFG.clustering_se3_trans_weight, 
                                                             CFG.clustering_se3_rot_weight)
             # Use a specific epsilon for SE(3) clustering
-            effective_epsilon = CFG.clustering_se3_epsilon # Needs to be defined in CFG
+            effective_epsilon = initial_epsilon
             logging.debug(f"Using SE(3) metric with epsilon: {effective_epsilon:.4f}")
         else:
             raise ValueError(f"Unsupported feature type: {feature_name}")
@@ -1407,7 +2094,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             dist_matrix = squareform(dists)
             clustering = AgglomerativeClustering(n_clusters=None,
                                                 affinity="precomputed", # Pass metric
-                                                linkage='single', # Check compatibility with custom metric
+                                                linkage='average', # Check compatibility with custom metric
                                                 distance_threshold=effective_epsilon).fit(dist_matrix)
 
         labels = clustering.labels_
@@ -1439,17 +2126,25 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         # Determine if relative or absolute for titles/filenames
         if type2_name:
             cluster_type_str = f"Relative Cluster: {type2_name} in {type1_name} frame"
-            fname_prefix = f"rel_{feat_name}_clusters_{CFG.robo_kitchen_task}_{pred.name}_{type2_name}_in_{type1_name}_frame"
+            fname_prefix = f"{CFG.robo_kitchen_task}_{type2_name}_in_{type1_name}_frame"
         else:
             cluster_type_str = f"Absolute Cluster: {type1_name}"
-            fname_prefix = f"abs_{feat_name}_clusters_{CFG.robo_kitchen_task}_{pred.name}_{type1_name}"
+            fname_prefix = f"{CFG.robo_kitchen_task}_{type1_name}"
 
         num_total_clusters = len(unique_labels - {-1})
         num_kept_clusters = len(kept_clusters_info)
 
         fig = plt.figure(figsize=(15, 12))
-        title = (f"{cluster_type_str} ({feat_name})\n"
-                 f"MinRatio={CFG.clustering_min_ratio_of_data}, Kept={num_kept_clusters}/{num_total_clusters}")
+        
+        # Create shortened title with just task name, type1 name, type2 name, cluster IDs
+        cluster_ids = sorted(list(kept_clusters_info.keys()))
+        cluster_ids_str = ",".join(map(str, cluster_ids))
+        
+        if type2_name:
+            title = f"{CFG.robo_kitchen_task}, {type1_name}, {type2_name}, {cluster_ids_str}"
+        else:
+            title = f"{CFG.robo_kitchen_task}, {type1_name}, {cluster_ids_str}"
+        
         fname = f"{fname_prefix}.png"
 
         # Store figure reference for potential trajectory overlay
@@ -1959,38 +2654,47 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         if not gripper_type:
             logging.warning("Gripper type not found. Cannot generate contact-based predicates.")
             return {}, {} # Return empty dicts if gripper type is not found
-
-       
+        trajectory_motion_phases, trajectory_all_objects, gripper_obj, contact_lost_periods = None, None, None, None
         if CFG.predicate_candidates_method == "motion_analysis_contact":
-            self._update_incontact_predicate_using_motion_analysis(dataset, in_contact_pred, gripper_type)
+            trajectory_motion_phases, trajectory_all_objects, gripper_obj, contact_lost_periods = self._update_incontact_predicate_using_motion_analysis(dataset, in_contact_pred, gripper_type)
         learnt_goal_predicates = self.load_learnt_goals()
         predicates_to_monitor, ground_atom_dataset = self._create_gnd_atom_datasets(dataset, in_contact_pred, in_origin_pred, learnt_goal_predicates)
         all_objs_types, robot_base_obj_type = self._find_common_objects_types(ground_atom_dataset)
-        relative_pose_dataset_dict, traj_all_objs_all, contact_period_rel_trajs, goal_reached_states, object_type_in_contact_with_gripper_longest_duration, ground_atom_dataset = self._extract_relative_pose_data(ground_atom_dataset, all_objs_types, gripper_type, in_contact_pred, in_origin_pred)
-        # single out the object with in contact with gripper for longest duration
-        # Ensure all trajectories have the same object with longest contact duration
-        assert len(set(object_type_in_contact_with_gripper_longest_duration)) == 1, f"All trajectories should have the same object with longest contact/motion duration. {object_type_in_contact_with_gripper_longest_duration}"
-        obj_type_contact_with_gripper = object_type_in_contact_with_gripper_longest_duration[0]
-        obj_type_of_reference_best, min_reconstruction_error, list_of_reconstruction_errors = self._select_reference_object(contact_period_rel_trajs)
-        # just 1 object does not support contacting with multiple objects 
-        if CFG.use_gt_ref_obj_type and CFG.robo_kitchen_task in CFG.gt_ref_obj_type: # mocap tasks are not using gt ref obj type
-            obj_type_of_reference_best_text = CFG.gt_ref_obj_type[CFG.robo_kitchen_task]
-            for obj_type in all_objs_types:
-                if obj_type.name == obj_type_of_reference_best_text:
-                    obj_type_of_reference_best = obj_type
-                    break
-            logging.error(f"Using ground truth reference object type: {obj_type_of_reference_best.name}")
-        assert obj_type_of_reference_best is not None, f"Reference object type not found in all_objs_types: {all_objs_types}"
+        relative_pose_gripper_obj_dataset_dict, traj_all_objs_all, contact_period_obj_obj_rel_trajs, ground_atom_dataset = self._extract_relative_pose_data(ground_atom_dataset, all_objs_types, gripper_type, in_contact_pred, in_origin_pred, trajectory_motion_phases, trajectory_all_objects, gripper_obj, contact_lost_periods)            
+        
+        # Find the most common object type that comes in contact with the gripper
+        # if trajectory_all_objects is not None:
+            # obj_type_contact_with_gripper = self._find_object_in_contact_with_gripper(trajectory_all_objects)
+        # else:
+        #     # Fallback: use the first moving object type from contact_period_rel_trajs
+        #     if contact_period_obj_obj_rel_trajs:
+        #         obj_type_contact_with_gripper = next(iter(contact_period_obj_obj_rel_trajs.keys()))
+        #     else:
+        #         # Final fallback: use the first non-gripper object type
+        #         obj_type_contact_with_gripper = next((obj_type for obj_type in all_objs_types if 'gripper' not in obj_type.name.lower()), all_objs_types[0])
+        
+        # logging.info(f"Object type in contact with gripper: {obj_type_contact_with_gripper.name}")
+        
+        best_reference_per_moving_obj, _ = self._select_reference_object(contact_period_obj_obj_rel_trajs)
+        # obj_type_of_reference_best = next(iter(best_reference_per_moving_obj.values()))[0]
+        # if CFG.use_gt_ref_obj_type and CFG.robo_kitchen_task in CFG.gt_ref_obj_type: # mocap tasks are not using gt ref obj type
+        #     obj_type_of_reference_best_text = CFG.gt_ref_obj_type[CFG.robo_kitchen_task]
+        #     for obj_type in all_objs_types:
+        #         if obj_type.name == obj_type_of_reference_best_text:
+        #             obj_type_of_reference_best = obj_type
+        #             break
+        # logging.error(f"Using ground truth reference object type: {obj_type_of_reference_best.name}")
+        # assert obj_type_of_reference_best is not None, f"Reference object type not found in all_objs_types: {all_objs_types}"
         # assert obj_type_of_reference_best.name in gt_ref_obj_type, f"GT reference object type not matching correct solution, gt_ref_obj_type: {gt_ref_obj_type}, obj_type_of_reference_best: {obj_type_of_reference_best.name}"
         
-        self._visualize_contact_period_trajectories(contact_period_rel_trajs, list_of_reconstruction_errors)
-        ground_atom_dataset, relative_pose_dataset_dict = self._update_atom_sequences_with_goal_predicates(ground_atom_dataset, traj_all_objs_all, obj_type_of_reference_best, obj_type_contact_with_gripper, goal_reached_states, relative_pose_dataset_dict)
-        if CFG.enable_base_ref_obj_precondition:
-            ground_atom_dataset, relative_pose_dataset_dict = self._add_base_ref_obj_precondition(ground_atom_dataset, relative_pose_dataset_dict, obj_type_of_reference_best, obj_type_contact_with_gripper, robot_base_obj_type, traj_all_objs_all)
-        renamed_cluster_candidates = self._add_goal_states_to_relative_pose_and_cluster(dataset, relative_pose_dataset_dict)
+        # self._visualize_contact_period_trajectories(contact_period_rel_trajs, list_of_reconstruction_errors)
+        ground_atom_dataset = self._update_atom_sequences_with_goal_predicates(ground_atom_dataset, traj_all_objs_all, best_reference_per_moving_obj)
+        relative_pose_all_dict = self._update_rel_pose_dict_with_obj_obj(relative_pose_gripper_obj_dataset_dict, contact_period_obj_obj_rel_trajs, best_reference_per_moving_obj)
+        
+        renamed_cluster_candidates = self._add_goal_states_to_relative_pose_and_cluster(dataset, relative_pose_all_dict)
         
         
-        return self._postprocess_cluster_predicates(env, dataset, ground_atom_dataset, predicates_to_monitor, renamed_cluster_candidates, obj_type_of_reference_best,obj_type_contact_with_gripper, learnt_goal_predicates)
+        return self._postprocess_cluster_predicates(env, dataset, ground_atom_dataset, predicates_to_monitor, renamed_cluster_candidates, best_reference_per_moving_obj, learnt_goal_predicates)
         
     def _add_base_ref_obj_precondition(self, ground_atom_dataset: List[GroundAtomTrajectory], relative_pose_dataset_dict: Dict[Tuple[Predicate, Type, Type, str], List[np.ndarray]],  obj_type_of_reference_best: Type, obj_type_contact_with_gripper: Type, robot_base_obj_type: Type, traj_all_objs_all: List[List[Object]]):
         # RelPosPred
@@ -2046,58 +2750,10 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
 
 
     
-    def _postprocess_cluster_predicates(self, env, dataset: Dataset, ground_atom_dataset: List[GroundAtomTrajectory], predicates_to_monitor: Set[Predicate], renamed_cluster_candidates: Dict[Predicate, float], obj_type_of_reference_best: Type, obj_type_contact_with_gripper: Type, learnt_goal_predicates: Set[Predicate]):
-        if CFG.reprocess_ground_atom_dataset_using_cluster_predicates: # this turns out to be not good, some traj get not segmented, some traj get segmented too early since cluster is sometimes big.
-            kept_preds = set(predicates_to_monitor)
-            kept_preds2 = set(renamed_cluster_candidates.keys())
-            different_seg_count_trajs = []
-            num_seg_1 = []
-            num_seg_2 = []
-            logging.info("--- Segmentation using ONLY newly generated cluster predicates ---")
-            og_pred_atom_dataset = self._create_atom_dataset(dataset, kept_preds)
-            cluster_pred_atom_dataset = self._create_atom_dataset(dataset, kept_preds2)
-            for i, (traj1_ele, traj2_ele) in enumerate(zip(og_pred_atom_dataset, cluster_pred_atom_dataset)):
-                _, atom_seq1 = traj1_ele
-                _, atom_seq2 = traj2_ele
+    def _postprocess_cluster_predicates(self, env, dataset: Dataset, ground_atom_dataset: List[GroundAtomTrajectory], predicates_to_monitor: Set[Predicate], renamed_cluster_candidates: Dict[Predicate, float], best_reference_per_moving_obj: Dict[Type, Type], learnt_goal_predicates: Set[Predicate]):
 
-                # Print changes in atom sets
-                last_atoms1 = None
-                seg_count1 = 0
-                for t, atoms in enumerate(atom_seq1):
-                    current_atoms = frozenset(atoms)
-                    if current_atoms != last_atoms1:
-                        logging.info(f"Old  Time {t}: {current_atoms if current_atoms else '{}'}")
-                        last_atoms1 = current_atoms
-                        seg_count1 += 1
-
-                last_atoms2 = None
-                seg_count2 = 0
-                for t, atoms in enumerate(atom_seq2):
-                    current_atoms = frozenset(atoms)
-                    if current_atoms != last_atoms2:
-                        logging.info(f"New  Time {t}: {current_atoms if current_atoms else '{}'}")
-                        last_atoms2 = current_atoms
-                        seg_count2 += 1
-
-                if seg_count1 != seg_count2:
-                    different_seg_count_trajs.append(i)
-                    num_seg_1.append(seg_count1)
-                    num_seg_2.append(seg_count2)
-
-            logging.info(f"Trajectories with different segment counts: {different_seg_count_trajs}, num_seg_1: {num_seg_1}, num_seg_2: {num_seg_2}, totoal_num_traj = {len(og_pred_atom_dataset)}")
-
-            # Filter out trajectories with different segment counts from both datasets
-            if different_seg_count_trajs:            
-                # Reverse sort the indices to safely remove items without affecting other indices
-                for idx in sorted(different_seg_count_trajs, reverse=True):
-                    if 0 <= idx < len(og_pred_atom_dataset):
-                        og_pred_atom_dataset.pop(idx)
-                    if 0 <= idx < len(cluster_pred_atom_dataset):
-                        cluster_pred_atom_dataset.pop(idx)
-
-                logging.info(f"After filtering: {len(og_pred_atom_dataset)} trajectories remain")
-
-        if CFG.reprocess_ground_atom_dataset_using_cluster_replacement: #replace in contact atoms with rel pose atoms, so easier to do operator learning later
+        if CFG.reprocess_ground_atom_dataset_using_cluster_replacement: 
+            #replace in contact atoms with rel pose atoms, so easier to do operator learning later
             different_seg_count_trajs = [] 
             for i, (ll_traj, atom_seq) in enumerate(ground_atom_dataset):
                 for j, atoms in enumerate(atom_seq):
@@ -2114,30 +2770,79 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                         atoms_new.append(grounded_pred)
                     ground_atom_dataset[i][1][j] = set(atoms_new)
 
-        if env.goal_predicates : 
-            assert len(list(env.goal_predicates)) == 1
-            #this for running testing tasks! During testing, the goal is not the ground truth goal, but translated to a rel pose goal. During test time, the goal does not have to be just 1
-            goal_pred = list(env.goal_predicates)[0]
-            pred_key = tuple([goal_pred.name] + [t.name for t in goal_pred.types])
-            CFG.dict_gt_goal_predicate_to_dummy_goal_predicates[pred_key] = set([DummyPredicate(f"{CFG.robo_kitchen_task}-goal", [obj_type_of_reference_best, obj_type_contact_with_gripper])])
-
-        else:
-            raise NotImplementedError("Environment goal predicates not found, did you forget to define it for the task? Check perceiver, and robo_kitchen")
-        for pred in predicates_to_monitor:
-            pass # the following three lines seems to make dr-unreachable error more likely but don't know why
-            # if isinstance(pred, DummyPredicate): # goal predicate
-            #     predicates_to_monitor.remove(pred)
-            #     pred_new = DummyPredicate(f"{CFG.robo_kitchen_task}-goal", [obj_of_reference_best.type, obj_contact_with_gripper.type])
-            #     predicates_to_monitor.add(pred_new)
-
+       
+            logging.warning("goal_predicate not implemented, so can't do online planning, breaking!")
+        
+        # Collect atoms at the end of each demonstration episode
+        if env.goal_predicates:
+            # Get final atoms from each trajectory
+            final_atoms_per_episode = []
+            for i, (ll_traj, atom_seq) in enumerate(ground_atom_dataset):
+                if not ll_traj.states or not atom_seq:
+                    continue  # Skip empty trajectories
+                # Get atoms from the final timestep
+                final_atoms = atom_seq[-1] if atom_seq else set()
+                final_atoms_per_episode.append(final_atoms)
+            
+            if final_atoms_per_episode:
+                # Count frequency of each atom across all episodes
+                atom_counts = {}
+                total_episodes = len(final_atoms_per_episode)
+                
+                for final_atoms in final_atoms_per_episode:
+                    for atom in final_atoms:
+                        # Create a hashable key for the atom (predicate name + object types)
+                        atom_key = (atom.predicate.name, tuple(obj.name for obj in atom.objects), tuple(obj.type.name for obj in atom.objects))
+                        atom_counts[atom_key] = atom_counts.get(atom_key, 0) + 1
+                
+                # Find atoms that appear in most episodes (threshold: at least 80% of episodes)
+                threshold = max(1, int(0.8 * total_episodes))
+                common_atoms = {atom_key for atom_key, count in atom_counts.items() if count >= threshold}
+                
+                logging.info(f"Found {len(common_atoms)} atoms that appear in at least {threshold}/{total_episodes} episodes")
+                for atom_key, count in atom_counts.items():
+                    if atom_key in common_atoms:
+                        logging.info(f"  - {atom_key[0]}({', '.join(atom_key[1])}, {', '.join(atom_key[2])}): {count}/{total_episodes} episodes")
+                
+                # Update goal predicate mapping for each ground truth goal predicate
+                pred_key = CFG.robo_kitchen_task 
+                
+                if common_atoms:
+                    # If we found common atoms, save them with full details (predicate, obj_names, obj_types)
+                    CFG.dict_gt_goal_predicate_to_dummy_goal_predicates[pred_key] = common_atoms
+                    logging.info(f"Updated goal mapping for {CFG.robo_kitchen_task} with {len(common_atoms)} common final atoms")
+                else:
+                    # No common atoms found, create fallback entries
+                    logging.warning(f"No common atoms found with threshold {threshold}/{total_episodes}, creating fallback entries")
+                    
+                    # Create fallback entries with different levels of specificity
+                    fallback_atoms = set()
+                    
+                    # First fallback: predicate + object names + object types (same as original but with lower threshold)
+                    lower_threshold = max(1, int(0.5 * total_episodes))  # 50% threshold
+                    lower_common_atoms = {atom_key for atom_key, count in atom_counts.items() if count >= lower_threshold}
+                    
+                    if lower_common_atoms:
+                        fallback_atoms.update(lower_common_atoms)
+                        logging.info(f"Added {len(lower_common_atoms)} atoms with lower threshold ({lower_threshold}/{total_episodes})")
+                    else:
+                        # Second fallback: predicate + object types only (remove specific object names)
+                        predicate_type_atoms = set()
+                        for atom_key, count in atom_counts.items():
+                            pred_name, obj_names, obj_type_names = atom_key
+                            # Create key with just predicate and types (empty tuple for obj_names)
+                            type_only_key = (pred_name, (), obj_type_names)
+                            predicate_type_atoms.add(type_only_key)
+                        
+                        fallback_atoms.update(predicate_type_atoms)
+                        logging.info(f"Added {len(predicate_type_atoms)} predicate+type fallback atoms")
+                    
+                    CFG.dict_gt_goal_predicate_to_dummy_goal_predicates[pred_key] = fallback_atoms
+                    logging.info(f"Updated goal mapping for {CFG.robo_kitchen_task} with {len(fallback_atoms)} fallback atoms")
+        
         # --- End Debugging ---
-        if CFG.reprocess_ground_atom_dataset_using_cluster_replacement:
-            # if replacing, then goal predicates are gone, need some way to say how to successfully complete the task
-            return ground_atom_dataset, ground_atom_dataset, different_seg_count_trajs, renamed_cluster_candidates, learnt_goal_predicates
-        elif CFG.reprocess_ground_atom_dataset_using_cluster_predicates:
-            return og_pred_atom_dataset, cluster_pred_atom_dataset, different_seg_count_trajs, renamed_cluster_candidates, predicates_to_monitor
-        else:
-            return ground_atom_dataset, ground_atom_dataset, different_seg_count_trajs, renamed_cluster_candidates, predicates_to_monitor
+       
+        return ground_atom_dataset, ground_atom_dataset, different_seg_count_trajs, renamed_cluster_candidates, learnt_goal_predicates
         
     def _add_goal_states_to_relative_pose_and_cluster(self, dataset: Dataset, relative_pose_dataset_dict: Dict[Tuple[Predicate, Type, Type, str], List[np.ndarray]]):
         candidate_cluster_preds: Dict[Predicate, float] = {}
@@ -2168,11 +2873,8 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             # np.save(data_path, np.array(data))
             # logging.info(f"Saved {len(data)} contact pose data points for feature {feature_key} to {data_path}")
 
-            # Use SE(3) epsilon
-            epsilon = CFG.clustering_se3_epsilon
-
             # Perform clustering
-            data_array, labels, unique_labels = self._cluster_feature_dataset(data, epsilon, feat_name)
+            data_array, labels, unique_labels = self._cluster_feature_dataset(data, CFG.clustering_se3_epsilon, feat_name)
             if data_array.size == 0: continue # Skip if clustering returned empty
 
             # Adjust min cluster size calculation if needed (e.g., minimum 3 points for covariance)
@@ -2335,24 +3037,48 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         renamed_cluster_candidates = self._rename_predicates_to_remove_incompatible_chars(candidate_cluster_preds)
         return renamed_cluster_candidates
 
-    def _update_atom_sequences_with_goal_predicates(self, ground_atom_dataset: List[GroundAtomTrajectory], traj_all_objs_all: List[List[Object]], obj_type_of_reference_best: Type, obj_type_contact_with_gripper: Object, goal_reached_states: Dict[int, List[State]], relative_pose_dataset_dict: Dict[Tuple[Predicate, Type, Type, str], List[np.ndarray]]):
+    def _update_atom_sequences_with_goal_predicates(self, ground_atom_dataset: List[GroundAtomTrajectory], traj_all_objs_all: List[List[Object]], best_reference_per_moving_obj: Dict[Type, Type]):
         for i, (ll_traj, atom_seq) in enumerate(ground_atom_dataset):
             traj_all_objs = traj_all_objs_all[i]
-            obj_ref = [o for o in traj_all_objs if o.type == obj_type_of_reference_best][0]
-            obj_contact = [o for o in traj_all_objs if o.type == obj_type_contact_with_gripper][0]
-            assert obj_ref is not None and obj_contact is not None, "Object of reference or contact with gripper not found"
+            # obj_type_of_reference_best = best_reference_per_moving_obj[traj_all_objs[0].type]
+            # obj_ref = [o for o in traj_all_objs if o.type == obj_type_of_reference_best][0]
+            # assert obj_ref is not None, "Object of reference not found"
+            
+            # Track all goal/subgoal types found in this trajectory
+            # goal_types_found = set()
+            
             for j, atoms in enumerate(atom_seq):
-                for k, atom in enumerate(atoms):
-                    if isinstance(atom, DummyPredicate):
-                        ground_atom_dataset[i][1][j].remove(atom)
-                        ground_atom_dataset[i][1][j].add(GroundAtom(DummyPredicate(f"{CFG.robo_kitchen_task}-goal", [obj_type_of_reference_best, obj_type_contact_with_gripper]), [obj_ref, obj_contact]))
+                atoms_to_remove = []
+                atoms_to_add = []
+                
+                for atom in atoms:
+                    if isinstance(atom, DummyGroundAtom):
+                        moving_obj = atom.entities[0]
+                        ref_obj_type = best_reference_per_moving_obj[moving_obj.type]
+                        ref_obj = [o for o in traj_all_objs if o.type == ref_obj_type]
+                        assert len(ref_obj) == 1, "Multiple reference objects found"
+                        ref_obj = ref_obj[0]
+                        
+                        atoms_to_remove.append(atom)
+                        
+                        # Handle both main goals and subgoals
+                        assert "goal" in atom.predicate.name, "Atom is not a goal or subgoal"
+                        # goal_types_found.add(atom.name)
+                        # Replace with grounded version
+                        new_goal_pred = DummyPredicate(atom.predicate.name, [ref_obj_type, moving_obj.type])
+                        atoms_to_add.append(GroundAtom(new_goal_pred, [ref_obj, moving_obj]))
+                
+                # Apply the changes
+                for atom in atoms_to_remove:
+                    ground_atom_dataset[i][1][j].remove(atom)
+                for atom in atoms_to_add:
+                    ground_atom_dataset[i][1][j].add(atom)
 
-            # add stored states before contact lost to relative_pose_dataset_dict
-            for state in goal_reached_states[i]:
-                rel_pose = utils.calculate_relative_pose_from_state(state, obj_ref, obj_contact, CFG.trans_feat_name, CFG.quat_feat_name)
-                key = (DummyPredicate(f"{CFG.robo_kitchen_task}-goal"), obj_type_of_reference_best, obj_type_contact_with_gripper, "2in1")
-                relative_pose_dataset_dict[key].append(rel_pose)
-        return ground_atom_dataset, relative_pose_dataset_dict
+            # Add all stored states to relative_pose_dataset_dict 
+            # (they're already filtered by goal type during the marking phase)
+            
+                            
+        return ground_atom_dataset #, relative_pose_dataset_dict
 
     def _visualize_contact_period_trajectories(self, contact_period_rel_trajs: Dict[Type, List[List[np.ndarray]]], list_of_reconstruction_errors: List[float]):
         # Visualize the x data for the object of reference
@@ -2399,238 +3125,229 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             plt.close(fig)
 
     def _select_reference_object(self, 
-                                contact_period_rel_trajs: Dict[Type, List[List[np.ndarray]]], 
+                                contact_period_rel_trajs: Dict[Type, Dict[Type, List[List[np.ndarray]]]], 
                                 ) -> Tuple[Type, float, List[float]]:
         """
-        Select the object of reference by learning a DS policy for each object and selecting the one with the lowest reconstruction error.
+        Select the object of reference by learning a DS policy for each moving object type and each potential reference object type,
+        and selecting the reference object type with the lowest reconstruction error for each moving object type.
+        Returns the overall best reference object type.
         """
-        obj_type_of_reference_best = None
-        min_reconstruction_error = float('inf')
-        list_of_reconstruction_errors = []
-        black_list = []
-        for obj_type, rel_pose_trajs in contact_period_rel_trajs.items():
-            if len(rel_pose_trajs) == 0: continue
-            x = []
-            quat = []
-            x_dot = []
-            omega = []
-            for rel_pose_traj in rel_pose_trajs:
-                x_traj = np.array(rel_pose_traj)[:, :3]
-                quat_traj = np.array(rel_pose_traj)[:, 3:]
-                x_dot_traj, omega_traj = compute_vel_traj(x_traj, np.array([R.from_quat(q).as_matrix() for q in quat_traj]), 1/10)
-                x.append(x_traj)
-                quat.append(quat_traj)
-                x_dot.append(x_dot_traj)
-                omega.append(omega_traj)
-            # Check if start and end poses are almost the same (indicating no meaningful motion)
-            if len(x) > 0 and len(x[0]) > 1:
-                start_pos = np.array([traj[0] for traj in x])
-                end_pos = np.array([traj[-1] for traj in x])
-                start_quat = np.array([traj[0] for traj in quat])
-                end_quat = np.array([traj[-1] for traj in quat])
+        best_reference_per_moving_obj = {}  # moving_obj_type -> (best_ref_obj_type, reconstruction_error)
+        all_reconstruction_errors = {}
+        
+        for moving_obj_type, ref_obj_dict in contact_period_rel_trajs.items():
+            logging.info(f"Evaluating reference objects for moving object type: {moving_obj_type.name}")
+            
+            best_ref_obj_type = None
+            min_reconstruction_error = float('inf')
+            black_list = []
+            
+            for ref_obj_type, rel_pose_trajs in ref_obj_dict.items():
+                if len(rel_pose_trajs) == 0: 
+                    continue
+                    
+                # logging.debug(f"  Testing reference object: {ref_obj_type.name} with {len(rel_pose_trajs)} trajectories")
                 
-                # Calculate average distance between start and end poses
-                avg_distance = np.mean([np.linalg.norm(end - start) for start, end in zip(start_pos, end_pos)])
-                avg_quat_distance = np.mean([np.linalg.norm((R.from_quat(end) * R.from_quat(start).inv()).as_rotvec()) for start, end in zip(start_quat, end_quat)])
+                x = []
+                quat = []
+                x_dot = []
+                omega = []
                 
-                # If average distance is very small, blacklist this object
-                if avg_distance < 0.01 and avg_quat_distance < 0.1:  
-                    black_list.append(obj_type)
-                    logging.info(f"Blacklisting {obj_type.name} due to minimal motion (avg distance: {avg_distance:.4f})")
-                    # continue
-            unified_config = UnifiedModelConfig(
-                mode="se3_lpvds",
-                K_candidates=[3]
-            )
-            ds_policy = DSPolicy(
-                x=x,
-                x_dot=x_dot,
-                quat=quat,
-                omega=omega,
-                gripper=[],
-                unified_config=unified_config,
-                dt=1/10
-            )
-            _, reconstruction_error = ds_policy.compute_reconstruction_error()
-            # TODO: Add some basic requirements for the object of reference, so blacklist need more 
-            # 1. start pose and end pose of all trajs should be almost the same, otherwise it is not a good reference object
-            list_of_reconstruction_errors.append(reconstruction_error)
-            if reconstruction_error < min_reconstruction_error and obj_type not in black_list:
-                min_reconstruction_error = reconstruction_error
-                obj_type_of_reference_best = obj_type
-        assert obj_type_of_reference_best is not None, "No object of reference found"
-        return obj_type_of_reference_best, min_reconstruction_error, list_of_reconstruction_errors
+                for rel_pose_traj in rel_pose_trajs:
+                    if len(rel_pose_traj) == 0:
+                        continue
+                    x_traj = np.array(rel_pose_traj)[:, :3]
+                    quat_traj = np.array(rel_pose_traj)[:, 3:]
+                    x_dot_traj, omega_traj = compute_vel_traj(x_traj, np.array([R.from_quat(q).as_matrix() for q in quat_traj]), 1/10)
+                    x.append(x_traj)
+                    quat.append(quat_traj)
+                    x_dot.append(x_dot_traj)
+                    omega.append(omega_traj)
+                
+                if len(x) == 0:
+                    continue
+                    
+                # Check if start and end poses are almost the same (indicating no meaningful motion)
+                if len(x) > 0 and len(x[0]) > 1:
+                    start_pos = np.array([traj[0] for traj in x])
+                    end_pos = np.array([traj[-1] for traj in x])
+                    start_quat = np.array([traj[0] for traj in quat])
+                    end_quat = np.array([traj[-1] for traj in quat])
+                    
+                    # Calculate average distance between start and end poses
+                    avg_distance = np.mean([np.linalg.norm(end - start) for start, end in zip(start_pos, end_pos)])
+                    avg_quat_distance = np.mean([np.linalg.norm((R.from_quat(end) * R.from_quat(start).inv()).as_rotvec()) for start, end in zip(start_quat, end_quat)])
+                    
+                    # If average distance is very small, blacklist this reference object for this moving object
+                    if avg_distance < 0.01 and avg_quat_distance < 0.1:  
+                        black_list.append(ref_obj_type)
+                        logging.debug(f"    Blacklisting {ref_obj_type.name} as reference for {moving_obj_type.name} due to minimal motion (avg distance: {avg_distance:.4f})")
+                        continue
+                
+                try:
+                    unified_config = UnifiedModelConfig(
+                        mode="se3_lpvds",
+                        K_candidates=[3]
+                    )
+                    ds_policy = DSPolicy(
+                        x=x,
+                        x_dot=x_dot,
+                        quat=quat,
+                        omega=omega,
+                        gripper=[],
+                        unified_config=unified_config,
+                        dt=1/10
+                    )
+                    _, reconstruction_error = ds_policy.compute_reconstruction_error()
+                    all_reconstruction_errors[(moving_obj_type, ref_obj_type)] = reconstruction_error
+                    
+                    logging.debug(f"    {ref_obj_type.name} reconstruction error: {reconstruction_error:.6f}")
+                    
+                    if reconstruction_error < min_reconstruction_error and ref_obj_type not in black_list:
+                        min_reconstruction_error = reconstruction_error
+                        best_ref_obj_type = ref_obj_type
+                        
+                except Exception as e:
+                    logging.warning(f"    Failed to compute DS policy for {ref_obj_type.name} as reference for {moving_obj_type.name}: {e}")
+                    continue
+            
+            if best_ref_obj_type is not None:
+                best_reference_per_moving_obj[moving_obj_type] = best_ref_obj_type
+                logging.info(f"  Best reference for {moving_obj_type.name}: {best_ref_obj_type.name} (error: {min_reconstruction_error:.6f})")
+            else:
+                logging.warning(f"  No suitable reference object found for moving object type: {moving_obj_type.name}")
+        
+        # Select the overall best reference object type (lowest reconstruction error across all moving objects)
+        if not best_reference_per_moving_obj:
+            raise ValueError("No suitable reference objects found for any moving object type")
+        
+        
+        return best_reference_per_moving_obj, all_reconstruction_errors
 
-    def _extract_relative_pose_data(self, ground_atom_dataset: List[GroundAtomTrajectory], all_objs_types: List[Type], gripper_type: Type, in_contact_pred: Predicate, in_origin_pred: Predicate) -> Tuple[Dict[Tuple[Predicate, Type, Type, str], List[np.ndarray]], List[List[Object]], Dict[Type, List[List[np.ndarray]]], List[State], List[Type], List[GroundAtomTrajectory]]:
-        relative_pose_dataset_dict = defaultdict(list) # Maps (atom_pred, type1, type2) -> List[rel_pose]
-
-        contact_period_rel_trajs = {}
-        goal_reached_states = defaultdict(list)
+    def _extract_relative_pose_data(self, ground_atom_dataset: List[GroundAtomTrajectory], all_objs_types: List[Type], gripper_type: Type, in_contact_pred: Predicate, in_origin_pred: Predicate, trajectory_motion_phases: Dict[int, List[Dict]] = None, trajectory_all_objects: Dict[int, List[Object]] = None, gripper_obj: Object = None, contact_lost_periods: Dict[int, List[Tuple[int, int]]] = None) -> Tuple[Dict[Tuple[Predicate, Type, Type, str], List[np.ndarray]], List[List[Object]], Dict[Type, List[List[np.ndarray]]], List[State], List[Type], List[GroundAtomTrajectory]]:
+        relative_pose_gripper_obj_dataset_dict = defaultdict(list) # Maps (atom_pred, type1, type2) -> List[rel_pose]
+        contact_period_obj_obj_rel_trajs = {} # Maps (moving_obj_type, reference_obj_type) -> List[List[rel_pose]]
+        # goal_reached_states = defaultdict(list)
         object_type_in_contact_with_gripper_longest_duration = []
         traj_all_objs_all = []
 
-        # Strong assumption of contacting with only 1 object during the whole trajectory!
-        # pose_feat_name = "pose"
-
-        # 1. process of making contact: how to get to grasp (gripper obj centric DS with goal of cluster in step 2)
-        # Atom dataset auto split these
-        # 2. process of held contact: how to grasp(gripper obj centric cluster) (Obj Obj frame DS)
-        # 2.1 gripper obj centric: Already doing with clustering change only flag off
-        # 2.2 obj obj frame:(using goal predicate to find the other object)
-        # 3. instant of removed contact: achieving relative pose between two object (obj obj frame cluster goal )
-        # done
-        gripper_objs = [o for o in ground_atom_dataset[0][0].states[0].data.keys() if 'gripper' in o.type.name]
-        if len(gripper_objs) == 0:
-            raise ValueError("No gripper found in the trajectory")
-        gripper_obj = gripper_objs[0] 
-        logging.info("Extracting relative poses ...")
-        for i, (ll_traj, atom_seq) in enumerate(ground_atom_dataset):
-            goal_reached_states[i] = []
-            # Get all objects from the first state that match our target types
-            traj_all_objs = [o for o in ll_traj.states[0].data.keys() if o.type in all_objs_types]
-            # there is only one object of each type in the trajectory since the code below is not designed to handle multiple objects of the same type
-            # if there are two cabinets, the dictonary of contact_period rel traj will mess up
-            # Check if there are multiple objects of the same type in the trajectory
-            # consider which object to keep, prefer the object closer to gripper at the end of the trajectory
-            for obj_type in all_objs_types:
-                objs_of_this_type = [o for o in traj_all_objs if o.type == obj_type]
-                if len(objs_of_this_type) > 1: # 0 or 1 is fine, no filtering needed
-                    # Compute distances to gripper for all objects of this type at the end state
-                    dist_min = np.inf
-                    best_obj = None
-                    for o_same in objs_of_this_type:
-                        trans1 = ll_traj.states[-1].get(o_same, CFG.trans_feat_name)
-                        trans2 = ll_traj.states[-1].get(gripper_obj, CFG.trans_feat_name)
-                        dist_to_gripper = np.linalg.norm(np.array(trans1) - np.array(trans2))
-                        if dist_to_gripper < dist_min:
-                            dist_min = dist_to_gripper
-                            best_obj = o_same
-                    # Remove all other objects of this type 
-                    traj_all_objs = [o for o in traj_all_objs if o.type != obj_type]
-                    traj_all_objs.append(best_obj) 
-            traj_all_objs_all.append(traj_all_objs) # keep this so we can ground it later
-            object_type_in_contact_with_gripper_longest_duration.append({})
-            if not ll_traj.states: continue # Skip empty trajectories
-
-            if not CFG.remove_inOrigin_pred:
-                init_atoms = None
-                init_atoms_pred = []
-                finish_adding_init_atoms = False
-                for t in range(1, len(atom_seq)):
-                    atoms_t = atom_seq[t]
-                    atoms_tm1 = atom_seq[t - 1]
-                    if t == 1 and len(atoms_tm1) > 0 and any(atom.predicate == in_origin_pred for atom in atoms_tm1):
-                        init_atoms = atoms_tm1
-                        init_atoms_pred = [atom.predicate for atom in atoms_tm1]
-                    assert init_atoms is not None, "No InOrigin predicate found in the first state of the trajectory."
-                    if len(atoms_t) > 0 and any(atom.predicate not in init_atoms_pred for atom in atoms_t):
-                        finish_adding_init_atoms = True
-                    if not finish_adding_init_atoms:
-                        ground_atom_dataset[i][1][t] = init_atoms
-                    elif any(atom.predicate == in_origin_pred for atom in atoms_t):
-                        ground_atom_dataset[i][1][t] = set([atom for atom in atoms_t if atom.predicate != in_origin_pred])
-
-            skip_var =max(int(len(atom_seq) / 50),1)
-            logging.debug(f"Processing trajectory {i+1}/{len(ground_atom_dataset)} with {len(atom_seq)} atoms, skipping every {skip_var} atoms.")
-            achieved_goal = False 
-            for t in range(skip_var, len(atom_seq), skip_var): # Start from 1 to compare with t-1, skip every 4, for efficiency
-                state_t = ll_traj.states[t]
-                atoms_t = atom_seq[t]
-                atoms_tm1 = atom_seq[t-skip_var]
-                lost_atoms = atoms_tm1 - atoms_t
-                # assume when lost contact, we have moved the item to where we want it to be
-                # or when the episode end, we have the item at where we want it to be
-                # ------ before contact lost, or for last timestep in current traj ------- #
-                # ------ add goal predicate for them ------------------------------------- #
-                # ------ store states so that we can cluster them later as goal predicate- #
-                if not achieved_goal:
-                    if t >= len(atom_seq) - skip_var:
-                        t_start = t
-                        while t_start < len(atom_seq):
-                            ground_atom_dataset[i][1][t_start].add(DummyPredicate(f"{CFG.robo_kitchen_task}-goal"))
-                            goal_reached_states[i].append(ll_traj.states[t_start])
-                            t_start += 1
-                        achieved_goal = True
-                    else:
-                        if any(atom.predicate.name == in_contact_pred.name for atom in lost_atoms):
-                            t_start = None
-                            for t_test in range(t-skip_var, t): # search for the last state before contact lost
-                                if len(atom_seq[t_test]) > len(atom_seq[t_test+1]):
-                                    t_start = t_test+1
-                                    break
-                            logging.debug(f"Contact lost at t={t_start}")
-                            assert t_start is not None
-                            # if atom.predicate == in_contact_pred: # this is lost gripper with obj
-                            #     consistent_contact = False
-                            while t_start < len(atom_seq):
-                                ground_atom_dataset[i][1][t_start].add(DummyPredicate(f"{CFG.robo_kitchen_task}-goal"))
-                                goal_reached_states[i].append(ll_traj.states[t_start])
-                                t_start += 1
-                            achieved_goal = True
-
-                # ------------------------------------------------------------------------ #
-
-                for atom in atoms_t: # this does not handle multiple objects in contact with the gripper at the same time
-                    if CFG.clustering_change_only and atom in atoms_tm1: continue 
-                    # this optionally only consider the change of contact, this turns out to be too few points for clustering
-                    # so usually all points in contact are used for clustering, i.e. CFG.clustering_change_only is False
-                    if hasattr(atom, "predicate") and atom.predicate == in_contact_pred:
-                        if atom in atoms_tm1:
-                            consistent_contact = True
+        # Use motion analysis data if available, otherwise fall back to original logic
+        if trajectory_motion_phases is not None and trajectory_all_objects is not None and gripper_obj is not None and contact_lost_periods is not None:
+            logging.info("Using motion analysis data for relative pose extraction...")
+            
+            for i, (ll_traj, atom_seq) in enumerate(ground_atom_dataset):
+                # goal_reached_states[i] = []
+                
+                # Get objects from motion analysis
+                if i in trajectory_all_objects:
+                    traj_all_objs = trajectory_all_objects[i]
+                else:
+                    # Fall back to original logic if no motion analysis data
+                    traj_all_objs = [o for o in ll_traj.states[0].data.keys() if o.type in all_objs_types]
+                
+                traj_all_objs_all.append(traj_all_objs)
+                object_type_in_contact_with_gripper_longest_duration.append({})
+                
+                if not ll_traj.states: 
+                    continue
+                
+                # Mark subgoals based on contact lost periods
+                if i in contact_lost_periods:
+                    for idx, (start_period, end_period) in enumerate(contact_lost_periods[i]):
+                        if idx == 0: continue
+                        # Find which object was in motion before this contact lost period
+                        moving_obj = self._find_object_in_motion_before_period(trajectory_motion_phases[i], start_period)
+                        goal_type = f"{CFG.robo_kitchen_task}-subgoal"
+                        
+                        # Find the next time this same object starts motion again
+                        next_motion_start = self._find_next_motion_start_for_object(trajectory_motion_phases[i], moving_obj, start_period)
+                        
+                        # Determine the goal end time: either next motion start or trajectory end
+                        if next_motion_start != -1:
+                            goal_end_time = next_motion_start - 1  # Stop just before next motion starts
                         else:
-                            consistent_contact = False
-                        # Ensure the atom involves the gripper type or handle goals correctly
-                        obj1, obj2 = atom.objects
-                        assert obj2.type == gripper_type
-
-                        # ------ get relative pose trajs of obj_contact_with_gripper in all other obj's frame ------ #
-                        obj_contact_with_gripper = obj1
-                        # Exclude robot base from contact duration tracking
-                        if "base" not in obj_contact_with_gripper.name.lower():
-                            if obj_contact_with_gripper not in object_type_in_contact_with_gripper_longest_duration[i]:
-                                object_type_in_contact_with_gripper_longest_duration[i][obj_contact_with_gripper.type] = 0
-                            object_type_in_contact_with_gripper_longest_duration[i][obj_contact_with_gripper.type] += 1
-
-                        for obj in traj_all_objs: # go through all object to get obj-obj relative pose
-                            if obj.type == gripper_type or obj == obj_contact_with_gripper:
-                                continue
-                            relative_pose = utils.calculate_relative_pose_from_state(state_t, obj, obj_contact_with_gripper, CFG.trans_feat_name, CFG.quat_feat_name)
-                            if obj.type not in contact_period_rel_trajs:
-                                contact_period_rel_trajs[obj.type] = []
-                            if not consistent_contact: # start of contact
-                                contact_period_rel_trajs[obj.type].append([relative_pose]) # separate the contact period into different trajectories
-                            else:
-                                contact_period_rel_trajs[obj.type][-1].append(relative_pose)
-
-                        # -------------------------------------------------------------------------------------------- #
-                        # these are used to compute rel pose between GRIPPER and OBJECT for finding end points of DS
-                        # Calculate relative pose at the moment of contact (state t)
-                        rel_pose_at_contact_obj2_in_obj1_frame = utils.calculate_relative_pose_from_state(
-                            state_t, obj1, obj2,
-                            CFG.trans_feat_name, CFG.quat_feat_name
-                        )
-
-                        if rel_pose_at_contact_obj2_in_obj1_frame is not None:
-                            key = (atom.predicate, obj1.type, obj2.type, "2in1")
-                            relative_pose_dataset_dict[key].append(rel_pose_at_contact_obj2_in_obj1_frame)
-
-                        rel_pose_at_contact_obj1_in_obj2_frame = utils.calculate_relative_pose_from_state(
-                            state_t, obj2, obj1,
-                            CFG.trans_feat_name, CFG.quat_feat_name
-                        )
-
-                        if rel_pose_at_contact_obj1_in_obj2_frame is not None:
-                            key = (atom.predicate, obj1.type, obj2.type, "1in2")
-                            relative_pose_dataset_dict[key].append(rel_pose_at_contact_obj1_in_obj2_frame)
-                # find the object in contact with the gripper the longest in each dataset
-        for i, obj_type_in_contact_with_gripper_longest_duration in enumerate(object_type_in_contact_with_gripper_longest_duration):
-            if len(obj_type_in_contact_with_gripper_longest_duration) == 0: continue
-            object_type_in_contact_with_gripper_longest_duration[i] = max(obj_type_in_contact_with_gripper_longest_duration, key=obj_type_in_contact_with_gripper_longest_duration.get)
-        logging.info(f"Object in contact with gripper the longest in each dataset: {object_type_in_contact_with_gripper_longest_duration}")
-
-
+                            # If no next motion, populate until end of trajectory
+                            goal_end_time = len(atom_seq) - 1
+                        
+                        # logging.debug(f"Marking subgoal from t={start_period} to t={goal_end_time} (next motion at {next_motion_start})")
+                        
+                        for t_goal in range(start_period, goal_end_time + 1):
+                            if t_goal < len(atom_seq):
+                                goal_atom = DummyGroundAtom(DummyPredicate(goal_type, [moving_obj.type]), [moving_obj])
+                                ground_atom_dataset[i][1][t_goal].add(goal_atom)
+                                # goal_reached_states[i].append(ll_traj.states[t_goal])
+                        
+                        # During contact lost periods, compute relative poses between objects in motion and all other objects
+                        if moving_obj:
+                            for t in range(start_period, min(goal_end_time + 1, len(ll_traj.states))):
+                                state_t = ll_traj.states[t]
+                                for obj in traj_all_objs:
+                                    if obj.type == gripper_type or obj == moving_obj:
+                                        continue
+                                    relative_pose = utils.calculate_relative_pose_from_state(
+                                        state_t, obj, moving_obj, CFG.trans_feat_name, CFG.quat_feat_name
+                                    )
+                                    # Use nested dictionary: moving_obj_type -> reference_obj_type -> trajectories
+                                    if moving_obj.type not in contact_period_obj_obj_rel_trajs:
+                                        contact_period_obj_obj_rel_trajs[moving_obj.type] = {}
+                                    if obj.type not in contact_period_obj_obj_rel_trajs[moving_obj.type]:
+                                        contact_period_obj_obj_rel_trajs[moving_obj.type][obj.type] = []
+                                    if t == start_period:  # Start of new period
+                                        contact_period_obj_obj_rel_trajs[moving_obj.type][obj.type].append([relative_pose])
+                                    else:
+                                        if contact_period_obj_obj_rel_trajs[moving_obj.type][obj.type]:
+                                            contact_period_obj_obj_rel_trajs[moving_obj.type][obj.type][-1].append(relative_pose)
+                
+                # Extract relative poses during contact periods from motion phases
+                if i in trajectory_motion_phases:
+                    for phase in trajectory_motion_phases[i]:
+                        start_frame = phase['start_frame']
+                        end_frame = phase['end_frame']
+                        moving_objects = phase.get('moving_objects', [])
+                        
+                        # Assume contact between gripper and moving objects during motion phases
+                        for moving_obj in moving_objects:
+                            for t in range(start_frame, min(end_frame + 1, len(ll_traj.states))):
+                                state_t = ll_traj.states[t]
+                                
+                                # Calculate relative pose between gripper and moving object
+                                rel_pose_at_contact_obj2_in_obj1_frame = utils.calculate_relative_pose_from_state(
+                                    state_t, moving_obj, gripper_obj, CFG.trans_feat_name, CFG.quat_feat_name
+                                )
+                                if rel_pose_at_contact_obj2_in_obj1_frame is not None:
+                                    key = (in_contact_pred, moving_obj.type, gripper_type, "2in1")
+                                    relative_pose_gripper_obj_dataset_dict[key].append(rel_pose_at_contact_obj2_in_obj1_frame)
         
-        return relative_pose_dataset_dict, traj_all_objs_all, contact_period_rel_trajs, goal_reached_states, object_type_in_contact_with_gripper_longest_duration, ground_atom_dataset
+        return relative_pose_gripper_obj_dataset_dict, traj_all_objs_all, contact_period_obj_obj_rel_trajs, ground_atom_dataset
+
+    def _find_object_in_motion_before_period(self, motion_phases: List[Dict], period_start: int) -> Object:
+        """Find the object that was in motion before the given period start time."""
+        # Look for the most recent motion phase that ended before this period
+        for phase in reversed(motion_phases):
+            if phase['end_frame'] < period_start and phase.get('moving_objects'):
+                return phase['moving_objects'][0]  # Return the first (primary) moving object
+        raise ValueError("No object in motion before the given period start time")
+
+    def _find_next_motion_start_for_object(self, motion_phases: List[Dict], moving_obj: Object, current_period_start: int) -> int:
+        """Find the next time the same object starts motion again after the current period.
+        
+        Args:
+            motion_phases: List of motion phase dictionaries
+            moving_obj: The object to find next motion for
+            current_period_start: The start of the current period
+            
+        Returns:
+            The frame number when the same object starts motion again, or -1 if not found
+        """
+        for phase in motion_phases:
+            # Look for phases that start after the current period and involve the same object
+            if (phase['start_frame'] > current_period_start and 
+                phase.get('moving_objects') and 
+                any(obj.name == moving_obj.name for obj in phase['moving_objects'])):
+                return phase['start_frame']
+        
+        return -1  # No next motion found for this object
+
     
     def _find_common_objects_types(self, ground_atom_dataset: List[GroundAtomTrajectory]) -> List[Type]:
         """Find common objects across all trajectories in the dataset."""
@@ -2721,8 +3438,8 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             # Generate successors by adding one predicate to each set in the beam
             for _, current_preds, _ in beam:
                 for cand_pred in candidate_list:
-                    if cand_pred.arity == 2 and cand_pred.types[1].name != "gripper_type":
-                        continue
+                    # if cand_pred.arity == 2 and cand_pred.types[1].name != "gripper_type":
+                    #     continue
                     if cand_pred in current_preds or cand_pred in self._initial_predicates:
                         continue
                     next_pred_set = current_preds | {cand_pred}
@@ -2742,23 +3459,23 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 logging.info("Beam search found no viable successors. Terminating.")
                 break # No improvement possible
 
-            # Keep top B successors based on score
-            successors.sort(key=lambda x: x[0], reverse=True) # Sort descending by score
-            new_beam = successors[:beam_width]
+            # Keep top B successors based on score, excluding -inf scores
+            valid_successors = [s for s in successors if s[0] > -np.inf]
+            valid_successors.sort(key=lambda x: x[0], reverse=True) # Sort descending by score
+            new_beam = valid_successors[:beam_width]
 
             # Check for convergence (beam hasn't changed or score isn't improving)
             # Simple check: if the best score in the new beam is not better than the previous best
+            current_best_score_in_beam = new_beam[0][0] if new_beam else -np.inf
+            if current_best_score_in_beam <= best_score and iteration > 1 : # Allow first iteration to set baseline
+                logging.info("\033[1;35mBeam search converged (no score improvement).\033[0m")
+                break
+            
             if new_beam:
                 best_score, best_pred_set_added, best_operators = new_beam[0] # Best set in current beam (added preds only)
                 logging.info(f"\033[1;36mIteration {iteration} best score: {best_score:.4f}\033[0m")
                 logging.info(f"\033[1;32mCurrent best operators: {best_operators}\033[0m")
                 logging.info(f"\033[1;33mCurrent best preds: {best_pred_set_added}\033[0m")
-                warnings.warn(f"Not doing beam search!!!!!!!!!!!!!!!!!")
-                break
-            current_best_score_in_beam = new_beam[0][0] if new_beam else -np.inf
-            if current_best_score_in_beam <= best_score and iteration > 1 : # Allow first iteration to set baseline
-                logging.info("\033[1;35mBeam search converged (no score improvement).\033[0m")
-                break
 
             beam = new_beam
 
@@ -2776,22 +3493,31 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                             train_tasks: List[Task]) -> Tuple[float, Set[NSRT]]:
         """Calculates the objective function score for a given predicate set,
            checking constraints. Returns -inf if constraints fail."""
-
+      
+        # Extend predicates with their negations (similar to grammar search approach)
+        extended_predicates = set(predicates)
+        for predicate in predicates:
+            negated_classifier = _NegationClassifier(predicate)
+            negated_predicate = Predicate(str(negated_classifier), predicate.types, negated_classifier)
+            extended_predicates.add(negated_predicate)
+        extended_predicates = frozenset(extended_predicates)
+        predicates = extended_predicates
+        
         # Check plan length constraint first (most expensive)
         # Need operators for the constraint check
         atom_dataset = self._create_atom_dataset(dataset, predicates)
-        if CFG.clustering_debug:
-            for i, (_, atom_seq) in enumerate(atom_dataset):
-                print(f"Traj {i}:")
-                current_atom_count = 0
-                current_atom = atom_seq[0]
-                for atom in atom_seq:
-                    if atom == current_atom:
-                        current_atom_count += 1
-                    else:
-                        print(f"{current_atom} {current_atom_count}")
-                        current_atom = atom
-                        current_atom_count = 1
+        # if CFG.clustering_debug:
+        #     for i, (_, atom_seq) in enumerate(atom_dataset):
+        #         print(f"Traj {i}:")
+        #         current_atom_count = 0
+        #         current_atom = atom_seq[0]
+        #         for atom in atom_seq:
+        #             if atom == current_atom:
+        #                 current_atom_count += 1
+        #             else:
+        #                 print(f"{current_atom} {current_atom_count}")
+        #                 current_atom = atom
+        #                 current_atom_count = 1
 
             # Add debug visualization here
 
@@ -2809,7 +3535,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         seg_term = self._calculate_segmentation_term(predicates, atom_dataset)             # Cache already handled inside the function call
 
         # Add the negated absolute value of constraint_value to the score
-        score = seg_term - alpha * op_term - CFG.clustering_search_constraint_penalty * abs(constraint_value)
+        score = seg_term - alpha * op_term - constraint_value
         logging.debug(f"Pred set {predicates}, Seg: {seg_term}, OpComp: {op_term}, Constraint: {constraint_value}, Score: {score:.3f}")
         # logging.debug(f"Pred set size {len(predicates)}, Seg: {seg_term}, OpComp: {op_term}, Score: {score:.3f}")
         return score, operators
@@ -2863,7 +3589,11 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             # for p in predicates:
             #     if p.name [-3:] == 'ID4':
             #         pass
-
+            for p in predicates:
+                if "RelPoseEllipsoidCluster" in p.name:
+                    if "gripper_type" in p.types[0].name or "gripper_type" in p.types[1].name:
+                        if "thing_type" in p.types[0].name or "thing_type" in p.types[1].name:
+                            pass
             # TODO: Figure out the right arguments for learn_strips_operators
             # It likely needs the segmented trajectories.
             learned_pnads = learn_strips_operators(
@@ -2915,13 +3645,13 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
 
         if not operators:  # If operator learning failed, return large negative value
             logging.debug("Cannot check plan length constraint: Operator learning failed.")
-            self._plan_constraint_cache[predicates] = -1000  # Significant negative value
-            return -1000
+            self._plan_constraint_cache[predicates] = np.inf  # Significant negative value
+            return np.inf
 
         # The 'operators' set already contains STRIPSOperator objects
         strips_ops = operators
 
-        diffs = []  # Store differences for all trajectories
+        diff_vec = []
 
         # Iterate through each demonstration trajectory
         for i, (ll_traj, atom_seq) in enumerate(atom_dataset):
@@ -2942,37 +3672,55 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
 
             # Get demonstrated plan length (number of segments)
             demo_segments = segment_trajectory(ll_traj, predicates, atom_seq=atom_seq)
-            demo_plan_len = len(demo_segments) + 1  # segment does not include last section
+            demo_plan_len = len(demo_segments)  # segment does not include last section
 
             # Create a planning task
             task = Task(init_state, goal_atoms)
 
             # Run the planner using the learned NSRTs
-            plan, _, metrics = run_task_plan_once(
-                task=task,
-                nsrts=strips_ops,    # Pass NSRTs
-                preds=set(predicates),  # Pass predicates
-                types=self._types,   # Pass types
-                timeout=10.0,   # Pass timeout
-                seed=0,      # Pass seed
-                task_planning_heuristic=CFG.sesame_task_planning_heuristic,  # Pass heuristic
-            )
+            plan = None
+            try:
+                plan, _, metrics = run_task_plan_once(
+                    task=task,
+                    nsrts=strips_ops,    # Pass NSRTs
+                    preds=set(predicates),  # Pass predicates
+                    types=self._types,   # Pass types
+                    timeout=10.0,   # Pass timeout
+                    seed=0,      # Pass seed
+                    task_planning_heuristic=CFG.sesame_task_planning_heuristic,  # Pass heuristic
+                )
+            except PlanningFailure as e:
+                logging.debug(f"Planning failed for traj {i}: {e}")
 
             # Check planner result
             if plan is None:
-                # Planner failed (timeout or unsolvable)
-                continue
+                # Planner failed (timeout or unsolvable) - assume diff of 3
+                diff = 3
             else:
-                planner_plan_len = len(plan)
+                planner_plan_len = len(plan)    
+                # number of grounded operators in the plan
                 # Calculate difference: positive if plan is longer, negative if shorter
                 diff = planner_plan_len - demo_plan_len
                 # logging.debug(f"Traj {i}: Demo len={demo_plan_len}, Planner len={planner_plan_len}, Diff={diff}")
+            diff_vec.append(diff)
+            # Accumulate absolute difference for soft constraint
+            # total_diff += abs(diff)
+        # if total_diff != 0:
+        #     self._plan_constraint_cache[predicates] = np.inf
+        #     return np.inf
+        # else:
+        #     self._plan_constraint_cache[predicates] = 0
+        #     return 0
+        # Check if any predicate involves gripper and thing types
+        for p in predicates:
+            if "RelPoseEllipsoidCluster" in p.name:
+                if "gripper_type" in p.types[0].name or "gripper_type" in p.types[1].name:
+                    if "thing_type" in p.types[0].name or "thing_type" in p.types[1].name:
+                        pass
 
-                diffs.append(np.abs(diff))
-
-        avg_diff = np.mean(diffs) if len(diffs) > 0 else np.inf
-        self._plan_constraint_cache[predicates] = avg_diff
-        return avg_diff
+        total_diff = np.sum(np.abs(np.array(diff_vec)))
+        self._plan_constraint_cache[predicates] = total_diff
+        return self._plan_constraint_cache[predicates]
 
     # --- Helper Functions ---
     def _create_atom_dataset(self, dataset: Dataset, predicates: Set[Predicate] | FrozenSet[Predicate]) -> List[GroundAtomTrajectory]:
@@ -3052,7 +3800,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             ax.set_ylabel('Y relative')
             ax.set_zlabel('Z relative')
             is_overlay = False
-            fname = f"rel_traj_{CFG.robo_kitchen_task}_{pred.name}_{type2_name}_in_{type1_name}_frame.png"
+            fname = f"p_{CFG.robo_kitchen_task}_{type2_name}_in_{type1_name}_frame.png"
 
         # Different colors for different trajectories - use brighter colors for trajectories
         colors = plt.cm.rainbow(np.linspace(0, 1, len(dataset.trajectories)))
@@ -3168,191 +3916,52 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             self._last_cluster_ax = None
             self._last_cluster_title = None
 
-    def _test_clustering_with_dummy_data(self, num_clusters=3, points_per_cluster=50, 
-                                        noise_level=0.05, cluster_separation=0.5):
-        """Test HDBSCAN clustering with synthetic pose data.
+    def _update_rel_pose_dict_with_obj_obj(self,  relative_pose_gripper_obj_dataset_dict: Dict[Tuple[Predicate, Type, Type, str], List[np.ndarray]], contact_period_obj_obj_rel_trajs: Dict[Type, Dict[Type, List[List[np.ndarray]]]], best_reference_per_moving_obj: Dict[Type, Type]) -> Dict[Tuple[Predicate, Type, Type, str], List[np.ndarray]]:
+        """
+        Merge gripper-object relative poses with object-object relative poses into a unified dictionary.
         
         Args:
-            num_clusters: Number of distinct clusters to generate
-            points_per_cluster: Number of points in each cluster
-            noise_level: Standard deviation of Gaussian noise added to each cluster
-            cluster_separation: Distance between cluster centers
+            relative_pose_gripper_obj_dataset_dict: Dictionary containing gripper-object relative poses
+                Format: {(predicate, obj_type1, obj_type2, direction): [relative_poses]}
+            contact_period_obj_obj_rel_trajs: Dictionary containing object-object relative pose trajectories
+                Format: {moving_obj_type: {reference_obj_type: [[trajectory_poses]]}}
+        
+        Returns:
+            Combined dictionary with all relative poses in the same format as relative_pose_gripper_obj_dataset_dict
         """
-        logging.info(f"Generating synthetic pose data with {num_clusters} clusters, "
-                     f"{points_per_cluster} points per cluster, noise level {noise_level}")
+        from collections import defaultdict
+        
+        # Start with a copy of the gripper-object data
+        relative_pose_all_dict = defaultdict(list)
+        
+        # Copy gripper-object relative poses
+        for key, poses in relative_pose_gripper_obj_dataset_dict.items():
+            relative_pose_all_dict[key].extend(poses)
+        
+        # Add object-object relative poses
+        for moving_obj_type, reference_dict in contact_period_obj_obj_rel_trajs.items():
+            ref_obj_type_best = best_reference_per_moving_obj[moving_obj_type]
+            for ref_obj_type, trajectory_segments in reference_dict.items():
+                if ref_obj_type != ref_obj_type_best:
+                    continue
+                # Create a dummy predicate for object-object relationships
+                # This follows the pattern used elsewhere in the code
+                obj_obj_pred = DummyPredicate(f"{CFG.robo_kitchen_task}-subgoal")
+                
+                # Create key in the same format as gripper-object data
+                # Use "2in1" direction (moving object relative to reference object)
+                key = (obj_obj_pred, ref_obj_type, moving_obj_type, "2in1")
+                logging.info(f"Adding key: {key}")        
+                # Flatten trajectory segments into individual poses
+                for trajectory_segment in trajectory_segments:
+                    for pose in trajectory_segment:
+                        if pose is not None:
+                            relative_pose_all_dict[key].append(pose)
+        
+        logging.info(f"Merged relative pose data: {len(relative_pose_gripper_obj_dataset_dict)} gripper-object entries + "
+                    f"{sum(len(ref_dict) for ref_dict in contact_period_obj_obj_rel_trajs.values())} object-object entries = "
+                    f"{len(relative_pose_all_dict)} total entries")
+        
+        return dict(relative_pose_all_dict)
 
-        # Import necessary visualization packages
-        import matplotlib.pyplot as plt
-        from mpl_toolkits.mplot3d import Axes3D
-        import matplotlib.cm as cm
-        import matplotlib
-        matplotlib.use('TkAgg')  # Try TkAgg first
-
-        # Set random seed for reproducibility
-        np.random.seed(42)
-
-        # Function to generate random rotation quaternion
-        def random_quaternion():
-            # Generate random rotation axis
-            axis = np.random.randn(3)
-            axis = axis / np.linalg.norm(axis)
-
-            # Random angle (in radians)
-            angle = np.random.uniform(0, 2*np.pi)
-
-            # Convert axis-angle to quaternion
-            sin_a = np.sin(angle/2)
-            cos_a = np.cos(angle/2)
-            qx, qy, qz = axis * sin_a
-            qw = cos_a
-
-            # Return in xyzw format
-            return np.array([qx, qy, qz, qw])
-
-        # Generate cluster centers with good separation
-        centers = []
-        for i in range(num_clusters):
-            # Position each cluster in a grid pattern
-            grid_size = int(np.ceil(np.sqrt(num_clusters)))
-            row = i // grid_size
-            col = i % grid_size
-
-            # Create translation with separation
-            trans = np.array([
-                col * cluster_separation - (grid_size-1) * cluster_separation / 2,
-                row * cluster_separation - (grid_size-1) * cluster_separation / 2,
-                0.0  # Keep Z at zero for clarity
-            ])
-
-            # Create a random rotation for each cluster
-            quat = random_quaternion()
-
-            # Combine into 7D pose vector [tx, ty, tz, qx, qy, qz, qw]
-            center = np.concatenate([trans, quat])
-            centers.append(center)
-
-        # Generate data points with noise
-        all_data = []
-        true_labels = []
-
-        # Generate a single random quaternion to use for all clusters
-        # This makes all clusters have the same orientation, varying only in position
-        shared_quaternion = random_quaternion()
-
-        # Update all centers to use the same quaternion
-        for i in range(len(centers)):
-            centers[i][3:] = shared_quaternion
-
-        for cluster_idx, center in enumerate(centers):
-            for _ in range(points_per_cluster):
-                # Add Gaussian noise to translation
-                trans_noise = np.random.normal(0, noise_level, 3)
-                noisy_trans = center[:3] + trans_noise
-
-                # Add noise to quaternion (small rotation perturbation)
-                # Generate small random rotation
-                noise_in_deg = 30
-                noise_angle = np.random.normal(0, noise_in_deg * np.pi / 180)  # Smaller noise for rotation
-                noise_axis = np.random.randn(3)
-                noise_axis = noise_axis / np.linalg.norm(noise_axis)
-
-                # Convert to quaternion
-                sin_a = np.sin(noise_angle/2)
-                cos_a = np.cos(noise_angle/2)
-                noise_quat = np.array([*noise_axis * sin_a, cos_a])  # xyzw format
-
-                # Apply noise rotation to center quaternion using quaternion multiplication
-                center_quat = center[3:]
-
-                # Use scipy's Rotation for quaternion multiplication
-                center_rot = R.from_quat(center_quat)
-                noise_rot = R.from_quat(noise_quat)
-                noisy_rot = noise_rot * center_rot
-                noisy_quat = noisy_rot.as_quat()
-
-                # Create noisy pose
-                noisy_pose = np.concatenate([noisy_trans, noisy_quat])
-                all_data.append(noisy_pose)
-                true_labels.append(cluster_idx)
-
-        # Add some random noise points
-        num_noise_points = int(points_per_cluster * 0.1)  # 10% of points per cluster
-        for _ in range(num_noise_points):
-            # Random position in the general area
-            trans = np.random.uniform(-cluster_separation * grid_size, 
-                                      cluster_separation * grid_size, 3)
-            quat = random_quaternion()
-            noise_point = np.concatenate([trans, quat])
-            all_data.append(noise_point)
-            true_labels.append(-1)  # -1 for noise points
-
-        all_data = np.array(all_data)
-        true_labels = np.array(true_labels)
-
-        # Run clustering
-        logging.info("Running HDBSCAN on synthetic data...")
-        feat_name = "pose"  # This will use the SE(3) metric
-
-        # Use _cluster_feature_dataset to perform clustering
-        data_array, labels, unique_labels = self._cluster_feature_dataset(
-            all_data.tolist(), CFG.clustering_se3_epsilon, feat_name)
-
-        # Calculate clustering metrics
-        num_clusters_found = len(unique_labels) - (1 if -1 in unique_labels else 0)
-        noise_points = sum(1 for label in labels if label == -1)
-
-        logging.info(f"HDBSCAN found {num_clusters_found} clusters (ground truth: {num_clusters})")
-        logging.info(f"HDBSCAN identified {noise_points} noise points")
-
-        # Create a visualization
-        fig = plt.figure(figsize=(20, 15))
-
-        # 3D plot of translations with ground truth labels
-        ax1 = fig.add_subplot(221, projection='3d')
-        scatter1 = ax1.scatter(all_data[:, 0], all_data[:, 1], all_data[:, 2], 
-                              c=true_labels, cmap='tab10', s=50, alpha=0.7)
-        ax1.set_title('Ground Truth Clusters (Translations)')
-        ax1.set_xlabel('X')
-        ax1.set_ylabel('Y')
-        ax1.set_zlabel('Z')
-
-        # 3D plot of translations with HDBSCAN labels
-        ax2 = fig.add_subplot(222, projection='3d')
-        scatter2 = ax2.scatter(data_array[:, 0], data_array[:, 1], data_array[:, 2], 
-                              c=labels, cmap='tab10', s=50, alpha=0.7)
-        ax2.set_title(f'HDBSCAN Clusters: {num_clusters_found} found (Translations)')
-        ax2.set_xlabel('X')
-        ax2.set_ylabel('Y')
-        ax2.set_zlabel('Z')
-
-        # Rotation visualization (Optional)
-        # Project quaternions to 3D using PCA if needed
-
-        # Add information table
-        params_text = (
-            f"Parameters:\n"
-            f"Number of clusters: {num_clusters}\n"
-            f"Points per cluster: {points_per_cluster}\n"
-            f"Noise level: {noise_level}\n"
-            f"Cluster separation: {cluster_separation}\n\n"
-            f"Results:\n"
-            f"Clusters found: {num_clusters_found}\n"
-            f"Noise points: {noise_points}/{len(labels)}"
-        )
-
-        fig.text(0.1, 0.3, params_text, fontsize=12, bbox=dict(facecolor='white', alpha=0.5))
-
-        # Draw cluster centers
-        for i, center in enumerate(centers):
-            ax1.scatter([center[0]], [center[1]], [center[2]], 
-                       c='black', marker='*', s=200, edgecolor='white')
-            ax1.text(center[0], center[1], center[2], f'Center {i}', fontsize=10)
-
-        # Save figure
-        plt.tight_layout()
-        os.makedirs("feature_data", exist_ok=True)
-        plt.savefig("feature_data/hdbscan_test_results.png")
-        logging.info("Saved visualization to feature_data/hdbscan_test_results.png")
-        plt.show()
-
-        return labels, true_labels
+    

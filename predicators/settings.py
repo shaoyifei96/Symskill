@@ -18,12 +18,11 @@ class GlobalSettings:
     pose_feature_name = "pose"
     min_data_for_nsrt = 1
     reprocess_ground_atom_dataset_using_cluster_replacement = True
-    reprocess_ground_atom_dataset_using_cluster_predicates = False
     remove_inOrigin_pred = True
     robo_kitchen_obj_names = ["robot0_base", "gripper", "left_finger", "right_finger", "wrist"] # this stores the actual object names, determined by a mujoco id, such as "cabinet_10" (see how these are constructed in robocasa/kithcen.py)
 
     relaxed_nsrt_learning = False
-    use_learnt_goal_predicates = True
+    use_learnt_goal_predicates = False
     use_negated_goal_predicates = False
     enable_base_ref_obj_precondition = False
 
@@ -40,8 +39,13 @@ class GlobalSettings:
     dict_gt_goal_predicate_to_dummy_goal_predicates = {}  # key: gt goal predicate, value: set of dummy goal predicates
 
     # clustering_invention approach parameters
-    # predicate_candidates_method = "contact_clustering"  # "low_speed" or "contact_clustering" or "motion_analysis_contact"
     predicate_candidates_method = "motion_analysis_contact"  # "low_speed" or "contact_clustering" or "motion_analysis_contact"
+    if predicate_candidates_method == "low_speed": # low speed still needs to run the grammar search, so need goal
+        excluded_predicates = "all"
+    else:
+        excluded_predicates = "all_goal" # "all_goal" will always be used
+
+    # low speed is https://arxiv.org/abs/2503.21406, using relative low speed points as candidate predicates
     motion_analysis_lin_vel_rot_vel_threshold = 0.002 # lin vel min thresh, under this, use rot vel
     motion_analysis_contact_threshold = {"PnPCabToCounterTomato": 0.003, 
                                          "MocapOpenLid": 0.02, 
@@ -61,9 +65,11 @@ class GlobalSettings:
     clustering_debug = True
     enable_meshcat = True
     clustering_se3_trans_weight = 10.0  # 0.05 m # 10 times differnece
-    clustering_se3_rot_weight = 5.0  # 30 deg = 0.5236 rad
-    clustering_feature_constancy_percentile = 10  # of total number of data points = 13782
-    clustering_se3_epsilon = 3.0 # made very big since we are only keeping 1 cluster!!!
+    clustering_se3_rot_weight = 1.0 # 30 deg = 0.5236 rad
+    clustering_feature_constancy_percentile = 3  # of total number of data points = 13782
+    clustering_constancy_threshold = 0.0001  # fixed threshold for constancy check (0.01m trans or ~8° rot)
+    clustering_se3_epsilon = 3.0 
+    clustering_baseline_epsilon = 1.3# default epsilon
     clustering_visualization_frame_axis_length = 0.05
     # clustering_translation_constancy_tol = 0.01/10 # 10 hz 0.01 m
     # clustering_quaternion_constancy_tol = 0.01 # 10 hz 0.01 rad
@@ -81,20 +87,18 @@ class GlobalSettings:
     clustering_quaternion_epsilon = 0.7
     clustering_dbscan_ratio = 0.1  # dbscan is 10 times smaller than this
     clustering_agglomerative_ratio = 0.3  # what ratio of data range
-    clustering_epsilon = 0.3  # default not used!
 
     clustering_algorithm = "agglomerative"  # "hdbscan" or "agglomerative"
-    clustering_min_ratio_of_data = 0.1  # 10% of the contact points 2068 * 0.1 = 206
+    clustering_min_ratio_of_data = 0.13  
     clustering_max_clusters = 1
     clustering_search_beam_width = 15
-    clustering_search_alpha = 0.4
+    clustering_search_alpha = 0.2
     clustering_search_max_iterations = 30
     clustering_check_plan_length_constraint = True
-    clustering_search_constraint_penalty = 10.0
 
     # robo_kitchen env parameters
     robo_kitchen_randomize_init_state = True  # not used
-    # robo_kitchen_task = "OpenSingleDoor"
+    robo_kitchen_task = "OpenSingleDoor"
     # robo_kitchen_task = "CloseSingleDoor"
     # robo_kitchen_task = "PnPCounterToCab" 
     # robo_kitchen_task = "PnPCabToCounter" # #this has no plate, cannot find a good ref
@@ -112,6 +116,10 @@ class GlobalSettings:
     # robo_kitchen_task = "StoreFruit" # New task
     # robo_kitchen_task = "StoreFruitFull" # New task
     # robo_kitchen_task = "CookCheeseAndTomatoes" # New task
+
+    # learning from compostie tassk
+    # robo_kitchen_task = "ArrangeVegetables"
+    # robo_kitchen_task = "PreSoakPan"
 
     # hardware tasks    
     robo_kitchen_task = "MocapOpenLid"
@@ -162,7 +170,7 @@ class GlobalSettings:
         robo_kitchen_user_demo = True
     else:
         robo_kitchen_user_demo = False # if True, this has priority, if False, then load flag is considered
-    robo_kitchen_load_dataset = False # this has priority, if False, then save flag is considered
+    robo_kitchen_load_dataset = True # this has priority, if False, then save flag is considered
     robo_kitchen_save_dataset = not robo_kitchen_load_dataset
     robo_kitchen_save_traj_by_segment = False
     robo_kitchen_contact_smoothing_window = 21
@@ -224,8 +232,10 @@ class GlobalSettings:
     test_task_json_dir = None
     # The method to use for segmentation. By default, segment using options.
     # If you are learning options, you should change this via the command line.
-    # segmenter = "atom_changes_low_speed_check"
-    segmenter = "atom_changes_add_effects_only"
+    if predicate_candidates_method == "low_speed": # 
+        segmenter = "atom_changes" 
+    else: # for proposed method, adding effects #
+        segmenter = "atom_changes_add_effects_only"
     # segmenter = "contacts"
     # The method to use for generating demonstrations: "oracle" or "human".
     demonstrator = "human"
