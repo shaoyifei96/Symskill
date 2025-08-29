@@ -100,7 +100,7 @@ class GlobalSettings:
 
     # robo_kitchen env parameters
     robo_kitchen_randomize_init_state = True  # not used
-    robo_kitchen_task = "OpenSingleDoor"
+    # robo_kitchen_task = "OpenSingleDoor"
     # robo_kitchen_task = "CloseSingleDoor"
     # robo_kitchen_task = "PnPCounterToCab" 
     # robo_kitchen_task = "PnPCabToCounter" # #this has no plate, cannot find a good ref
@@ -120,7 +120,7 @@ class GlobalSettings:
     # robo_kitchen_task = "CookCheeseAndTomatoes" # New task
 
     # learning from compostie tassk
-    # robo_kitchen_task = "ArrangeVegetables"
+    robo_kitchen_task = "ArrangeVegetables"
     # robo_kitchen_task = "PreSoakPan"
 
     # hardware tasks    
