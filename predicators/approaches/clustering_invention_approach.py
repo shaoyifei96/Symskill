@@ -2657,7 +2657,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         learnt_goal_predicates = self.load_learnt_goals()
         predicates_to_monitor, ground_atom_dataset = self._create_gnd_atom_datasets(dataset, in_contact_pred, in_origin_pred, learnt_goal_predicates)
         all_objs_types, robot_base_obj_type = self._find_common_objects_types(ground_atom_dataset)
-        relative_pose_gripper_obj_dataset_dict, traj_all_objs_all, contact_period_obj_obj_rel_trajs, ground_atom_dataset = self._extract_relative_pose_data(ground_atom_dataset, all_objs_types, gripper_type, in_contact_pred, in_origin_pred, trajectory_motion_phases, trajectory_all_objects, gripper_obj, contact_lost_periods)            
+        relative_pose_gripper_obj_dataset_dict, traj_all_objs_all, contact_period_obj_obj_rel_trajs, contact_lost_period_rel_pose, ground_atom_dataset = self._extract_relative_pose_data(ground_atom_dataset, all_objs_types, gripper_type, in_contact_pred, in_origin_pred, trajectory_motion_phases, trajectory_all_objects, gripper_obj, contact_lost_periods)            
         
         # Find the most common object type that comes in contact with the gripper
         # if trajectory_all_objects is not None:
@@ -2686,7 +2686,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         
         # self._visualize_contact_period_trajectories(contact_period_rel_trajs, list_of_reconstruction_errors)
         ground_atom_dataset = self._update_atom_sequences_with_goal_predicates(ground_atom_dataset, traj_all_objs_all, best_reference_per_moving_obj)
-        relative_pose_all_dict = self._update_rel_pose_dict_with_obj_obj(relative_pose_gripper_obj_dataset_dict, contact_period_obj_obj_rel_trajs, best_reference_per_moving_obj)
+        relative_pose_all_dict = self._update_rel_pose_dict_with_obj_obj(relative_pose_gripper_obj_dataset_dict, contact_lost_period_rel_pose, best_reference_per_moving_obj)
         
         renamed_cluster_candidates = self._add_goal_states_to_relative_pose_and_cluster(dataset, relative_pose_all_dict)
         
@@ -3224,6 +3224,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
     def _extract_relative_pose_data(self, ground_atom_dataset: List[GroundAtomTrajectory], all_objs_types: List[Type], gripper_type: Type, in_contact_pred: Predicate, in_origin_pred: Predicate, trajectory_motion_phases: Dict[int, List[Dict]] = None, trajectory_all_objects: Dict[int, List[Object]] = None, gripper_obj: Object = None, contact_lost_periods: Dict[int, List[Tuple[int, int]]] = None) -> Tuple[Dict[Tuple[Predicate, Type, Type, str], List[np.ndarray]], List[List[Object]], Dict[Type, List[List[np.ndarray]]], List[State], List[Type], List[GroundAtomTrajectory]]:
         relative_pose_gripper_obj_dataset_dict = defaultdict(list) # Maps (atom_pred, type1, type2) -> List[rel_pose]
         contact_period_obj_obj_rel_trajs = {} # Maps (moving_obj_type, reference_obj_type) -> List[List[rel_pose]]
+        contact_lost_period_rel_pose = {} # Maps (moving_obj_type, reference_obj_type) -> List[List[rel_pose]]
         # goal_reached_states = defaultdict(list)
         object_type_in_contact_with_gripper_longest_duration = []
         traj_all_objs_all = []
@@ -3285,15 +3286,16 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                                         state_t, obj, moving_obj, CFG.trans_feat_name, CFG.quat_feat_name
                                     )
                                     # Use nested dictionary: moving_obj_type -> reference_obj_type -> trajectories
-                                    if moving_obj.type not in contact_period_obj_obj_rel_trajs:
-                                        contact_period_obj_obj_rel_trajs[moving_obj.type] = {}
-                                    if obj.type not in contact_period_obj_obj_rel_trajs[moving_obj.type]:
-                                        contact_period_obj_obj_rel_trajs[moving_obj.type][obj.type] = []
+                                    # these should be rather static poses that are easy to cluster
+                                    if moving_obj.type not in contact_lost_period_rel_pose:
+                                        contact_lost_period_rel_pose[moving_obj.type] = {}
+                                    if obj.type not in contact_lost_period_rel_pose[moving_obj.type]:
+                                        contact_lost_period_rel_pose[moving_obj.type][obj.type] = []
                                     if t == start_period:  # Start of new period
-                                        contact_period_obj_obj_rel_trajs[moving_obj.type][obj.type].append([relative_pose])
+                                        contact_lost_period_rel_pose[moving_obj.type][obj.type].append([relative_pose])
                                     else:
-                                        if contact_period_obj_obj_rel_trajs[moving_obj.type][obj.type]:
-                                            contact_period_obj_obj_rel_trajs[moving_obj.type][obj.type][-1].append(relative_pose)
+                                        if contact_lost_period_rel_pose[moving_obj.type][obj.type]:
+                                            contact_lost_period_rel_pose[moving_obj.type][obj.type][-1].append(relative_pose)
                 
                 # Extract relative poses during contact periods from motion phases
                 if i in trajectory_motion_phases:
@@ -3314,8 +3316,26 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                                 if rel_pose_at_contact_obj2_in_obj1_frame is not None:
                                     key = (in_contact_pred, moving_obj.type, gripper_type, "2in1")
                                     relative_pose_gripper_obj_dataset_dict[key].append(rel_pose_at_contact_obj2_in_obj1_frame)
+                                
+                                # During contact periods, compute relative poses between objects in motion and all other objects
+                                for obj in traj_all_objs:
+                                    if obj.type == gripper_type or obj == moving_obj:
+                                        continue
+                                    relative_pose = utils.calculate_relative_pose_from_state(
+                                        state_t, obj, moving_obj, CFG.trans_feat_name, CFG.quat_feat_name
+                                    )
+                                    # Use nested dictionary: moving_obj_type -> reference_obj_type -> trajectories
+                                    if moving_obj.type not in contact_period_obj_obj_rel_trajs:
+                                        contact_period_obj_obj_rel_trajs[moving_obj.type] = {}
+                                    if obj.type not in contact_period_obj_obj_rel_trajs[moving_obj.type]:
+                                        contact_period_obj_obj_rel_trajs[moving_obj.type][obj.type] = []
+                                    if t == start_frame:  # Start of new contact period
+                                        contact_period_obj_obj_rel_trajs[moving_obj.type][obj.type].append([relative_pose])
+                                    else:
+                                        if contact_period_obj_obj_rel_trajs[moving_obj.type][obj.type]:
+                                            contact_period_obj_obj_rel_trajs[moving_obj.type][obj.type][-1].append(relative_pose)
         
-        return relative_pose_gripper_obj_dataset_dict, traj_all_objs_all, contact_period_obj_obj_rel_trajs, ground_atom_dataset
+        return relative_pose_gripper_obj_dataset_dict, traj_all_objs_all, contact_period_obj_obj_rel_trajs, contact_lost_period_rel_pose, ground_atom_dataset
 
     def _find_object_in_motion_before_period(self, motion_phases: List[Dict], period_start: int) -> Object:
         """Find the object that was in motion before the given period start time."""
@@ -3913,14 +3933,14 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             self._last_cluster_ax = None
             self._last_cluster_title = None
 
-    def _update_rel_pose_dict_with_obj_obj(self,  relative_pose_gripper_obj_dataset_dict: Dict[Tuple[Predicate, Type, Type, str], List[np.ndarray]], contact_period_obj_obj_rel_trajs: Dict[Type, Dict[Type, List[List[np.ndarray]]]], best_reference_per_moving_obj: Dict[Type, Type]) -> Dict[Tuple[Predicate, Type, Type, str], List[np.ndarray]]:
+    def _update_rel_pose_dict_with_obj_obj(self,  relative_pose_gripper_obj_dataset_dict: Dict[Tuple[Predicate, Type, Type, str], List[np.ndarray]], contact_lost_period_obj_obj_rel_trajs: Dict[Type, Dict[Type, List[List[np.ndarray]]]], best_reference_per_moving_obj: Dict[Type, Type]) -> Dict[Tuple[Predicate, Type, Type, str], List[np.ndarray]]:
         """
         Merge gripper-object relative poses with object-object relative poses into a unified dictionary.
         
         Args:
             relative_pose_gripper_obj_dataset_dict: Dictionary containing gripper-object relative poses
                 Format: {(predicate, obj_type1, obj_type2, direction): [relative_poses]}
-            contact_period_obj_obj_rel_trajs: Dictionary containing object-object relative pose trajectories
+            contact_lost_period_obj_obj_rel_trajs: Dictionary containing object-object relative pose trajectories
                 Format: {moving_obj_type: {reference_obj_type: [[trajectory_poses]]}}
         
         Returns:
@@ -3936,7 +3956,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             relative_pose_all_dict[key].extend(poses)
         
         # Add object-object relative poses
-        for moving_obj_type, reference_dict in contact_period_obj_obj_rel_trajs.items():
+        for moving_obj_type, reference_dict in contact_lost_period_obj_obj_rel_trajs.items():
             ref_obj_type_best = best_reference_per_moving_obj[moving_obj_type]
             for ref_obj_type, trajectory_segments in reference_dict.items():
                 if ref_obj_type != ref_obj_type_best:
@@ -3956,7 +3976,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                             relative_pose_all_dict[key].append(pose)
         
         logging.info(f"Merged relative pose data: {len(relative_pose_gripper_obj_dataset_dict)} gripper-object entries + "
-                    f"{sum(len(ref_dict) for ref_dict in contact_period_obj_obj_rel_trajs.values())} object-object entries = "
+                    f"{sum(len(ref_dict) for ref_dict in contact_lost_period_obj_obj_rel_trajs.values())} object-object entries = "
                     f"{len(relative_pose_all_dict)} total entries")
         
         return dict(relative_pose_all_dict)
