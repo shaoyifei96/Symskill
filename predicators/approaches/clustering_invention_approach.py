@@ -53,7 +53,7 @@ import matplotlib.colors as mcolors # Import colors for normalization
 import ruptures as rpt
 import os
 from ds_policy import DSPolicy, compute_vel_traj, UnifiedModelConfig
-import rospy
+# import rospy
 from scipy.ndimage import uniform_filter1d
 ################################################################################
 #                          Programmatic classifiers                            #
@@ -242,7 +242,7 @@ class _RelativeFeatureCovClusterClassifier(_BinaryClassifier):
             return False
 
         # Use the pre-calculated threshold
-        rospy.loginfo_throttle(1, f"{mahalanobis_dist_sq} <=? {self.mahalanobis_threshold}")
+        # rospy.loginfo_throttle(1, f"{mahalanobis_dist_sq} <=? {self.mahalanobis_threshold}")
         return mahalanobis_dist_sq <= self.mahalanobis_threshold
 
     def __str__(self) -> str:
@@ -2647,6 +2647,38 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         pred = Predicate(name, types, classifier)
         return pred
 
+    def _oracle_find_reference_frames(self, contact_period_obj_obj_rel_trajs: Dict, contact_lost_period_rel_pose: Dict, all_objs_types: List) -> Dict:
+        """
+        Oracle function to find the best reference frame for each motion.
+        
+        Args:
+            contact_period_obj_obj_rel_trajs: Dict mapping (demo_id, phase_idx) to motion data
+            contact_lost_period_rel_pose: Dict mapping (demo_id, period_idx) to motion data  
+            all_objs_types: List of all available object types
+            
+        Returns:
+            Dict mapping (demo_id, motion_idx) -> reference_obj_type
+        """
+        best_reference_per_motion = {}
+        
+        # Get a default reference object type (first non-gripper type)
+        default_ref_obj_type = all_objs_types[-1] if all_objs_types else None
+        
+        # Process contact periods
+        for (demo_id, phase_idx), phase_data in contact_period_obj_obj_rel_trajs.items():
+            motion_key = (demo_id, phase_idx)
+            # Oracle logic: For now, use the default reference type
+            # In a real oracle, this would analyze the motion and choose the best reference
+            best_reference_per_motion[motion_key] = default_ref_obj_type
+            
+        # Process contact lost periods
+        for (demo_id, period_idx), period_data in contact_lost_period_rel_pose.items():
+            motion_key = (demo_id, period_idx)  
+            # Oracle logic: For now, use the default reference type
+            # In a real oracle, this would analyze the motion and choose the best reference
+            best_reference_per_motion[motion_key] = default_ref_obj_type
+            
+        return best_reference_per_motion
 
     def _generate_candidate_predicates_contact_goal_clustering_refactored(self, dataset: Dataset) -> Tuple[List[GroundAtomTrajectory], Dict[Predicate, float], Set[Predicate]]:
         """Generate candidate predicates based on clustering of contact relative poses."""
@@ -2662,39 +2694,24 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         all_objs_types, robot_base_obj_type = self._find_common_objects_types(ground_atom_dataset)
         relative_pose_gripper_obj_dataset_dict, traj_all_objs_all, contact_period_obj_obj_rel_trajs, contact_lost_period_rel_pose, ground_atom_dataset = self._extract_relative_pose_data(ground_atom_dataset, all_objs_types, gripper_type, in_contact_pred, in_origin_pred, trajectory_motion_phases, trajectory_all_objects, gripper_obj, contact_lost_periods)            
         
-        # Find the most common object type that comes in contact with the gripper
-        # if trajectory_all_objects is not None:
-            # obj_type_contact_with_gripper = self._find_object_in_contact_with_gripper(trajectory_all_objects)
-        # else:
-        #     # Fallback: use the first moving object type from contact_period_rel_trajs
-        #     if contact_period_obj_obj_rel_trajs:
-        #         obj_type_contact_with_gripper = next(iter(contact_period_obj_obj_rel_trajs.keys()))
-        #     else:
-        #         # Final fallback: use the first non-gripper object type
-        #         obj_type_contact_with_gripper = next((obj_type for obj_type in all_objs_types if 'gripper' not in obj_type.name.lower()), all_objs_types[0])
         
-        # logging.info(f"Object type in contact with gripper: {obj_type_contact_with_gripper.name}")
+        # Use oracle to find reference frames for each motion
+        best_reference_per_motion = self._oracle_find_reference_frames(
+            contact_period_obj_obj_rel_trajs, 
+            contact_lost_period_rel_pose, 
+            all_objs_types
+        )
         
-        best_reference_per_moving_obj, _ = self._select_reference_object(contact_period_obj_obj_rel_trajs)
-        # obj_type_of_reference_best = next(iter(best_reference_per_moving_obj.values()))[0]
-        # if CFG.use_gt_ref_obj_type and CFG.robo_kitchen_task in CFG.gt_ref_obj_type: # mocap tasks are not using gt ref obj type
-        #     obj_type_of_reference_best_text = CFG.gt_ref_obj_type[CFG.robo_kitchen_task]
-        #     for obj_type in all_objs_types:
-        #         if obj_type.name == obj_type_of_reference_best_text:
-        #             obj_type_of_reference_best = obj_type
-        #             break
-        # logging.error(f"Using ground truth reference object type: {obj_type_of_reference_best.name}")
-        # assert obj_type_of_reference_best is not None, f"Reference object type not found in all_objs_types: {all_objs_types}"
-        # assert obj_type_of_reference_best.name in gt_ref_obj_type, f"GT reference object type not matching correct solution, gt_ref_obj_type: {gt_ref_obj_type}, obj_type_of_reference_best: {obj_type_of_reference_best.name}"
-        print(best_reference_per_moving_obj)
+        print(f"Oracle found reference frames for {len(best_reference_per_motion)} motions")
+
         # self._visualize_contact_period_trajectories(contact_period_rel_trajs, list_of_reconstruction_errors)
-        ground_atom_dataset = self._update_atom_sequences_with_goal_predicates(ground_atom_dataset, traj_all_objs_all, best_reference_per_moving_obj)
-        relative_pose_all_dict = self._update_rel_pose_dict_with_obj_obj(relative_pose_gripper_obj_dataset_dict, contact_lost_period_rel_pose, best_reference_per_moving_obj)
+        ground_atom_dataset = self._update_atom_sequences_with_goal_predicates(ground_atom_dataset, traj_all_objs_all, best_reference_per_motion, trajectory_motion_phases)
+        relative_pose_all_dict = self._update_rel_pose_dict_with_obj_obj(relative_pose_gripper_obj_dataset_dict, contact_lost_period_rel_pose, best_reference_per_motion)
         
         renamed_cluster_candidates = self._add_goal_states_to_relative_pose_and_cluster(dataset, relative_pose_all_dict)
         
         
-        return self._postprocess_cluster_predicates(env, dataset, ground_atom_dataset, predicates_to_monitor, renamed_cluster_candidates, best_reference_per_moving_obj, learnt_goal_predicates)
+        return self._postprocess_cluster_predicates(env, dataset, ground_atom_dataset, predicates_to_monitor, renamed_cluster_candidates, best_reference_per_motion, learnt_goal_predicates)
         
     def _add_base_ref_obj_precondition(self, ground_atom_dataset: List[GroundAtomTrajectory], relative_pose_dataset_dict: Dict[Tuple[Predicate, Type, Type, str], List[np.ndarray]],  obj_type_of_reference_best: Type, obj_type_contact_with_gripper: Type, robot_base_obj_type: Type, traj_all_objs_all: List[List[Object]]):
         # RelPosPred
@@ -2750,7 +2767,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
 
 
     
-    def _postprocess_cluster_predicates(self, env, dataset: Dataset, ground_atom_dataset: List[GroundAtomTrajectory], predicates_to_monitor: Set[Predicate], renamed_cluster_candidates: Dict[Predicate, float], best_reference_per_moving_obj: Dict[Type, Dict[int, Type]], learnt_goal_predicates: Set[Predicate]):
+    def _postprocess_cluster_predicates(self, env, dataset: Dataset, ground_atom_dataset: List[GroundAtomTrajectory], predicates_to_monitor: Set[Predicate], renamed_cluster_candidates: Dict[Predicate, float], best_reference_per_motion: Dict[Tuple[int, int], Type], learnt_goal_predicates: Set[Predicate]):
 
         if CFG.reprocess_ground_atom_dataset_using_cluster_replacement: 
             #replace in contact atoms with rel pose atoms, so easier to do operator learning later
@@ -3037,15 +3054,25 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         renamed_cluster_candidates = self._rename_predicates_to_remove_incompatible_chars(candidate_cluster_preds)
         return renamed_cluster_candidates
 
-    def _update_atom_sequences_with_goal_predicates(self, ground_atom_dataset: List[GroundAtomTrajectory], traj_all_objs_all: List[List[Object]], best_reference_per_moving_obj: Dict[Type, Dict[int, Type]]):
+    def _update_atom_sequences_with_goal_predicates(self, ground_atom_dataset: List[GroundAtomTrajectory], traj_all_objs_all: List[List[Object]], best_reference_per_motion: Dict[Tuple[int, int], Type], trajectory_motion_phases: Dict[int, List[Dict]] = None):
+        
+        def find_motion_phase_for_timestep(demo_id: int, timestep: int) -> int:
+            """Find which motion phase a given timestep belongs to."""
+            if trajectory_motion_phases and demo_id in trajectory_motion_phases:
+                for phase_idx, phase_info in enumerate(trajectory_motion_phases[demo_id]):
+                    start_t = phase_info['start_frame']
+                    moving_obj = phase_info['moving_objects'][0]
+                    # end_t = phase_info['end_frame']
+                    end_t = self._find_next_motion_start_for_object(trajectory_motion_phases[demo_id], moving_obj, start_t)
+                    if end_t == -1:
+                        end_t = float('inf')
+                    if start_t <= timestep <= end_t:
+                        return phase_idx
+            # If no trajectory_motion_phases or timestep not found, return default phase
+            raise ValueError(f"No motion phase found for timestep {timestep} in demo {demo_id}")
+            
         for i, (ll_traj, atom_seq) in enumerate(ground_atom_dataset):
             traj_all_objs = traj_all_objs_all[i]
-            # obj_type_of_reference_best = best_reference_per_moving_obj[traj_all_objs[0].type]
-            # obj_ref = [o for o in traj_all_objs if o.type == obj_type_of_reference_best][0]
-            # assert obj_ref is not None, "Object of reference not found"
-            
-            # Track all goal/subgoal types found in this trajectory
-            # goal_types_found = set()
             
             for j, atoms in enumerate(atom_seq):
                 atoms_to_remove = []
@@ -3054,15 +3081,15 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 for atom in atoms:
                     if isinstance(atom, DummyGroundAtom):
                         moving_obj = atom.entities[0]
-                        # Get the best reference object type for this specific trajectory
-                        if moving_obj.type in best_reference_per_moving_obj and i in best_reference_per_moving_obj[moving_obj.type]:
-                            ref_obj_type = best_reference_per_moving_obj[moving_obj.type][i]
-                        else:
-                            # Fallback: use any available reference object type for this moving object type
-                            if moving_obj.type in best_reference_per_moving_obj and best_reference_per_moving_obj[moving_obj.type]:
-                                ref_obj_type = next(iter(best_reference_per_moving_obj[moving_obj.type].values()))
-                            else:
-                                continue  # Skip if no reference object type found
+                        
+                        # Find which motion phase this timestep belongs to
+                        phase_idx = find_motion_phase_for_timestep(i, j)
+                        motion_key = (i, phase_idx)
+                        
+                        # Look up the reference type for this specific motion
+                        ref_obj_type = best_reference_per_motion[motion_key]
+                        
+
                         
                         ref_obj = [o for o in traj_all_objs if o.type == ref_obj_type]
                         assert len(ref_obj) == 1, "Multiple reference objects found"
@@ -3133,10 +3160,10 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             logging.info(f"Saved contact period trajectories visualization to feature_data/contact_period_trajectories_{o_ref.name}.png")
             plt.close(fig)
 
-    def _cluster_trajectory_endpoints(self, rel_pose_trajs: List[List[np.ndarray]]) -> Tuple[Dict[int, int], int]:
+    def _cluster_trajectory_endpoints(self, rel_pose_trajs: List[List[np.ndarray]]) -> Tuple[Dict[int, int], int, float]:
         """
         Helper method to cluster trajectory endpoints and find the cluster closest to origin.
-        Returns trajectory-to-cluster mapping and the closest cluster ID.
+        Returns trajectory-to-cluster mapping, the closest cluster ID, and the covariance norm of the closest cluster.
         """
         # Extract endpoints (final poses) from trajectories
         endpoints = []
@@ -3147,7 +3174,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 valid_traj_indices.append(traj_idx)
         
         if len(endpoints) < 2:
-            return {}, None
+            return {}, None, None
         
         # Cluster endpoints using SE(3) distance
         clustered_data, labels, unique_labels = self._cluster_feature_dataset(
@@ -3156,6 +3183,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         
         # Find cluster closest to origin
         closest_cluster_id = None
+        closest_cluster_covariance_norm = None
         cluster_distances_to_origin = {}
         for cluster_id in unique_labels:
             if cluster_id == -1:  # Skip noise
@@ -3167,17 +3195,25 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             distance_to_origin = np.linalg.norm(cluster_center_trans)
             cluster_distances_to_origin[cluster_id] = distance_to_origin
         
-        # Select cluster closest to origin
+        # Select cluster closest to origin and calculate its covariance norm
         if cluster_distances_to_origin:
             closest_cluster_id = min(cluster_distances_to_origin.keys(), 
                                     key=lambda cid: cluster_distances_to_origin[cid])
+            
+            # Calculate covariance norm for the closest cluster
+            closest_cluster_points = clustered_data[labels == closest_cluster_id]
+            if len(closest_cluster_points) > 1:
+                covariance_matrix = np.cov(closest_cluster_points[:, :3].T)  # Only translation component
+                closest_cluster_covariance_norm = np.linalg.norm(covariance_matrix, 'fro')
+            else:
+                closest_cluster_covariance_norm = 0.0
         
         # Create trajectory-to-cluster mapping
         traj_to_cluster = {}
         for i, (traj_idx, label) in enumerate(zip(valid_traj_indices, labels)):
             traj_to_cluster[traj_idx] = label
             
-        return traj_to_cluster, closest_cluster_id
+        return traj_to_cluster, closest_cluster_id, closest_cluster_covariance_norm
 
     def _select_reference_object(self, 
                                 contact_period_rel_trajs: Dict[Type, Dict[Type, List[List[np.ndarray]]]], 
@@ -3203,7 +3239,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 continue
                 
             # Initialize reconstruction error matrix: [num_traj x num_ref_objects]
-            ref_obj_types = [ref_type for ref_type in ref_obj_dict.keys() if ref_type.name not in black_list]
+            ref_obj_types = [ref_type for ref_type in ref_obj_dict.keys()]
             reconstruction_matrix = np.full((num_trajectories, len(ref_obj_types)), np.inf)
             
             # Step 1: Analyze trajectory endpoint clustering for each reference object
@@ -3214,7 +3250,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 if ref_obj_type.name in black_list or len(rel_pose_trajs) == 0:
                     continue
                 
-                traj_to_cluster, closest_cluster_id = self._cluster_trajectory_endpoints(rel_pose_trajs)
+                traj_to_cluster, closest_cluster_id, closest_cluster_covariance_norm = self._cluster_trajectory_endpoints(rel_pose_trajs)
                 
                 if len(traj_to_cluster) < 2:
                     print(f"    Skipping {ref_obj_type.name}: not enough endpoints ({len(traj_to_cluster)})")
@@ -3232,7 +3268,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             
             # Step 2: Compute reconstruction errors only for trajectories in the closest cluster
             for ref_idx, ref_obj_type in enumerate(ref_obj_types):
-                if ref_obj_type not in ref_obj_dict or len(ref_obj_dict[ref_obj_type]) == 0:
+                if ref_obj_type.name in black_list or ref_obj_type not in ref_obj_dict or len(ref_obj_dict[ref_obj_type]) == 0:
                     continue
                     
                 rel_pose_trajs = ref_obj_dict[ref_obj_type]
@@ -3244,19 +3280,16 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 quat = []
                 x_dot = []
                 omega = []
+
+                valid_trajs_idx = []
                 # Process each trajectory individually
                 for traj_idx, rel_pose_traj in enumerate(rel_pose_trajs):
                     if len(rel_pose_traj) == 0:
                         continue
                     
                     # Check if this trajectory belongs to the closest cluster
-                    if (ref_obj_type in traj_to_cluster_mapping and 
-                        traj_idx in traj_to_cluster_mapping[ref_obj_type]):
-                        traj_cluster_id = traj_to_cluster_mapping[ref_obj_type][traj_idx]
-                        
-                        # Only compute reconstruction error for trajectories in the closest cluster
-                        if closest_cluster_id is not None and traj_cluster_id != closest_cluster_id:
-                            continue  # Skip trajectories not in closest cluster
+                    if traj_to_cluster_mapping[ref_obj_type][traj_idx] != closest_cluster_id:
+                        continue  # Skip trajectories not in closest cluster
                     
 
                     # Prepare data for this single trajectory
@@ -3275,9 +3308,10 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                     quat.append(quat_traj)
                     x_dot.append(x_dot_traj)
                     omega.append(omega_traj)
+                    valid_trajs_idx.append(traj_idx)
                     
-                    if len(x_traj) == 0:
-                        continue
+                if len(x) == 0:
+                    continue
                     
                 # try:
                 unified_config = UnifiedModelConfig(
@@ -3297,13 +3331,15 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                     
                     # Store reconstruction error in matrix
                 # Find all trajectories in the closest cluster and assign the same reconstruction error
-                for traj_id, cluster_id in traj_to_cluster_mapping[ref_obj_type].items():
-                    if cluster_id == closest_cluster_id:
-                        if traj_id < reconstruction_matrix.shape[0]:
-                            reconstruction_matrix[traj_id, ref_idx] = reconstruction_error
-                            print(f"    Traj {traj_id}, {ref_obj_type.name} reconstruction error: {reconstruction_error:.6f}")
+                
+                for traj_id in valid_trajs_idx:
+                    reconstruction_matrix[traj_id, ref_idx] = reconstruction_error + closest_cluster_covariance_norm*1e4
+                    print(f"    Traj {traj_id}, {ref_obj_type.name} reconstruction error: {reconstruction_error:.6f}")
+                    
 
+            # following not debugged yet
 
+            
             # Step 3: Select best reference object for each trajectory
             best_reference_per_moving_obj[moving_obj_type] = {}
             for traj_idx in range(num_trajectories):
@@ -3333,8 +3369,8 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
 
     def _extract_relative_pose_data(self, ground_atom_dataset: List[GroundAtomTrajectory], all_objs_types: List[Type], gripper_type: Type, in_contact_pred: Predicate, in_origin_pred: Predicate, trajectory_motion_phases: Dict[int, List[Dict]] = None, trajectory_all_objects: Dict[int, List[Object]] = None, gripper_obj: Object = None, contact_lost_periods: Dict[int, List[Tuple[int, int]]] = None) -> Tuple[Dict[Tuple[Predicate, Type, Type, str], List[np.ndarray]], List[List[Object]], Dict[Type, List[List[np.ndarray]]], List[State], List[Type], List[GroundAtomTrajectory]]:
         relative_pose_gripper_obj_dataset_dict = defaultdict(list) # Maps (atom_pred, type1, type2) -> List[rel_pose]
-        contact_period_obj_obj_rel_trajs = {} # Maps (moving_obj_type, reference_obj_type) -> List[List[rel_pose]]
-        contact_lost_period_rel_pose = {} # Maps (moving_obj_type, reference_obj_type) -> List[List[rel_pose]]
+        contact_period_obj_obj_rel_trajs = {} # Maps (demo_id, phase_idx) -> {'moving_obj_type': Type, 'ref_poses': {ref_obj_type: List[rel_pose]}}
+        contact_lost_period_rel_pose = {} # Maps (demo_id, period_idx) -> {'moving_obj_type': Type, 'ref_poses': {ref_obj_type: List[rel_pose]}}
         # goal_reached_states = defaultdict(list)
         object_type_in_contact_with_gripper_longest_duration = []
         traj_all_objs_all = []
@@ -3347,12 +3383,11 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 # goal_reached_states[i] = []
                 
                 # Get objects from motion analysis
-                if i in trajectory_all_objects:
-                    traj_all_objs = trajectory_all_objects[i]
-                else:
-                    # Fall back to original logic if no motion analysis data
-                    traj_all_objs = [o for o in ll_traj.states[0].data.keys() if o.type in all_objs_types]
-                
+                traj_all_objs = trajectory_all_objects[i]
+                # Keep only one object of each type
+                seen_types = set()
+                ref_objs = [obj for obj in traj_all_objs if obj.type not in seen_types and not seen_types.add(obj.type)]
+
                 traj_all_objs_all.append(traj_all_objs)
                 object_type_in_contact_with_gripper_longest_duration.append({})
                 
@@ -3389,27 +3424,28 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                         if moving_obj:
                             for t in range(start_period, min(goal_end_time + 1, len(ll_traj.states))):
                                 state_t = ll_traj.states[t]
-                                for obj in traj_all_objs:
+                                for obj in ref_objs:
                                     if obj.type == gripper_type or obj == moving_obj:
                                         continue
                                     relative_pose = utils.calculate_relative_pose_from_state(
                                         state_t, obj, moving_obj, CFG.trans_feat_name, CFG.quat_feat_name
                                     )
-                                    # Use nested dictionary: moving_obj_type -> reference_obj_type -> trajectories
+                                    # Use nested dictionary: (demo_id, period_idx) -> {'moving_obj_type': Type, 'ref_poses': {ref_obj_type: List[rel_pose]}}
                                     # these should be rather static poses that are easy to cluster
-                                    if moving_obj.type not in contact_lost_period_rel_pose:
-                                        contact_lost_period_rel_pose[moving_obj.type] = {}
-                                    if obj.type not in contact_lost_period_rel_pose[moving_obj.type]:
-                                        contact_lost_period_rel_pose[moving_obj.type][obj.type] = []
-                                    if t == start_period:  # Start of new period
-                                        contact_lost_period_rel_pose[moving_obj.type][obj.type].append([relative_pose])
-                                    else:
-                                        if contact_lost_period_rel_pose[moving_obj.type][obj.type]:
-                                            contact_lost_period_rel_pose[moving_obj.type][obj.type][-1].append(relative_pose)
+                                    period_key = (i, idx)
+                                    if period_key not in contact_lost_period_rel_pose:
+                                        contact_lost_period_rel_pose[period_key] = {
+                                            'moving_obj_type': moving_obj.type,
+                                            'ref_poses': {}
+                                        }
+                                    if obj.type not in contact_lost_period_rel_pose[period_key]['ref_poses']:
+                                        contact_lost_period_rel_pose[period_key]['ref_poses'][obj.type] = []
+                                    
+                                    contact_lost_period_rel_pose[period_key]['ref_poses'][obj.type].append(relative_pose)
                 
                 # Extract relative poses during contact periods from motion phases
                 if i in trajectory_motion_phases:
-                    for phase in trajectory_motion_phases[i]:
+                    for phase_idx, phase in enumerate(trajectory_motion_phases[i]):
                         start_frame = phase['start_frame']
                         end_frame = phase['end_frame']
                         moving_objects = phase.get('moving_objects', [])
@@ -3428,23 +3464,26 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                                     relative_pose_gripper_obj_dataset_dict[key].append(rel_pose_at_contact_obj2_in_obj1_frame)
                                 
                                 # During contact periods, compute relative poses between objects in motion and all other objects
-                                for obj in traj_all_objs:
+                                for obj in ref_objs:
                                     if obj.type == gripper_type or obj == moving_obj:
                                         continue
                                     relative_pose = utils.calculate_relative_pose_from_state(
                                         state_t, obj, moving_obj, CFG.trans_feat_name, CFG.quat_feat_name
                                     )
-                                    # Use nested dictionary: moving_obj_type -> reference_obj_type -> trajectories
-                                    if moving_obj.type not in contact_period_obj_obj_rel_trajs:
-                                        contact_period_obj_obj_rel_trajs[moving_obj.type] = {}
-                                    if obj.type not in contact_period_obj_obj_rel_trajs[moving_obj.type]:
-                                        contact_period_obj_obj_rel_trajs[moving_obj.type][obj.type] = []
-                                    if t == start_frame:  # Start of new contact period
-                                        contact_period_obj_obj_rel_trajs[moving_obj.type][obj.type].append([relative_pose])
-                                    else:
-                                        if contact_period_obj_obj_rel_trajs[moving_obj.type][obj.type]:
-                                            contact_period_obj_obj_rel_trajs[moving_obj.type][obj.type][-1].append(relative_pose)
-        
+                                    # Use nested dictionary: (demo_id, phase_idx) -> {'moving_obj_type': Type, 'ref_poses': {ref_obj_type: List[rel_pose]}}
+                                    phase_key = (i, phase_idx)
+                                    if phase_key not in contact_period_obj_obj_rel_trajs:
+                                        contact_period_obj_obj_rel_trajs[phase_key] = {
+                                            'moving_obj_type': moving_obj.type,
+                                            'ref_poses': {}
+                                        }
+                                    if obj.type not in contact_period_obj_obj_rel_trajs[phase_key]['ref_poses']:
+                                        contact_period_obj_obj_rel_trajs[phase_key]['ref_poses'][obj.type] = []
+                                    
+                                    contact_period_obj_obj_rel_trajs[phase_key]['ref_poses'][obj.type].append(relative_pose)
+        # Note: Both contact_period_obj_obj_rel_trajs and contact_lost_period_rel_pose now have structure 
+        # {(demo_id, period_idx): {'moving_obj_type': Type, 'ref_poses': {ref_obj_type: List[rel_pose]}}}
+        # so the _check_number_of_traj_same method doesn't apply to them anymore
         return relative_pose_gripper_obj_dataset_dict, traj_all_objs_all, contact_period_obj_obj_rel_trajs, contact_lost_period_rel_pose, ground_atom_dataset
 
     def _find_object_in_motion_before_period(self, motion_phases: List[Dict], period_start: int) -> Object:
@@ -4043,7 +4082,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             self._last_cluster_ax = None
             self._last_cluster_title = None
 
-    def _update_rel_pose_dict_with_obj_obj(self,  relative_pose_gripper_obj_dataset_dict: Dict[Tuple[Predicate, Type, Type, str], List[np.ndarray]], contact_lost_period_obj_obj_rel_trajs: Dict[Type, Dict[Type, List[List[np.ndarray]]]], best_reference_per_moving_obj: Dict[Type, Type]) -> Dict[Tuple[Predicate, Type, Type, str], List[np.ndarray]]:
+    def _update_rel_pose_dict_with_obj_obj(self,  relative_pose_gripper_obj_dataset_dict: Dict[Tuple[Predicate, Type, Type, str], List[np.ndarray]], contact_lost_period_obj_obj_rel_trajs: Dict[Tuple[int, int], Dict[str, any]], best_reference_per_motion: Dict[Tuple[int, int], Type]) -> Dict[Tuple[Predicate, Type, Type, str], List[np.ndarray]]:
         """
         Merge gripper-object relative poses with object-object relative poses into a unified dictionary.
         
@@ -4051,7 +4090,9 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             relative_pose_gripper_obj_dataset_dict: Dictionary containing gripper-object relative poses
                 Format: {(predicate, obj_type1, obj_type2, direction): [relative_poses]}
             contact_lost_period_obj_obj_rel_trajs: Dictionary containing object-object relative pose trajectories
-                Format: {moving_obj_type: {reference_obj_type: [[trajectory_poses]]}}
+                Format: {(demo_id, period_idx): {'moving_obj_type': Type, 'ref_poses': {ref_obj_type: [relative_poses]}}}
+            best_reference_per_motion: Dictionary mapping motion keys to reference object types
+                Format: {(demo_id, motion_idx): reference_obj_type}
         
         Returns:
             Combined dictionary with all relative poses in the same format as relative_pose_gripper_obj_dataset_dict
@@ -4066,41 +4107,37 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             relative_pose_all_dict[key].extend(poses)
         
         # Add object-object relative poses
-        for moving_obj_type, reference_dict in contact_lost_period_obj_obj_rel_trajs.items():
-            # Get all reference object types used for this moving object type across all trajectories
-            if moving_obj_type not in best_reference_per_moving_obj:
-                continue
+        for (demo_id, period_idx), period_data in contact_lost_period_obj_obj_rel_trajs.items():
+            moving_obj_type = period_data['moving_obj_type']
+            ref_poses_dict = period_data['ref_poses']
             
-            ref_obj_types_used = set(best_reference_per_moving_obj[moving_obj_type].values())
-            for ref_obj_type, trajectory_segments in reference_dict.items():
-                # Only include trajectories where this reference object type was selected
-                if ref_obj_type not in ref_obj_types_used:
-                    continue
-                    
-                # Create a dummy predicate for object-object relationships
-                # This follows the pattern used elsewhere in the code
-                obj_obj_pred = DummyPredicate(f"{CFG.robo_kitchen_task}-subgoal")
+            # Check if we have reference selection data for this specific motion
+            motion_key = (demo_id, period_idx)
+            if motion_key not in best_reference_per_motion:
+                continue
                 
-                # Create key in the same format as gripper-object data
-                # Use "2in1" direction (moving object relative to reference object)
-                key = (obj_obj_pred, ref_obj_type, moving_obj_type, "2in1")
-                logging.info(f"Adding key: {key}")
+            # Get the best reference object type for this motion
+            best_ref_obj_type = best_reference_per_motion[motion_key]
+            
+            # Only include poses for the selected reference object type
+            if best_ref_obj_type not in ref_poses_dict:
+                continue
                 
-                # Only include trajectory segments for trajectories that use this reference object
-                trajectory_indices_for_this_ref = [
-                    traj_idx for traj_idx, selected_ref_type in best_reference_per_moving_obj[moving_obj_type].items()
-                    if selected_ref_type == ref_obj_type
-                ]
-                
-                # Flatten trajectory segments into individual poses, but only for selected trajectories
-                for traj_idx, trajectory_segment in enumerate(trajectory_segments):
-                    if traj_idx in trajectory_indices_for_this_ref:
-                        for pose in trajectory_segment:
-                            if pose is not None:
-                                relative_pose_all_dict[key].append(pose)
+            # Create a dummy predicate for object-object relationships
+            obj_obj_pred = DummyPredicate(f"{CFG.robo_kitchen_task}-subgoal")
+            
+            # Create key in the same format as gripper-object data
+            # Use "2in1" direction (moving object relative to reference object)
+            key = (obj_obj_pred, best_ref_obj_type, moving_obj_type, "2in1")
+            logging.info(f"Adding key: {key} for demo {demo_id}, period {period_idx}")
+            
+            # Add all poses from this period to the unified dictionary
+            for pose in ref_poses_dict[best_ref_obj_type]:
+                if pose is not None:
+                    relative_pose_all_dict[key].append(pose)
         
         logging.info(f"Merged relative pose data: {len(relative_pose_gripper_obj_dataset_dict)} gripper-object entries + "
-                    f"{sum(len(ref_dict) for ref_dict in contact_lost_period_obj_obj_rel_trajs.values())} object-object entries = "
+                    f"{len(contact_lost_period_obj_obj_rel_trajs)} object-object periods = "
                     f"{len(relative_pose_all_dict)} total entries")
         
         return dict(relative_pose_all_dict)
