@@ -2703,6 +2703,9 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         # )
         
         print(f"Oracle found reference frames for {len(best_reference_per_motion)} motions")
+        
+        # Create VLM-friendly 3D trajectory visualizations
+        self._select_reference_object_vlm(contact_period_obj_obj_rel_trajs, trajectory_all_objects, ground_atom_dataset, trajectory_motion_phases)
 
         # self._visualize_contact_period_trajectories(contact_period_rel_trajs, list_of_reconstruction_errors)
         ground_atom_dataset = self._update_atom_sequences_with_goal_predicates(ground_atom_dataset, traj_all_objs_all, best_reference_per_motion, trajectory_motion_phases)
@@ -3385,6 +3388,266 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             else:
                 print(f"    Motion {motion_key}: {obj_motion['moving_obj_type'].name}, No valid reference object found (all errors inf)")
         return best_reference_per_motion
+
+    def _select_reference_object_vlm(self, 
+                                   contact_period_obj_obj_rel_trajs: Dict[Tuple[int, int], Dict[str, any]],
+                                   trajectory_all_objects: Dict[int, List[Object]] = None,
+                                   ground_atom_dataset: List[GroundAtomTrajectory] = None,
+                                   trajectory_motion_phases: Dict[int, List[Dict]] = None) -> None:
+        """
+        Create individual 3D trajectory visualizations for each motion_key with object names marked for VLM identification.
+        
+        This function creates a separate plot for each motion_key showing:
+        - The world frame trajectory of the moving object
+        - All other objects as static markers with names and types clearly labeled
+        
+        Args:
+            contact_period_obj_obj_rel_trajs: Dict mapping (demo_id, segment_id) to 
+                {'moving_obj_type': Type, 'ref_poses': {ref_obj_type: List[rel_pose]}}
+            trajectory_all_objects: Dict mapping demo_id to list of objects in that trajectory
+            ground_atom_dataset: List of ground atom trajectories for accessing states
+        """
+        if not CFG.clustering_debug:
+            return
+            
+        print(f"\n=== Creating individual VLM-friendly 3D trajectory visualizations ===")
+        
+        # Create output directory for VLM visualizations
+        vlm_output_dir = "feature_data/vlm_trajectories"
+        os.makedirs(vlm_output_dir, exist_ok=True)
+        
+        # Process each motion key individually
+        for motion_key, motion_data in contact_period_obj_obj_rel_trajs.items():
+            demo_id, phase_idx = motion_key
+            moving_obj_type = motion_data['moving_obj_type']
+            
+            print(f"\nProcessing motion {motion_key}: {moving_obj_type.name}")
+            
+            # Get the corresponding ground atom trajectory
+            if demo_id >= len(ground_atom_dataset):
+                print(f"  Warning: demo_id {demo_id} not found in ground_atom_dataset")
+                continue
+                
+            gnd_atom_traj = ground_atom_dataset[demo_id]
+            states = gnd_atom_traj[0].states
+            
+            if not states:
+                print(f"  Warning: No states found for demo {demo_id}")
+                continue
+            
+            # Get motion phase information to extract the specific time segment
+            motion_phase_info = None
+            if trajectory_motion_phases and demo_id in trajectory_motion_phases:
+                if phase_idx < len(trajectory_motion_phases[demo_id]):
+                    motion_phase_info = trajectory_motion_phases[demo_id][phase_idx]
+                    print(f"  Motion phase {phase_idx}: frames {motion_phase_info['start_frame']} to {motion_phase_info['end_frame']}")
+                else:
+                    print(f"  Warning: phase_idx {phase_idx} not found in trajectory_motion_phases for demo {demo_id}")
+            
+            # Find the moving object instance - get it from motion phase info if available
+            moving_obj = None
+            if motion_phase_info and 'moving_objects' in motion_phase_info and motion_phase_info['moving_objects']:
+                # Use the specific moving object from the motion phase
+                moving_obj = motion_phase_info['moving_objects'][0]  # Take the primary moving object
+                print(f"  Using moving object from motion phase: {moving_obj.name} ({moving_obj.type.name})")
+            else:
+                # Fallback: find objects of the moving type in the first state
+                moving_objs = [obj for obj in states[0] if obj.type == moving_obj_type]
+                if not moving_objs:
+                    print(f"  Warning: No {moving_obj_type.name} objects found in demo {demo_id}")
+                    continue
+                moving_obj = moving_objs[0]  # Take the first instance
+                print(f"  Using fallback moving object: {moving_obj.name} ({moving_obj.type.name})")
+            
+            # Create individual visualization for this motion key
+            fig = plt.figure(figsize=(16, 12))
+            ax = fig.add_subplot(111, projection='3d')
+            
+            # Extract world frame trajectory of the moving object during the motion phase
+            world_trajectory = []
+            valid_state_indices = []
+            
+            # Determine the time range for this motion phase
+            if motion_phase_info:
+                start_frame = motion_phase_info['start_frame']
+                end_frame = motion_phase_info['end_frame']
+                # Ensure we don't go beyond available states
+                start_frame = max(0, start_frame)
+                end_frame = min(len(states) - 1, end_frame)
+            else:
+                # Fallback: use entire trajectory
+                start_frame = 0
+                end_frame = len(states) - 1
+                print(f"  Warning: No motion phase info, using full trajectory (frames {start_frame} to {end_frame})")
+            
+            # Extract trajectory only during the motion phase
+            for state_idx in range(start_frame, end_frame + 1):
+                if state_idx < len(states):
+                    state = states[state_idx]
+                    if moving_obj in state:
+                        world_pos = state.get(moving_obj, CFG.trans_feat_name)
+                        if world_pos is not None and len(world_pos) >= 3:
+                            world_trajectory.append(world_pos[:3])
+                            valid_state_indices.append(state_idx)
+            
+            if not world_trajectory:
+                print(f"  Warning: No valid world positions found for {moving_obj.name} during motion phase")
+                plt.close(fig)
+                continue
+                
+            world_trajectory = np.array(world_trajectory)
+            print(f"  Extracted trajectory with {len(world_trajectory)} points during motion phase")
+                        # Plot the world frame trajectory of the moving object
+            ax.plot(world_trajectory[:, 0], world_trajectory[:, 1], world_trajectory[:, 2], 
+                   color='red', linewidth=4, alpha=0.8, label=f'{moving_obj.name} trajectory')
+            # Mark start and end points of trajectory (no trajectory line)
+            ax.scatter(world_trajectory[0, 0], world_trajectory[0, 1], world_trajectory[0, 2],
+                      color='green', marker='o', s=150, alpha=1.0, label='Start', edgecolors='black', linewidth=2)
+            ax.scatter(world_trajectory[-1, 0], world_trajectory[-1, 1], world_trajectory[-1, 2],
+                      color='red', marker='s', s=150, alpha=1.0, label='End', edgecolors='black', linewidth=2)
+            
+            # Get all objects from the first state (they should be relatively static)
+            # Filter out wrist, finger, gripper, and the moving object itself
+            all_objects_in_scene = list(states[0])
+            excluded_keywords = ['wrist', 'finger', 'gripper']
+            static_objects = []
+            for obj in all_objects_in_scene:
+                if obj != moving_obj:  # Exclude moving object
+                    # Check if object name or type contains excluded keywords
+                    obj_name_lower = obj.name.lower()
+                    obj_type_lower = obj.type.name.lower()
+                    if not any(keyword in obj_name_lower or keyword in obj_type_lower for keyword in excluded_keywords):
+                        static_objects.append(obj)
+            
+            # Collect all positions to determine axis limits
+            all_positions = []
+            all_positions.extend(world_trajectory)
+            
+            # Plot static objects with clear labels
+            object_colors = plt.cm.tab20(np.linspace(0, 1, len(static_objects)))
+            
+            for i, static_obj in enumerate(static_objects):
+                # Get world position of static object (use first state)
+                static_pos = states[0].get(static_obj, CFG.trans_feat_name)
+                if static_pos is not None and len(static_pos) >= 3:
+                    all_positions.append(static_pos[:3])
+                    
+                    # Plot static object marker
+                    ax.scatter(static_pos[0], static_pos[1], static_pos[2],
+                              color=object_colors[i], marker='D', s=120, alpha=0.9,
+                              edgecolors='black', linewidth=1)
+                    
+                    # Add clear text label with object name and type
+                    label_text = f"{static_obj.name}\n({static_obj.type.name})"
+                    ax.text(static_pos[0], static_pos[1], static_pos[2] + 0.05,
+                           label_text, fontsize=10, fontweight='bold',
+                           bbox=dict(boxstyle="round,pad=0.3", facecolor=object_colors[i], alpha=0.7),
+                           ha='center', va='bottom')
+            
+            # Calculate unified axis limits for proper perspective
+            if all_positions:
+                all_positions = np.array(all_positions)
+                min_pos = np.min(all_positions, axis=0)
+                max_pos = np.max(all_positions, axis=0)
+                
+                # Calculate the center and range for each axis
+                center = (min_pos + max_pos) / 2
+                ranges = max_pos - min_pos
+                max_range = np.max(ranges)
+                
+                # Add some padding (10% of the maximum range)
+                padding = 0.1 * max_range
+                half_range = (max_range + 2 * padding) / 2
+                
+                # Set same limits for all axes centered around the data
+                ax.set_xlim(center[0] - half_range, center[0] + half_range)
+                ax.set_ylim(center[1] - half_range, center[1] + half_range)
+                ax.set_zlim(center[2] - half_range, center[2] + half_range)
+                
+                # Ensure equal aspect ratio for proper perspective
+                ax.set_box_aspect([1,1,1])
+            
+            # Set labels and title with VLM-friendly information
+            ax.set_xlabel('X Position (world frame)', fontsize=12)
+            ax.set_ylabel('Y Position (world frame)', fontsize=12) 
+            ax.set_zlabel('Z Position (world frame)', fontsize=12)
+            
+            title = f"Motion {motion_key}: {moving_obj.name} ({moving_obj_type.name}) Trajectory\n"
+            title += f"Task: {CFG.robo_kitchen_task} | Demo: {demo_id} | Phase: {phase_idx}"
+            if motion_phase_info:
+                title += f" | Frames: {motion_phase_info['start_frame']}-{motion_phase_info['end_frame']}"
+            ax.set_title(title, fontsize=14, pad=20)
+            
+            # Create legend
+            legend_elements = [
+                plt.Line2D([0], [0], marker='o', color='green', linewidth=0, markersize=10, label='Motion start'),
+                plt.Line2D([0], [0], marker='s', color='red', linewidth=0, markersize=10, label='Motion end'),
+                plt.Line2D([0], [0], marker='D', color='gray', linewidth=0, markersize=8, label='Static objects')
+            ]
+            
+            ax.legend(handles=legend_elements, loc='upper right', bbox_to_anchor=(1, 1), fontsize=10)
+            
+            # Set good viewing angle and aspect ratio
+            ax.set_box_aspect([1,1,1])
+            ax.view_init(elev=25, azim=-45)
+            
+            # Add grid for better depth perception
+            ax.grid(True, alpha=0.3)
+            
+            # Save with descriptive filename for VLM
+            filename = f"vlm_motion_{demo_id}_{phase_idx}_{moving_obj_type.name}_{CFG.robo_kitchen_task}.png"
+            filepath = os.path.join(vlm_output_dir, filename)
+            
+            plt.tight_layout()
+            plt.savefig(filepath, dpi=300, bbox_inches='tight', facecolor='white')
+            plt.close(fig)
+            
+            print(f"  Saved VLM visualization: {filepath}")
+            
+            # Create a summary text file for this specific motion
+            summary_filename = f"vlm_motion_{demo_id}_{phase_idx}_{moving_obj_type.name}_{CFG.robo_kitchen_task}_summary.txt"
+            summary_filepath = os.path.join(vlm_output_dir, summary_filename)
+            
+            with open(summary_filepath, 'w') as f:
+                f.write(f"Individual Motion Trajectory Analysis\n")
+                f.write(f"=====================================\n\n")
+                f.write(f"Motion Key: {motion_key}\n")
+                f.write(f"Task: {CFG.robo_kitchen_task}\n")
+                f.write(f"Demo ID: {demo_id}\n")
+                f.write(f"Phase ID: {phase_idx}\n")
+                f.write(f"Moving Object: {moving_obj.name} ({moving_obj_type.name})\n")
+                
+                if motion_phase_info:
+                    f.write(f"Motion Phase Frames: {motion_phase_info['start_frame']} to {motion_phase_info['end_frame']}\n")
+                    f.write(f"Phase Duration: {motion_phase_info['end_frame'] - motion_phase_info['start_frame'] + 1} frames\n")
+                f.write("\n")
+                
+                f.write("Trajectory Details:\n")
+                f.write("-------------------\n")
+                f.write(f"Start Position: [{world_trajectory[0, 0]:.3f}, {world_trajectory[0, 1]:.3f}, {world_trajectory[0, 2]:.3f}]\n")
+                f.write(f"End Position:   [{world_trajectory[-1, 0]:.3f}, {world_trajectory[-1, 1]:.3f}, {world_trajectory[-1, 2]:.3f}]\n")
+                f.write(f"Trajectory Length: {len(world_trajectory)} time steps\n")
+                if motion_phase_info:
+                    f.write(f"Time Range: frames {start_frame} to {end_frame}\n")
+                f.write("\n")
+                
+                f.write("Static Objects in Scene:\n")
+                f.write("------------------------\n")
+                for static_obj in static_objects:
+                    static_pos = states[0].get(static_obj, CFG.trans_feat_name)
+                    if static_pos is not None and len(static_pos) >= 3:
+                        f.write(f"{static_obj.name} ({static_obj.type.name}): [{static_pos[0]:.3f}, {static_pos[1]:.3f}, {static_pos[2]:.3f}]\n")
+                
+                f.write("\nVLM Identification Guide:\n")
+                f.write("-------------------------\n")
+                f.write("- Green circle (o) marks where the motion starts\n")
+                f.write("- Red square (s) marks where the motion ends\n")
+                f.write("- Diamond markers (D) show static object positions (excluding wrist/finger/gripper)\n")
+                f.write("- Object names and types are labeled above each static object\n")
+                f.write("- Only relevant scene objects are shown for clear VLM identification\n")
+        
+        print(f"\n=== Individual VLM trajectory visualizations complete ===")
+        print(f"Output directory: {vlm_output_dir}")
 
     def _extract_relative_pose_data(self, ground_atom_dataset: List[GroundAtomTrajectory], all_objs_types: List[Type], gripper_type: Type, in_contact_pred: Predicate, in_origin_pred: Predicate, trajectory_motion_phases: Dict[int, List[Dict]] = None, trajectory_all_objects: Dict[int, List[Object]] = None, gripper_obj: Object = None, contact_lost_periods: Dict[int, List[Tuple[int, int]]] = None) -> Tuple[Dict[Tuple[Predicate, Type, Type, str], List[np.ndarray]], List[List[Object]], Dict[Type, List[List[np.ndarray]]], List[State], List[Type], List[GroundAtomTrajectory]]:
         relative_pose_gripper_obj_dataset_dict = defaultdict(list) # Maps (atom_pred, type1, type2) -> List[rel_pose]
