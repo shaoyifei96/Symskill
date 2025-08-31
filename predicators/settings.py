@@ -120,7 +120,7 @@ class GlobalSettings:
     # robo_kitchen_task = "CookCheeseAndTomatoes" # New task
 
     # learning from compostie tassk
-    robo_kitchen_task = "ArrangeVegetables"
+    # robo_kitchen_task = "ArrangeVegetables"
     # robo_kitchen_task = "PreSoakPan"
 
     # hardware tasks    
@@ -129,7 +129,8 @@ class GlobalSettings:
     # robo_kitchen_task = "MocapPnPBanana"
     # robo_kitchen_task = "MocapOpenLidPourWater"  # New task combining both actions
     # robo_kitchen_task = "MocapOpenLidPnPBanana"  # New task combining both actions
-    robo_kitchen_task = "MocapMulti"  # New task combining both actions
+    # robo_kitchen_task = "MocapMulti"  # New task combining both actions
+    robo_kitchen_task = "MocapMultiVision"  # New task combining both actions
     
     # robo_kitchen_task = "MocapTest"
 
@@ -159,7 +160,7 @@ class GlobalSettings:
 
 
     composite_tasks = set(["CookCheeseAndTomatoes", "StoreFruit", "StoreFruitFull", "MocapOpenLidPourWater", "MocapOpenLidPnPBanana", "MocapMulti"])
-    mocap_tasks = set(["MocapOpenLid", "MocapPourWater", "MocapTest", "MocapOpenLidPourWater", "MocapPnPBanana", "MocapOpenLidPnPBanana", "MocapMulti"])
+    mocap_tasks = set(["MocapOpenLid", "MocapPourWater", "MocapTest", "MocapOpenLidPourWater", "MocapPnPBanana", "MocapOpenLidPnPBanana", "MocapMulti", "MocapMultiVision"])
     # tasks that won't work with current approach
     # robo_kitchen_task = "TurnOnMicrowave" # this is not working, nothing is in motion in the dataset button just clicks
     # robo_kitchen_viz_debug = False # i think the use_gui flag covers this
@@ -169,7 +170,9 @@ class GlobalSettings:
                          "MocapTest": "/home/yifei/Documents/task_planning_2/real_data/mocap_test/",
                          "MocapPnPBanana": "/home/figueroa-lab-12n/Documents/task_planning/scripts/banana_in_pod/",
                          "MocapMulti": "/home/figueroa-lab-12n/Documents/task_planning/scripts/cooking_multi/",
-                         "MocapOpenLidPourWater": "/home/yifei/Documents/task_planning_2/real_data/openlid_pour_water/",}
+                         "MocapOpenLidPourWater": "/home/yifei/Documents/task_planning_2/real_data/openlid_pour_water/",
+                         "MocapMultiVision": "/home/yifei/Documents/task_planning_2/real_data/cooking_multi_video/"}
+    
     if robo_kitchen_task == "PnPCabToCounterTomato" or robo_kitchen_task in mocap_tasks:
         robo_kitchen_user_demo = True
     else:
@@ -634,6 +637,7 @@ class GlobalSettings:
     vlm_include_cropped_images = False
     use_hardcoded_vlm_atom_proposals = False
     vlm_double_check_output = False
+    vlm_use_video_images = True  # If True, use images from data1 folder for reference object selection
 
     # parameters for the vlm_open_loop planning approach
     vlm_open_loop_use_training_demos = False

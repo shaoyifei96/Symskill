@@ -480,13 +480,14 @@ class _DynamicRepositionClassifier(_BinaryClassifier):
 ################################################################################
 
 
-def _analyze_trajectory_with_vlm(image_data: bytes, available_objects: List[str]) -> Optional[str]:
+def _analyze_trajectory_with_vlm(image_data: bytes, available_objects: List[str], is_jpeg: bool = False) -> Optional[str]:
     """
     Analyze trajectory image using VLM to identify the reference object.
     
     Args:
         image_data: Binary image data
         available_objects: List of available object type names in the scene
+        is_jpeg: If True, treat image as JPEG format, otherwise PNG
         
     Returns:
         Predicted reference object type name, or None if VLM is not available or fails
@@ -506,19 +507,29 @@ def _analyze_trajectory_with_vlm(image_data: bytes, available_objects: List[str]
         for obj_name in available_objects:
             # Map object names to enum values
             enum_key = obj_name.upper().replace(' ', '_')
-            available_enum_items[enum_key] = obj_name
+
+            available_enum_items[enum_key] = "The reference object is a " + obj_name + "."
             
+        print(available_enum_items)
         # Create dynamic enum class
         AvailableObjects = enum.Enum('AvailableObjects', available_enum_items)
+        
+        # Determine MIME type based on image format
+        mime_type = 'image/jpeg' if is_jpeg else 'image/png'
+        
+        # Adjust prompt based on image type
+        if is_jpeg:
+            prompt_text = 'The sequence of images are arranged by time. In the process, the gripper is holding onto an object while moving towards another object. Which object is the moving object most likely moving towards? '
+        else:
+            prompt_text = 'Which object is the moving object most likely interacting with or moving towards in this trajectory visualization? Look at the trajectory path (red line) and identify the target object.'
         
         response = client.models.generate_content(
             model='gemini-2.5-pro',
             contents=[
                 {
                     'parts': [
-                        {'text': 'Which object is the moving object most likely interacting with or moving towards in this trajectory visualization? Look at the trajectory path (red line) and identify the target object.'},
-                        types.Part.from_bytes(data=image_data, mime_type='image/png'),
-                    ]
+                        {'text': prompt_text}
+                    ] + [types.Part.from_bytes(data=img_data, mime_type=mime_type) for img_data in image_data]
                 }
             ],
             config={
@@ -2763,7 +2774,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         relative_pose_gripper_obj_dataset_dict, traj_all_objs_all, contact_period_obj_obj_rel_trajs, contact_lost_period_rel_pose, ground_atom_dataset = self._extract_relative_pose_data(ground_atom_dataset, all_objs_types, gripper_type, in_contact_pred, in_origin_pred, trajectory_motion_phases, trajectory_all_objects, gripper_obj, contact_lost_periods)            
         
         # Use VLM to select reference objects instead of the default method
-        best_reference_per_motion = self._select_reference_object_vlm(contact_period_obj_obj_rel_trajs, trajectory_all_objects, ground_atom_dataset, trajectory_motion_phases)
+        best_reference_per_motion = self._select_reference_object_vlm(contact_period_obj_obj_rel_trajs, trajectory_all_objects, ground_atom_dataset, trajectory_motion_phases, CFG.vlm_use_video_images)
         
         print(f"VLM found reference frames for {len(best_reference_per_motion)} motions")
 
@@ -3449,11 +3460,49 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 print(f"    Motion {motion_key}: {obj_motion['moving_obj_type'].name}, No valid reference object found (all errors inf)")
         return best_reference_per_motion
 
+    def _load_image_data(self, motion_key: Tuple[int, int], motion_phase_info: Optional[Dict] = None) -> Optional[List[bytes]]:
+        """
+        Load images from the data folder based on motion timing.
+        
+        Args:
+            motion_key: (demo_id, phase_idx) tuple
+            motion_phase_info: Optional motion phase information with timing
+            
+        Returns:
+            List of image data as bytes, or None if image loading failed
+        """
+        images_path = "/home/yifei/Documents/task_planning_2/real_data/cooking_multi_video/"
+        path_addon = "data"+str(motion_key[0])+"/"
+        images_path = os.path.join(images_path, path_addon)
+            
+        start_frame = int(motion_phase_info['start_frame'])
+        end_frame = int(motion_phase_info['end_frame'])
+        
+        image_data_list = []
+        # Select 3 evenly spaced indices using linspace
+        frame_indices = np.linspace(start_frame, end_frame, 3, dtype=int).tolist()
+        for frame_idx in frame_indices:
+            # Find the specific image file that starts with image_{frame_idx}
+            matching_files = [f for f in os.listdir(images_path) if f.startswith(f'image_{frame_idx:06d}') and f.endswith('.jpg')]
+            assert len(matching_files) == 1, f"Expected exactly one image file starting with 'image_{frame_idx}', found {len(matching_files)}: {matching_files}"
+            selected_image = matching_files[0]
+            
+            image_path = os.path.join(images_path, selected_image)
+            
+            print(f"  Using image: {selected_image} (index {frame_idx})")
+            
+            # Load image as bytes
+            with open(image_path, 'rb') as f:
+                image_data_list.append(f.read())
+        
+        return image_data_list
+
     def _select_reference_object_vlm(self, 
                                    contact_period_obj_obj_rel_trajs: Dict[Tuple[int, int], Dict[str, any]],
                                    trajectory_all_objects: Dict[int, List[Object]] = None,
                                    ground_atom_dataset: List[GroundAtomTrajectory] = None,
-                                   trajectory_motion_phases: Dict[int, List[Dict]] = None) -> Dict[Tuple[int, int], Type]:
+                                   trajectory_motion_phases: Dict[int, List[Dict]] = None,
+                                   use_recorded_images: bool = False) -> Dict[Tuple[int, int], Type]:
         """
         Use VLM to analyze trajectory visualizations and select reference objects for each motion.
         
@@ -3466,11 +3515,16 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             trajectory_all_objects: Dict mapping demo_id to list of objects in that trajectory
             ground_atom_dataset: List of ground atom trajectories for accessing states
             trajectory_motion_phases: Dict mapping demo_id to motion phase information
+            use_recorded_images: If True, use images from data1 folder instead of generated trajectory images
             
         Returns:
             Dict mapping (demo_id, motion_idx) -> reference_obj_type, same structure as best_reference_per_motion
         """
         print(f"\n=== VLM-based Reference Object Selection ===")
+        if use_recorded_images:
+            print("Using images from data1 folder for VLM analysis")
+        else:
+            print("Using generated trajectory visualizations for VLM analysis")
         
         best_reference_per_motion = {}
         
@@ -3490,13 +3544,6 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             if 'gripper' not in obj_type.name.lower():
                 default_ref_obj_type = obj_type
                 break
-        
-        if not VLM_AVAILABLE:
-            print("VLM not available, using default reference object selection")
-            for motion_key in contact_period_obj_obj_rel_trajs.keys():
-                best_reference_per_motion[motion_key] = default_ref_obj_type
-            return best_reference_per_motion
-        
         # Process each motion key individually
         for motion_key, motion_data in contact_period_obj_obj_rel_trajs.items():
             demo_id, phase_idx = motion_key
@@ -3538,26 +3585,31 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 best_reference_per_motion[motion_key] = default_ref_obj_type
                 continue
             
-            # Create trajectory visualization in memory
-            image_data = self._create_trajectory_image(
-                motion_key, motion_data, moving_obj, states, motion_phase_info
-            )
+            # Get image data - either from data1 folder or create trajectory visualization
+            if use_recorded_images:
+                image_data = self._load_image_data(motion_key, motion_phase_info)
+            else:
+                image_data = self._create_trajectory_image(
+                    motion_key, motion_data, moving_obj, states, motion_phase_info
+                )
             
             if image_data is None:
-                print(f"  Warning: Failed to create trajectory image")
+                print(f"  Warning: Failed to get image data")
                 best_reference_per_motion[motion_key] = default_ref_obj_type
                 continue
             
             # Get available object types in the scene (excluding moving object and gripper-related)
             available_objects = []
-            excluded_keywords = ['wrist', 'finger', 'gripper']
+            available_objects_objects = []
+            excluded_keywords = ['wrist', 'finger', 'gripper', 'thing']
             for obj in states[0]:
                 if obj != moving_obj:
                     obj_name_lower = obj.name.lower()
                     obj_type_lower = obj.type.name.lower()
                     if not any(keyword in obj_name_lower or keyword in obj_type_lower for keyword in excluded_keywords):
-                        if obj.type.name not in available_objects:
-                            available_objects.append(obj.type.name)
+                        if obj.name not in available_objects:
+                            available_objects.append(obj.name)
+                            available_objects_objects.append(obj)
             
             if not available_objects:
                 print(f"  Warning: No available reference objects found")
@@ -3565,21 +3617,25 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 continue
             
             # Use VLM to analyze the trajectory
-            predicted_ref_obj_name = _analyze_trajectory_with_vlm(image_data, available_objects)
+            predicted_ref_obj_name = _analyze_trajectory_with_vlm(image_data, available_objects, is_jpeg=use_recorded_images)
             
             if predicted_ref_obj_name:
                 # Find the corresponding Type object
+                # Parse the predicted reference object name to extract the actual object name
+                # VLM might return something like "MICROWAVE.The reference object is a microwave."
+                # We want to extract just "microwave" from this
+                parsed_name = predicted_ref_obj_name.split(' ')[-1].rstrip('.')
                 predicted_ref_obj_type = None
-                for obj_type in all_objs_types:
-                    if obj_type.name == predicted_ref_obj_name:
-                        predicted_ref_obj_type = obj_type
+                for obj in available_objects_objects:
+                    if obj.name == parsed_name:
+                        predicted_ref_obj_type = obj.type
                         break
                 
                 if predicted_ref_obj_type:
                     best_reference_per_motion[motion_key] = predicted_ref_obj_type
-                    print(f"  VLM predicted reference object: {predicted_ref_obj_name}")
+                    print(f"  VLM predicted reference object: {parsed_name}")
                 else:
-                    print(f"\033[91m  Warning: VLM predicted '{predicted_ref_obj_name}' but type not found, using default\033[0m")
+                    print(f"\033[91m  Warning: VLM predicted '{parsed_name}' but type not found, using default\033[0m")
                     best_reference_per_motion[motion_key] = default_ref_obj_type
             else:
                 print(f"\033[91m  Warning: VLM analysis failed, using default reference object\033[0m")
