@@ -32,6 +32,7 @@ from numpy.linalg import inv, norm, det, LinAlgError
 try:
     from google import genai
     from google.genai import types
+    import time
     import enum
     VLM_AVAILABLE = True
 except ImportError:
@@ -500,6 +501,7 @@ def _analyze_trajectory_with_vlm(image_data: bytes, available_objects: List[str]
         if not api_key:
             return None
             
+        #wait for 3 seconds
         client = genai.Client(api_key=api_key)
         
         # Create dynamic enum based on available objects
@@ -518,10 +520,7 @@ def _analyze_trajectory_with_vlm(image_data: bytes, available_objects: List[str]
         mime_type = 'image/jpeg' if is_jpeg else 'image/png'
         
         # Adjust prompt based on image type
-        if is_jpeg:
-            prompt_text = 'The sequence of images are arranged by time. In the process, the gripper is holding onto an object while moving towards another object. Which object is the moving object most likely moving towards? '
-        else:
-            prompt_text = 'Which object is the moving object most likely interacting with or moving towards in this trajectory visualization? Look at the trajectory path (red line) and identify the target object.'
+        prompt_text = 'The sequence of images are arranged by time. In the process, the gripper is holding onto an object while moving towards another object. In the scene, there is a dishrack on the left, a black pan in the middle, and one or two white plates on the right. Which object is the held object most likely moving towards? Output in the format of: The reference object is a <object_name>.'
         
         response = client.models.generate_content(
             model='gemini-2.5-pro',
@@ -538,6 +537,8 @@ def _analyze_trajectory_with_vlm(image_data: bytes, available_objects: List[str]
             },
         )
         
+        time.sleep(0.5) # free tier only allows 2 requests per minute
+        # activate on gimini studio
         return response.text.strip()
         
     except Exception as e:
@@ -3460,6 +3461,76 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 print(f"    Motion {motion_key}: {obj_motion['moving_obj_type'].name}, No valid reference object found (all errors inf)")
         return best_reference_per_motion
 
+    def _get_ref_obj_file_path(self, motion_key: Tuple[int, int]) -> str:
+        """
+        Get the file path for saving/loading predicted reference object type.
+        
+        Args:
+            motion_key: (demo_id, phase_idx) tuple
+            
+        Returns:
+            File path for the reference object type file
+        """
+        demo_id, phase_idx = motion_key
+        images_path = "/home/yifei/Documents/task_planning_2/real_data/cooking_multi_video/"
+        path_addon = "data"+str(demo_id)+"/"
+        images_path = os.path.join(images_path, path_addon)
+        
+        # Create filename: ref_obj_type_demo{demo_id}_phase{phase_idx}.txt
+        filename = f"ref_obj_type_demo{demo_id}_phase{phase_idx}.txt"
+        return os.path.join(images_path, filename)
+    
+    def _save_predicted_ref_obj_type(self, motion_key: Tuple[int, int], ref_obj_type: Type) -> None:
+        """
+        Save the predicted reference object type to a file.
+        
+        Args:
+            motion_key: (demo_id, phase_idx) tuple
+            ref_obj_type: The predicted reference object type
+        """
+        file_path = self._get_ref_obj_file_path(motion_key)
+        
+        # Ensure the directory exists
+        os.makedirs(os.path.dirname(file_path), exist_ok=True)
+        
+        # Save the object type name
+        with open(file_path, 'w') as f:
+            f.write(ref_obj_type.name)
+        
+        print(f"  Saved predicted reference object type '{ref_obj_type.name}' to {file_path}")
+    
+    def _load_predicted_ref_obj_type(self, motion_key: Tuple[int, int], all_objs_types: List[Type]) -> Optional[Type]:
+        """
+        Load the predicted reference object type from a file if it exists.
+        
+        Args:
+            motion_key: (demo_id, phase_idx) tuple
+            all_objs_types: List of all available object types
+            
+        Returns:
+            The loaded reference object type, or None if file doesn't exist or type not found
+        """
+        file_path = self._get_ref_obj_file_path(motion_key)
+        
+        if not os.path.exists(file_path):
+            return None
+        
+        try:
+            with open(file_path, 'r') as f:
+                ref_obj_type_name = f.read().strip()
+            
+            # Find the corresponding Type object
+            for obj_type in all_objs_types:
+                if obj_type.name == ref_obj_type_name:
+                    print(f"  Loaded existing reference object type '{ref_obj_type_name}' from {file_path}")
+                    return obj_type
+            
+            print(f"  Warning: Saved reference object type '{ref_obj_type_name}' not found in available types")
+            return None
+        except Exception as e:
+            print(f"  Warning: Failed to load reference object type from {file_path}: {e}")
+            return None
+
     def _load_image_data(self, motion_key: Tuple[int, int], motion_phase_info: Optional[Dict] = None) -> Optional[List[bytes]]:
         """
         Load images from the data folder based on motion timing.
@@ -3480,7 +3551,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         
         image_data_list = []
         # Select 3 evenly spaced indices using linspace
-        frame_indices = np.linspace(start_frame, end_frame, 3, dtype=int).tolist()
+        frame_indices = np.linspace(start_frame, end_frame, 4, dtype=int).tolist()
         for frame_idx in frame_indices:
             # Find the specific image file that starts with image_{frame_idx}
             matching_files = [f for f in os.listdir(images_path) if f.startswith(f'image_{frame_idx:06d}') and f.endswith('.jpg')]
@@ -3616,7 +3687,17 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 best_reference_per_motion[motion_key] = default_ref_obj_type
                 continue
             
+            # Check if we already have a saved reference object type for this motion
+            existing_ref_obj_type = self._load_predicted_ref_obj_type(motion_key, all_objs_types)
+            
+            if existing_ref_obj_type is not None:
+                # Use the existing saved reference object type
+                best_reference_per_motion[motion_key] = existing_ref_obj_type
+                print(f"  Using existing reference object type: {existing_ref_obj_type.name}")
+                continue
+            
             # Use VLM to analyze the trajectory
+            print(f"  Running VLM analysis (no existing file found)...")
             predicted_ref_obj_name = _analyze_trajectory_with_vlm(image_data, available_objects, is_jpeg=use_recorded_images)
             
             if predicted_ref_obj_name:
@@ -3634,12 +3715,15 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 if predicted_ref_obj_type:
                     best_reference_per_motion[motion_key] = predicted_ref_obj_type
                     print(f"  VLM predicted reference object: {parsed_name}")
+                    # Save the predicted reference object type to file
+                    self._save_predicted_ref_obj_type(motion_key, predicted_ref_obj_type)
                 else:
                     print(f"\033[91m  Warning: VLM predicted '{parsed_name}' but type not found, using default\033[0m")
                     best_reference_per_motion[motion_key] = default_ref_obj_type
             else:
                 print(f"\033[91m  Warning: VLM analysis failed, using default reference object\033[0m")
                 best_reference_per_motion[motion_key] = default_ref_obj_type
+                # Save the default reference object type to file
                     
         
         print(f"\nVLM reference object selection complete for {len(best_reference_per_motion)} motions")
