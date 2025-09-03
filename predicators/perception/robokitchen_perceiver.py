@@ -141,35 +141,72 @@ class RoboKitchenPerceiver(BasePerceiver):
         # Create and return the relative pose predicate atom
         return GroundAtom(proper_goal_pred, [type1_obj_final, type2_obj_final])
 
-    def _construct_goal_from_stored_atoms(self, state, goal_desc: str) -> Set[GroundAtom]:
-        """Construct goal from stored common atoms using object names to find objects in current state."""
-        stored_atoms = CFG.dict_gt_goal_predicate_to_dummy_goal_predicates[goal_desc]
-        goal = set()
+    def _create_ground_atom_from_atom_key(self, state, atom_key: tuple) -> GroundAtom:
+        """Create a ground atom from an atom_key.
         
-        # Get predicate name to predicate mapping
-        pred_name_to_pred = RoboKitchenEnv.create_predicates()
+        Args:
+            state: Current state containing objects
+            atom_key: Tuple of (predicate_name, (obj_names...), (obj_type_names...))
+            
+        Returns:
+            GroundAtom if successfully created, None otherwise
+        """
+        # atom_key format: (predicate_name, (obj_names...), (obj_type_names...))
+        pred_name, obj_names, obj_type_names = atom_key
         
         # Create a mapping from object name to object in current state
         name_to_obj = {obj.name: obj for obj in state}
         
-        for atom_key in stored_atoms:
-            # atom_key format: (predicate_name, (obj_names...), (obj_type_names...))
-            pred_name, obj_names, obj_type_names = atom_key
+        # Try to find the predicate
+        predicate = None
+        for pred_name_key, type1, type2 in CFG.dict_contact_predicate_to_rel_pose_predicates.keys():
+            if obj_type_names == (type1, type2):
+                predicate = CFG.dict_contact_predicate_to_rel_pose_predicates[pred_name_key, type1, type2]
+                assert len(predicate) == 1, f"Multiple predicates found for {pred_name_key}, {type1}, {type2}"
+                predicate = list(predicate)[0]
+                break
+        
+        if predicate is None:
+            raise NotImplementedError(f"No predicate found for types {obj_type_names}")
+        
+        # Check if this is a fallback entry (empty obj_names tuple)
+        if not obj_names or len(obj_names) == 0:  # Empty tuple means this is a predicate+type only entry
+            # Match by object types only
+            objects_by_type = []
+            found_all_types = True
             
-            # Try to find the predicate
-            # if pred_name in pred_name_to_pred:
-            for pred_name_key, type1, type2 in CFG.dict_contact_predicate_to_rel_pose_predicates.keys():
-                if obj_type_names == (type1, type2):
-                    predicate = CFG.dict_contact_predicate_to_rel_pose_predicates[pred_name_key, type1, type2]
-                    assert len(predicate) == 1, f"Multiple predicates found for {pred_name_key}, {type1}, {type2}"
-                    predicate = list(predicate)[0]
+            for obj_type_name in obj_type_names:
+                # Find objects of this type in the current state
+                matching_objs = [obj for obj in state if obj.type.name == obj_type_name]
+                if matching_objs:
+                    # Use the first object of this type
+                    objects_by_type.append(matching_objs[0])
+                else:
+                    # No objects of this type found
+                    found_all_types = False
                     break
-            else:
-                raise NotImplementedError(f"Unrecognized goal: {goal_desc} (This goal is what the algorithm sees online to convert each goal description to something it understands as relative pose predicates it met during training. e.g. InContainer(tomato, plate) -> RelPose(tomato, plate). Since no goal predicate is specified during training, so we need to save a goal dict for each goal description)")            
             
-            # Check if this is a fallback entry (empty obj_names tuple)
-            if not obj_names:  # Empty tuple means this is a predicate+type only entry
-                # Match by object types only
+            if found_all_types and len(objects_by_type) == len(obj_type_names):
+                # Create the ground atom using objects matched by type
+                return GroundAtom(predicate, objects_by_type)
+        else:
+            # This is a normal entry with specific object names, try name matching first
+            objects = []
+            found_all_objects = True
+            
+            for obj_name in obj_names:
+                if obj_name in name_to_obj:
+                    objects.append(name_to_obj[obj_name])
+                else:
+                    # Object not found by name, skip this atom
+                    found_all_objects = False
+                    break
+            
+            if found_all_objects and len(objects) == len(obj_names):
+                # Create the ground atom using objects matched by name
+                return GroundAtom(predicate, objects)
+            else:
+                # Fallback: try to match by object types only
                 objects_by_type = []
                 found_all_types = True
                 
@@ -186,46 +223,151 @@ class RoboKitchenPerceiver(BasePerceiver):
                 
                 if found_all_types and len(objects_by_type) == len(obj_type_names):
                     # Create the ground atom using objects matched by type
-                    goal_atom = GroundAtom(predicate, objects_by_type)
-                    goal.add(goal_atom)
-            else:
-                # This is a normal entry with specific object names, try name matching first
-                objects = []
-                found_all_objects = True
+                    return GroundAtom(predicate, objects_by_type)
+        
+        # Return None if no ground atom could be created
+        return None
+
+    def _construct_goal_from_stored_atoms(self, state, goal_desc: str) -> Set[GroundAtom]:
+        """Construct goal from stored common atoms using object names to find objects in current state."""
+        stored_atoms = CFG.dict_gt_goal_predicate_to_dummy_goal_predicates[goal_desc]
+        goal = set()
+        
+        for atom_key in stored_atoms:
+            goal_atom = self._create_ground_atom_from_atom_key(state, atom_key)
+            if goal_atom is not None:
+                goal.add(goal_atom)                  
+        return goal
+
+   
+    def _construct_goal_from_user_inputs(self, state) -> Set[GroundAtom]:
+        """Construct goal from interactive keyboard input.
+        
+        This function allows the user to interactively select predicates and objects
+        to create goal atoms. It presents choices for available predicates and objects,
+        and automatically determines object types.
+        
+        Args:
+            state: Current state containing objects
+            
+        Returns:
+            Set of GroundAtom objects created from user input
+        """
+        goal = set()
+        
+        # Get all available predicates from the dictionary values
+        all_predicates = set()
+        for predicate_set in CFG.dict_contact_predicate_to_rel_pose_predicates.values():
+            all_predicates.update(predicate_set)
+        
+        if not all_predicates:
+            print("No predicates available in dict_contact_predicate_to_rel_pose_predicates")
+            return goal
+        
+        # Convert to list for indexing
+        predicate_list = list(all_predicates)
+        predicate_list.sort(key=lambda p: p.name)  # Sort by name for consistency
+        
+        # Get all objects from state
+        objects_list = list(state)
+        objects_list.sort(key=lambda o: o.name)  # Sort by name for consistency
+        
+        print("\n=== Interactive Goal Construction ===")
+        print("You can create multiple goal atoms. Press 'q' to quit at any time.\n")
+        
+        while True:
+            print("\n--- Creating a new goal atom ---")
+            
+            # Step 1: Select predicate
+            print("\nAvailable predicates:")
+            for i, pred in enumerate(predicate_list):
+                print(f"{i+1}. {pred.name} ({pred.types[0].name}, {pred.types[1].name})")
+            
+            try:
+                pred_choice = input("\nSelect predicate (number) or 'q' to quit: ").strip()
+                if pred_choice.lower() == 'q':
+                    break
+                    
+                pred_idx = int(pred_choice) - 1
+                if pred_idx < 0 or pred_idx >= len(predicate_list):
+                    print("Invalid selection. Please try again.")
+                    continue
+                    
+                selected_predicate = predicate_list[pred_idx]
+                print(f"Selected predicate: {selected_predicate.name} ({selected_predicate.types[0].name}, {selected_predicate.types[1].name})")
                 
-                for obj_name in obj_names:
-                    if obj_name in name_to_obj:
-                        objects.append(name_to_obj[obj_name])
-                    else:
-                        # Object not found by name, skip this atom
-                        found_all_objects = False
+            except (ValueError, KeyboardInterrupt):
+                print("Invalid input or interrupted. Exiting...")
+                break
+            
+            # Step 2: Select objects for each type required by the predicate
+            selected_objects = []
+            
+            for i, required_type in enumerate(selected_predicate.types):
+                print(f"\nSelecting object for type {required_type.name} (position {i+1}):")
+                
+                # Filter objects by type
+                compatible_objects = [obj for obj in objects_list if obj.type == required_type]
+                
+                if not compatible_objects:
+                    print(f"No objects of type {required_type.name} found in current state!")
+                    break
+                
+                # Show compatible objects
+                for j, obj in enumerate(compatible_objects):
+                    print(f"{j+1}. {obj.name} ({obj.type.name})")
+                
+                try:
+                    obj_choice = input(f"\nSelect object for {required_type.name} (number) or 'q' to quit: ").strip()
+                    if obj_choice.lower() == 'q':
+                        return goal
+                        
+                    obj_idx = int(obj_choice) - 1
+                    if obj_idx < 0 or obj_idx >= len(compatible_objects):
+                        print("Invalid selection. Please try again.")
                         break
-                
-                if found_all_objects and len(objects) == len(obj_names):
-                    # Create the ground atom using objects matched by name
-                    goal_atom = GroundAtom(predicate, objects)
-                    goal.add(goal_atom)
-                else:
-                    # Fallback: try to match by object types only
-                    objects_by_type = []
-                    found_all_types = True
+                        
+                    selected_objects.append(compatible_objects[obj_idx])
+                    print(f"Selected: {compatible_objects[obj_idx].name}")
                     
-                    for obj_type_name in obj_type_names:
-                        # Find objects of this type in the current state
-                        matching_objs = [obj for obj in state if obj.type.name == obj_type_name]
-                        if matching_objs:
-                            # Use the first object of this type
-                            objects_by_type.append(matching_objs[0])
-                        else:
-                            # No objects of this type found
-                            found_all_types = False
-                            break
+                except (ValueError, KeyboardInterrupt):
+                    print("Invalid input or interrupted. Exiting...")
+                    return goal
+            
+            # Step 3: Create the goal atom if we have all required objects
+            if len(selected_objects) == len(selected_predicate.types):
+                try:
+                    # Create atom_key using selected objects' names and types
+                    obj_names = tuple(obj.name for obj in selected_objects)
+                    obj_type_names = tuple(obj.type.name for obj in selected_objects)
+                    atom_key = (selected_predicate.name, obj_names, obj_type_names)
                     
-                    if found_all_types and len(objects_by_type) == len(obj_type_names):
-                        # Create the ground atom using objects matched by type
-                        goal_atom = GroundAtom(predicate, objects_by_type)
+                    # Use the existing function for consistency
+                    goal_atom = self._create_ground_atom_from_atom_key(state, atom_key)
+                    
+                    if goal_atom is not None:
                         goal.add(goal_atom)
-                    
+                        print(f"\n✓ Created goal atom: {goal_atom}")
+                        
+                        # Ask if user wants to add more atoms
+                        more_choice = input("\nAdd another goal atom? (y/n): ").strip().lower()
+                        if more_choice != 'y' and more_choice != 'yes':
+                            break
+                    else:
+                        print("Failed to create goal atom - no matching predicate found.")
+                        
+                except Exception as e:
+                    print(f"Error creating goal atom: {e}")
+            else:
+                print("Failed to select all required objects. Skipping this atom.")
+        
+        print(f"\n=== Final Goal ===")
+        if goal:
+            for atom in goal:
+                print(f"  {atom}")
+        else:
+            print("  No goal atoms created.")
+            
         return goal
 
     def _convert_goal_for_clustering_reprocess(self, state, goal: Set[GroundAtom]) -> Set[GroundAtom]:
@@ -379,11 +521,12 @@ class RoboKitchenPerceiver(BasePerceiver):
         #         GroundAtom(InContainer, [tomato, plate]),
         #     }
         # else:
-        if goal_desc in CFG.dict_gt_goal_predicate_to_dummy_goal_predicates:
-            # Use the stored common atoms to construct the goal
-            goal = self._construct_goal_from_stored_atoms(state, goal_desc)
-        else:
-            raise NotImplementedError(f"Unrecognized goal: {goal_desc} (This goal is what the algorithm sees online to convert each goal description to something it understands as relative pose predicates it met during training. e.g. InContainer(tomato, plate) -> RelPose(tomato, plate). Since no goal predicate is specified during training, so we need to save a goal dict for each goal description)")
+        goal = self._construct_goal_from_user_inputs(state)
+        # if goal_desc in CFG.dict_gt_goal_predicate_to_dummy_goal_predicates:
+        #     # Use the stored common atoms to construct the goal
+        #     goal = self._construct_goal_from_stored_atoms(state, goal_desc)
+        # else:
+        #     raise NotImplementedError(f"Unrecognized goal: {goal_desc} (This goal is what the algorithm sees online to convert each goal description to something it understands as relative pose predicates it met during training. e.g. InContainer(tomato, plate) -> RelPose(tomato, plate). Since no goal predicate is specified during training, so we need to save a goal dict for each goal description)")
 
         # Convert task.goal to predicate goal if using clustering reprocess
         goal = self._convert_goal_for_clustering_reprocess(state, goal)
