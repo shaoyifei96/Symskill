@@ -3253,6 +3253,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 if i in contact_lost_periods:
                     for idx, (start_period, end_period) in enumerate(contact_lost_periods[i]):
                         if idx == 0: continue
+                        idx = idx - 1
                         # Find which object was in motion before this contact lost period
                         moving_obj = self._find_object_in_motion_before_period(trajectory_motion_phases[i], start_period)
                         goal_type = f"{CFG.robo_kitchen_task}-subgoal"
