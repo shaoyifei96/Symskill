@@ -667,6 +667,11 @@ class RoboKitchenEnv(BaseEnv):
         # warnings.warn("Resetting environment to initial state from seed not implemented for robosuite kitchen")
         self._env = "DummyEnv"
         self._env_raw = None
+        # Check if demo-based reset is enabled
+        if CFG.demo_reset_enabled:
+            demo_observation = self._reset_from_demo()
+            current_state = demo_observation
+        else:
         current_state = self._get_current_observation(task_name)
         return {"state_info": current_state, "obs_images": [], "contact_set": set()}
         #     complex_config = True  # NOTE: this should be removed. only for mac
@@ -1129,6 +1134,35 @@ class RoboKitchenEnv(BaseEnv):
         warnings.warn("Resetting environment to initial state from not implemented, just reset the env")
         self._current_observation = self._reset_initial_state(seed=task_idx, train_or_test=train_or_test, task_name=task_name)
         return self._copy_observation(self._current_observation)
+
+    def _reset_from_demo(self) -> Optional[Observation]:
+        """Reset environment from demo data at specified timestep.
+        
+        Returns:
+            Observation from demo data, or None if reset fails
+        """
+        from predicators.demo_utils import load_demo_dataset, get_demo_state_at_timestep, validate_demo_reset_config
+        
+        # Validate configuration
+        if not validate_demo_reset_config():
+            return None
+            
+        # Load demo dataset
+        demo_dataset = load_demo_dataset()
+        if demo_dataset is None:
+            return None
+            
+        # Get state from demo at specified timestep
+        demo_state = get_demo_state_at_timestep(
+            demo_dataset, 
+            CFG.demo_reset_task_idx, 
+            CFG.demo_reset_timestep
+        )
+        
+        if demo_state is None:
+            return None
+            
+        return demo_state
 
     def render(self, action: Optional[Action] = None, caption: Optional[str] = None) -> Video:  # this renders the robot observation, not the viewer??
         """Render current state."""
@@ -1930,6 +1964,9 @@ class RoboKitchenEnv(BaseEnv):
 
     @classmethod
     def state_info_to_state(cls, state_info: Dict[str, Any], contact_set: set[Tuple[Object, Object]] = None) -> State:
+        if isinstance(state_info, State):
+            return state_info
+        
         if hasattr(CFG, "load_approach") and CFG.load_approach:
             cls.door_open_thresh = cls.online_door_open_thresh  # rad
             cls.door_close_thresh = cls.online_door_close_thresh  # rad

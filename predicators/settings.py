@@ -53,8 +53,8 @@ class GlobalSettings:
                                          "MocapPnPBanana": 0.01,
                                          "MocapMulti": 0.01,
                                          "MocapOpenLidPourWater": 0.01}  # under this, use contact clustering
-    clustering_inv_cov_reg_lin = 4.0 # gripper object
-    clustering_inv_cov_reg_lin_low = 5.0 #object object
+    clustering_inv_cov_reg_lin = 2.0 # gripper object
+    clustering_inv_cov_reg_lin_low = 2.0 #object object
     clustering_inv_cov_reg_rot_gripper = 6.0
     clustering_inv_cov_reg_rot_base = 0.5 # base rotation is mostly just the same, so make it more wide
     clustering_inv_cov_reg_rot_low = 5.0  # much lower for obj obj rotation, stove needs much lower, 1e-4 works, not sure about this task!!!!
@@ -65,7 +65,7 @@ class GlobalSettings:
 
     clustering_moving_average_window = 5
     clustering_debug = True
-    enable_meshcat = True
+    enable_meshcat = False
     clustering_se3_trans_weight = 10.0  # 0.05 m # 10 times differnece
     clustering_se3_rot_weight = 1.0 # 30 deg = 0.5236 rad
     clustering_feature_constancy_percentile = 3  # of total number of data points = 13782
@@ -185,6 +185,12 @@ class GlobalSettings:
     make_test_videos = False
     make_failure_videos = True
     loglevel = 30
+    
+    # Demo-based reset settings
+    demo_reset_enabled = True  # Enable resetting from demo data
+    demo_reset_task_idx = 0  # Which demo trajectory to use for reset
+    demo_reset_timestep = 0  # Timestep within demo to start from
+    demo_reset_dataset_path = "/home/yifei/Documents/task_planning_2/generated_datasets/robokitchen__MocapMultiVision__10.pkl"  # Path to dataset file containing demo trajectories
     if enable_meshcat:
         visualizer = MeshcatVisualizer(mode="se3_lpvds")
     else:
