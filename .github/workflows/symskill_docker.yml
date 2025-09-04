@@ -3,7 +3,7 @@ name: Symskill test in custom docker image
 on:
   workflow_dispatch: # Allows manual triggering
   push:
-    branches: [felix_new_tasks, yifei_force_sensing, yifei_base_motion_precond, felix_obstacle_avoidance]
+    branches: [yifei_multitask_learning]
 
 jobs:
   test:
@@ -31,9 +31,23 @@ jobs:
         # commit before felix change
 
       - name: install ds_policy # this is part of the docker, but since code is updated, need to install it again
-        run: | # already installed with pip install -e robocasa    
+        run: | # already installed with pip install -e robocasa          
+          rm -rf /root/ds_policy/ds_policy/se3_lpvds/ && \
+          apt-get update && \
+          apt-get install -y curl && \
+          curl -s https://packagecloud.io/install/repositories/dirk-thomas/vcstool/script.deb.sh | bash && \
+          apt-get update && \
+          apt-get install python3-vcstool  && \  
           cd /root/ds_policy && \
-          git pull 
+          git pull && \
+          git checkout se3_lpvds_decoupled && \
+          cd ds_policy && \
+          vcs import < ../dependency.yaml && \
+          cd se3_lpvds/src && \
+          vcs import < dependency.yaml && \
+          cd lpvds/src && \
+          vcs import < dependency.yaml && \
+          pip install casadi
 
       - name: Install Symskill
         run: |

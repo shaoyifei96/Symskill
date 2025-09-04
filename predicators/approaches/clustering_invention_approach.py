@@ -2672,14 +2672,17 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         
         # logging.info(f"Object type in contact with gripper: {obj_type_contact_with_gripper.name}")
         
-        best_reference_per_moving_obj, _ = self._select_reference_object(contact_period_obj_obj_rel_trajs)
+        # best_reference_per_moving_obj, _ = self._select_reference_object(contact_period_obj_obj_rel_trajs)
         # obj_type_of_reference_best = next(iter(best_reference_per_moving_obj.values()))[0]
-        # if CFG.use_gt_ref_obj_type and CFG.robo_kitchen_task in CFG.gt_ref_obj_type: # mocap tasks are not using gt ref obj type
-        #     obj_type_of_reference_best_text = CFG.gt_ref_obj_type[CFG.robo_kitchen_task]
-        #     for obj_type in all_objs_types:
-        #         if obj_type.name == obj_type_of_reference_best_text:
-        #             obj_type_of_reference_best = obj_type
-        #             break
+        moving_type = next(iter(contact_period_obj_obj_rel_trajs.keys()))
+        best_reference_per_moving_obj = {}
+        if CFG.use_gt_ref_obj_type and CFG.robo_kitchen_task in CFG.gt_ref_obj_type: # mocap tasks are not using gt ref obj type
+            obj_type_of_reference_best_text = CFG.gt_ref_obj_type[CFG.robo_kitchen_task]
+            for obj_type in all_objs_types:
+                if obj_type.name == obj_type_of_reference_best_text:
+                    best_reference_per_moving_obj[moving_type] = obj_type
+                    break
+        assert best_reference_per_moving_obj[moving_type] is not None, f"Reference object type not found in all_objs_types: {all_objs_types}"
         # logging.error(f"Using ground truth reference object type: {obj_type_of_reference_best.name}")
         # assert obj_type_of_reference_best is not None, f"Reference object type not found in all_objs_types: {all_objs_types}"
         # assert obj_type_of_reference_best.name in gt_ref_obj_type, f"GT reference object type not matching correct solution, gt_ref_obj_type: {gt_ref_obj_type}, obj_type_of_reference_best: {obj_type_of_reference_best.name}"
