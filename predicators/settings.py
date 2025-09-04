@@ -40,10 +40,11 @@ class GlobalSettings:
 
     # clustering_invention approach parameters
     predicate_candidates_method = "motion_analysis_contact"  # "low_speed" or "contact_clustering" or "motion_analysis_contact"
-    if predicate_candidates_method == "low_speed": # low speed still needs to run the grammar search, so need goal
-        excluded_predicates = "all"
-    else:
-        excluded_predicates = "all_goal" # "all_goal" will always be used
+    excluded_predicates = None 
+    # if predicate_candidates_method == "low_speed": # low speed still needs to run the grammar search, so need goal
+    #     excluded_predicates = "all"
+    # else:
+    #     excluded_predicates = "all_goal" # "all_goal" will always be used
 
     # low speed is https://arxiv.org/abs/2503.21406, using relative low speed points as candidate predicates
     motion_analysis_lin_vel_rot_vel_threshold = 0.01 # lin vel min thresh, under this, use rot vel
@@ -224,7 +225,7 @@ class GlobalSettings:
     # Note: num_train_tasks will be set dynamically based on robo_kitchen_task
     # This is handled in the get_arg_specific_settings method below
     # num_train_tasks = 10  # setting up later, this no longer used
-    num_test_tasks = 1
+    num_test_tasks = 10
     # Perform online learning for this many cycles or until this many
     # transitions have been collected, whichever happens first.
     num_online_learning_cycles = 10

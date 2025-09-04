@@ -141,7 +141,7 @@ class RoboKitchenGroundTruthNSRTFactory(GroundTruthNSRTFactory):
         preconditions = set()
         maintain_effects = set()
         add_effects = {LiftedAtom(GripperOpen, [left_finger, right_finger])}
-        delete_effects = {LiftedAtom(GripperClosed, [left_finger, right_finger])}
+        delete_effects = {}
         ignore_effects = set()
         option = GripperOpen_option
         option_vars = [left_finger, right_finger]
@@ -369,7 +369,7 @@ class RoboKitchenGroundTruthNSRTFactory(GroundTruthNSRTFactory):
             maintain_effects,
         )
 
-        # nsrts.add(open_gripper_nsrt)
+        nsrts.add(open_gripper_nsrt)
         # # nsrts.add(move_to_and_grab_handle_nsrt)  # open_gripper + move_to_handle + grab_handle
         # nsrts.add(grab_obj_nsrt)
         # nsrts.add(move_to_handle_nsrt)

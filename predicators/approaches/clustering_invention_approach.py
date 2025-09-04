@@ -1259,7 +1259,9 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             
             # Filter and store objects for later use (excluding disallowed types)
             filtered_objects = [obj for obj in all_objects if obj.type.name not in disallowed_type_names]
+            fingers = [obj for obj in all_objects if obj.type.name in ["left_finger_type", "right_finger_type"]]
             trajectory_all_objects[i] = filtered_objects
+            trajectory_all_objects[str(i) + "_fingers"] = fingers
             
             # Calculate velocity for each object INCLUDING gripper
             for t in range(len(traj.states) - 1):
@@ -2772,7 +2774,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         learnt_goal_predicates = self.load_learnt_goals()
         predicates_to_monitor, ground_atom_dataset = self._create_gnd_atom_datasets(dataset, in_contact_pred, in_origin_pred, learnt_goal_predicates)
         all_objs_types, robot_base_obj_type = self._find_common_objects_types(ground_atom_dataset)
-        relative_pose_gripper_obj_dataset_dict, traj_all_objs_all, contact_period_obj_obj_rel_trajs, contact_lost_period_rel_pose, ground_atom_dataset = self._extract_relative_pose_data(ground_atom_dataset, all_objs_types, gripper_type, in_contact_pred, in_origin_pred, trajectory_motion_phases, trajectory_all_objects, gripper_obj, contact_lost_periods)            
+        relative_pose_gripper_obj_dataset_dict, traj_all_objs_all, contact_period_obj_obj_rel_trajs, contact_lost_period_rel_pose, ground_atom_dataset = self._extract_relative_pose_data(ground_atom_dataset, gripper_type, in_contact_pred, trajectory_motion_phases, trajectory_all_objects, gripper_obj, contact_lost_periods)            
         
         # Use VLM to select reference objects instead of the default method
         best_reference_per_motion = self._select_reference_object_vlm(contact_period_obj_obj_rel_trajs, trajectory_all_objects, ground_atom_dataset, trajectory_motion_phases, CFG.vlm_use_video_images)
@@ -2851,13 +2853,14 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 for j, atoms in enumerate(atom_seq):
                     atoms_new = []
                     for atom in atoms:
-                        if "RelCovCluster" in atom.predicate.name:
+                        if "RelCovCluster" in atom.predicate.name or "GripperOpen" in atom.predicate.name:
                             atoms_new.append(atom)
                             continue
                         try:
                             pred = list(CFG.dict_contact_predicate_to_rel_pose_predicates[atom.predicate.name, atom.objects[0].type.name, atom.objects[1].type.name])[0]
                         except KeyError:
-                            pred = list(CFG.dict_contact_predicate_to_rel_pose_predicates[atom.predicate.name, atom.predicate.types[0].name, atom.predicate.types[1].name])[0]
+                            # gripper open predicate or something else that is not in dict
+                            raise ValueError(f"Predicate {atom.predicate.name} not found in dict")
                         grounded_pred = GroundAtom(pred, atom.entities)
                         atoms_new.append(grounded_pred)
                     ground_atom_dataset[i][1][j] = set(atoms_new)
@@ -3865,13 +3868,19 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 plt.close(fig)
             return None
 
-    def _extract_relative_pose_data(self, ground_atom_dataset: List[GroundAtomTrajectory], all_objs_types: List[Type], gripper_type: Type, in_contact_pred: Predicate, in_origin_pred: Predicate, trajectory_motion_phases: Dict[int, List[Dict]] = None, trajectory_all_objects: Dict[int, List[Object]] = None, gripper_obj: Object = None, contact_lost_periods: Dict[int, List[Tuple[int, int]]] = None) -> Tuple[Dict[Tuple[Predicate, Type, Type, str], List[np.ndarray]], List[List[Object]], Dict[Type, List[List[np.ndarray]]], List[State], List[Type], List[GroundAtomTrajectory]]:
+    def _extract_relative_pose_data(self, ground_atom_dataset: List[GroundAtomTrajectory], gripper_type: Type, in_contact_pred: Predicate, trajectory_motion_phases: Dict[int, List[Dict]] = None, trajectory_all_objects: Dict[int, List[Object]] = None, gripper_obj: Object = None, contact_lost_periods: Dict[int, List[Tuple[int, int]]] = None) -> Tuple[Dict[Tuple[Predicate, Type, Type, str], List[np.ndarray]], List[List[Object]], Dict[Type, List[List[np.ndarray]]], List[State], List[Type], List[GroundAtomTrajectory]]:
         relative_pose_gripper_obj_dataset_dict = defaultdict(list) # Maps (atom_pred, type1, type2) -> List[rel_pose]
         contact_period_obj_obj_rel_trajs = {} # Maps (demo_id, phase_idx) -> {'moving_obj_type': Type, 'ref_poses': {ref_obj_type: List[rel_pose]}}
         contact_lost_period_rel_pose = {} # Maps (demo_id, period_idx) -> {'moving_obj_type': Type, 'ref_poses': {ref_obj_type: List[rel_pose]}}
         # goal_reached_states = defaultdict(list)
         object_type_in_contact_with_gripper_longest_duration = []
         traj_all_objs_all = []
+
+        preds_name_to_pred = RoboKitchenEnv.create_predicates()
+        hand_empty_pred = preds_name_to_pred["GripperOpen"]
+        # find left finger and right finger types
+        left_finger_type = hand_empty_pred.types[0]
+        right_finger_type = hand_empty_pred.types[1]
 
         # Use motion analysis data if available, otherwise fall back to original logic
         if trajectory_motion_phases is not None and trajectory_all_objects is not None and gripper_obj is not None and contact_lost_periods is not None:
@@ -3882,9 +3891,15 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 
                 # Get objects from motion analysis
                 traj_all_objs = trajectory_all_objects[i]
+                traj_fingers = trajectory_all_objects[str(i) + "_fingers"]
                 # Keep only one object of each type
                 seen_types = set()
                 ref_objs = [obj for obj in traj_all_objs if obj.type not in seen_types and not seen_types.add(obj.type)]
+                
+                #find left finger and right finger objects
+                left_finger_obj = next(obj for obj in traj_fingers if obj.type == left_finger_type)
+                right_finger_obj = next(obj for obj in traj_fingers if obj.type == right_finger_type)
+
 
                 traj_all_objs_all.append(traj_all_objs)
                 object_type_in_contact_with_gripper_longest_duration.append({})
@@ -3912,7 +3927,10 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                             goal_end_time = len(atom_seq) - 1
                         
                         # logging.debug(f"Marking subgoal from t={start_period} to t={goal_end_time} (next motion at {next_motion_start})")
-                        
+                        for t_goal in range(start_period, end_period + 1):
+                            if t_goal < len(atom_seq):
+                                hand_empty_atom = GroundAtom(hand_empty_pred, [left_finger_obj, right_finger_obj])
+                                ground_atom_dataset[i][1][t_goal].add(hand_empty_atom)
                         for t_goal in range(start_period, goal_end_time + 1):
                             if t_goal < len(atom_seq):
                                 goal_atom = DummyGroundAtom(DummyPredicate(goal_type, [moving_obj.type]), [moving_obj])
@@ -4031,11 +4049,11 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
 
         all_objs_types = [
             o_type for o_type in all_objs_types
-            if "finger" not in o_type.name
-            and "base"   not in o_type.name
+            if "base"   not in o_type.name
             and "wrist"  not in o_type.name
             and "base" not in o_type.name
             and "counter" not in o_type.name
+            and "finger" not in o_type.name
         ]
         logging.info(f"After filtering, {len(all_objs_types)} objects remain") 
         if len(all_objs_types) <= 2:

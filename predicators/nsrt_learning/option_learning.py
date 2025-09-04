@@ -848,12 +848,19 @@ def find_two_objects(op: STRIPSOperator, segment: Segment, var_to_obj: VarToObjS
     for e in op.add_effects: #| op.delete_effects: # check add effects only since delete effects are most of the time lost contact with the gripper
         if e.predicate.name != "InOrigin" and "NOT" not in e.predicate.name:
             effects.add(e)
-    if len(effects) != 1:
-        logging.warning(f"NSRT {op.name} has {len(effects)} effects (expected 1), cannot determine OOI/gripper reliably.")
+    # Filter effects to only those involving gripper
+    gripper_effects = []
+    for effect in effects:
+        effect_vars = list(effect.variables)
+        if effect_vars[0].type.name != "left_finger_type":
+            gripper_effects.append(effect)
+    
+    if len(gripper_effects) != 1:
+        logging.warning(f"NSRT {op.name} has {len(gripper_effects)} gripper effects (expected 1), cannot determine OOI/gripper reliably.")
         return None, None
 
     # 2. Get the Effect Predicate and Variables
-    effect_atom = next(iter(effects))
+    effect_atom = next(iter(gripper_effects))
     effect_vars = list(effect_atom.variables)
 
     if len(effect_vars) != 2:

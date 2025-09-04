@@ -2099,6 +2099,7 @@ class RoboKitchenEnv(BaseEnv):
         distance = np.linalg.norm(left_pos - right_pos)
 
         # If distance is greater than threshold, gripper is open
+        logging.info(f"finger distance: {distance}")
         return distance > cls.gripper_fingers_distance_thresh
 
     @classmethod

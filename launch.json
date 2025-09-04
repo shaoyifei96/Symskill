@@ -33,24 +33,26 @@
             "--seed", "0", 
             "--bilevel_plan_without_sim", "True",
             "--debug", 
-            "--excluded_predicates", "all_goal", 
-            "--option_learner", "ds_policy", 
+            "--option_learner", "ds_policy", //"ds_policy","direct_bc" 
             "--execution_monitor", "expected_atoms_robocasa",
-            "--included_options", "MoveToInitPoseOption"
+            // "--included_options", "RepositionBase_option,MoveToInitPoseOption",
+            "--included_options", "GripperOpen_option",
+            "--included_predicates", "GripperOpen",
             "--load_approach"
-        ]
+        ],
         // change segmenter to atom
         // "args": ["--env", "robo_kitchen", "--use_gui", "--approach", "grammar_search_invention", "--seed", "0", "--bilevel_plan_without_sim", "True","--debug", "--excluded_predicates", "all", "--option_learner", "direct_bc"],
         // change segmenter to contact
         "console": "integratedTerminal",
-        "pythonPath": "/home/yifei/miniconda3/envs/task_plan_casa3/bin/python"
+        "pythonPath": "/home/yifei/miniconda3/envs/task_plan_casa5/bin/python"
       },
+      
       {
         "name": "Playback dataset",
         "type": "python",
         "request": "launch",
         "program": "${workspaceFolder}/robocasa/robocasa/demos/demo_tasks.py",
-        "args": ["--task", "PnPCounterToCab"],
+        "args": ["--task", "PrepareCoffee"],
         "console": "integratedTerminal",
         "pythonPath": "/home/yifei/miniconda3/envs/task_plan_casa3/bin/python"
       },
@@ -62,7 +64,7 @@
         "type": "python", 
         "request": "launch",
         "program": "${workspaceFolder}/robocasa/robocasa/demos/demo_teleop.py",
-      "args": ["--robot","PandaOmron","--task", "OpenSingleDoor", "--layout", "2", "--style", "0"],
+        "args": ["--robot","PandaOmron","--task", "CookCheeseAndTomatoes", "--layout", "10", "--style", "6", "--device", "keyboard"],
         "console": "integratedTerminal",
         "pythonPath": "/home/yifei/miniconda3/envs/task_plan_casa3/bin/python"
       },
@@ -92,9 +94,9 @@
         "type": "python", 
         "request": "launch",
         "program": "${workspaceFolder}/robocasa/robocasa/scripts/collect_demos.py",
-      "args": ["--robot","PandaOmron", "--environment", "StoreFruit", "--device", "keyboard"],
+      "args": ["--robot","PandaOmron", "--environment", "PnPCabToCounterTomato", "--layout", "10", "--device", "spacemouse", "--num_demos", "6"],
         "console": "integratedTerminal",
-        "pythonPath": "/home/yifei/miniconda3/envs/task_plan_casa3/bin/python"
+        "pythonPath": "/home/yifei/miniconda3/envs/task_plan_casa5/bin/python"
       },
       {
         "name": "Python: Debug robocasa/dataset_states_to_obs.py",
