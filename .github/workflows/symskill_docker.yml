@@ -47,7 +47,8 @@ jobs:
           vcs import < dependency.yaml && \
           cd lpvds/src && \
           vcs import < dependency.yaml && \
-          pip install casadi
+          pip install casadi && \
+          pip install meshcat
 
       - name: Install Symskill
         run: |
