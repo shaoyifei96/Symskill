@@ -5,7 +5,7 @@ import copy
 import re
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple, cast
 import time
-import rospy
+# import rospy
 
 import numpy as np
 from gym.spaces import Box
@@ -34,9 +34,9 @@ from scipy.spatial.transform import Rotation as R
 if CFG.use_teleop:
     from robosuite.devices import Keyboard
 
-from predicators.envs.ros_hardware_interface import ROSHardwareInterface
-import tf
-from geometry_msgs.msg import PoseStamped
+# from predicators.envs.ros_hardware_interface import ROSHardwareInterface
+# import tf
+# from geometry_msgs.msg import PoseStamped
 
 # Disable JAX debug messages
 logging.getLogger("jax._src.cache_key").setLevel(logging.ERROR)
@@ -320,9 +320,9 @@ class RoboKitchenEnv(BaseEnv):
 
         self.device = None  # control device
         print(colored("Initializing ROS Hardware Interface...", "yellow"))
-        self._hw_interface = ROSHardwareInterface(init_gripper_open=True)
+        # self._hw_interface = ROSHardwareInterface(init_gripper_open=True)
         print(colored("ROSHardwareInterface initialized.", "green"))
-        self._robot_base_frame = self._hw_interface.robot_base_frame
+        # self._robot_base_frame = self._hw_interface.robot_base_frame
         self._video_frames = []  # For saving video frames when GUI is not enabled
         self._frame_counter = 0  # To track steps for frame saving
 
@@ -672,7 +672,7 @@ class RoboKitchenEnv(BaseEnv):
             demo_observation = self._reset_from_demo()
             current_state = demo_observation
         else:
-        current_state = self._get_current_observation(task_name)
+            current_state = self._get_current_observation(task_name)
         return {"state_info": current_state, "obs_images": [], "contact_set": set()}
         #     complex_config = True  # NOTE: this should be removed. only for mac
         #     if complex_config:

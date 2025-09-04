@@ -58,7 +58,32 @@ class CogMan:
             self._exec_monitor.reset(task, reset_failure_memory=True)
         else:
             self._exec_monitor.reset(task)
-        self._reset_policy(task)
+        
+        # Try to set policy, with replanning fallback on failure
+        try:
+            self._reset_policy(task)
+        except ApproachFailure as e:
+            logging.info(f"\033[91m[CogMan] Approach failed during reset: {e}\033[0m")
+            # Check if the perceiver supports replanning
+            if hasattr(self._perceiver, 'replan_goal_on_failure'):
+                logging.info("[CogMan] Attempting replanning...")
+                new_goal = self._perceiver.replan_goal_on_failure(
+                    task.init, env_task.goal_description, str(e))
+                # Create new task with replanned goal
+                replanned_task = Task(task.init, new_goal)
+                self._current_goal = new_goal
+                # Update execution monitor with new task
+                if isinstance(self._exec_monitor, ExpectedAtomsRobocasaExecutionMonitor):
+                    self._exec_monitor.reset(replanned_task, reset_failure_memory=True)
+                else:
+                    self._exec_monitor.reset(replanned_task)
+                # Try again with the new goal
+                self._reset_policy(replanned_task)
+                task = replanned_task  # Update task for subsequent operations
+            else:
+                # No replanning capability, re-raise the exception
+                raise e
+        
         self._exec_monitor.update_approach_info(
             self._approach.get_execution_monitoring_info())
         self._episode_state_history = [task.init]
@@ -95,12 +120,34 @@ class CogMan:
             # last_option_name = self._exec_monitor._last_option_name
             last_option_name = self._exec_monitor._failure_memory[-1].option_name
             self._exec_monitor.reset(task, reset_failure_memory=False)
-            if self._num_times_stay_close_to_previous_plan < 3:
-                self._reset_policy(task, stay_close_to_previous_plan=True, last_option_name=last_option_name)  # approach is updated
-                self._num_times_stay_close_to_previous_plan += 1
-            else:
-                self._reset_policy(task, stay_close_to_previous_plan=False, last_option_name=last_option_name)  # approach is updated
-                self._num_times_stay_close_to_previous_plan = 0
+            
+            # Try replanning with approach, with fallback to goal replanning
+            try:
+                if self._num_times_stay_close_to_previous_plan < 3:
+                    self._reset_policy(task, stay_close_to_previous_plan=True, last_option_name=last_option_name)  # approach is updated
+                    self._num_times_stay_close_to_previous_plan += 1
+                else:
+                    self._reset_policy(task, stay_close_to_previous_plan=False, last_option_name=last_option_name)  # approach is updated
+                    self._num_times_stay_close_to_previous_plan = 0
+            except ApproachFailure as e:
+                logging.info(f"\033[91m[CogMan] Approach failed during execution replanning: {e}\033[0m")
+                # Check if the perceiver supports replanning
+                if hasattr(self._perceiver, 'replan_goal_on_failure'):
+                    logging.info("[CogMan] Attempting goal replanning during execution...")
+                    new_goal = self._perceiver.replan_goal_on_failure(
+                        state, self._current_env_task.goal_description, f"Execution replanning failure: {e}")
+                    # Create new task with replanned goal
+                    replanned_task = Task(state, new_goal)
+                    self._current_goal = new_goal
+                    # Update execution monitor with new task
+                    self._exec_monitor.reset(replanned_task, reset_failure_memory=False)
+                    # Try again with the new goal
+                    self._reset_policy(replanned_task)
+                    task = replanned_task  # Update task for subsequent operations
+                else:
+                    # No replanning capability, re-raise the exception
+                    raise e
+            
             self._exec_monitor.update_approach_info(
                 self._approach.get_execution_monitoring_info())
             # We only reset the approach if the override policy is
