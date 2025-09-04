@@ -37,7 +37,7 @@ jobs:
           apt-get install -y curl && \
           curl -s https://packagecloud.io/install/repositories/dirk-thomas/vcstool/script.deb.sh | bash && \
           apt-get update && \
-          apt-get install python3-vcstool  && \  
+          apt-get install -y python3-vcstool  && \  
           cd /root/ds_policy && \
           git pull && \
           git checkout se3_lpvds_decoupled && \
