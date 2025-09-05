@@ -1781,7 +1781,7 @@ class RoboKitchenEnv(BaseEnv):
         elif goal_desc == "PnPCabToCounter":
             goal_preds = {self._pred_name_to_pred["OnCounter"]}
         elif goal_desc == "PnPCounterToStove":
-            goal_preds = {self._pred_name_to_pred["InContainer"], self._pred_name_to_pred["GripperFarFromObj"]}
+            goal_preds = {self._pred_name_to_pred["InContainer"]}
         elif goal_desc == "CloseSingleDoor":
             goal_preds = {self._pred_name_to_pred["DoorClosed"]}
         elif goal_desc == "StoreFruit":

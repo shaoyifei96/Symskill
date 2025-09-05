@@ -2132,9 +2132,10 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
 
         data_array = np.array(feature_data)
         # If there are more than 500 data points, randomly sample to reduce to 500
-        if len(data_array) > 500:
-            logging.debug(f"Reducing dataset from {len(data_array)} to 500 points via random sampling.")
-            indices = np.random.choice(len(data_array), 500, replace=False)
+        max_num_pt_cluster = 100
+        if len(data_array) > max_num_pt_cluster:
+            logging.debug(f"Reducing dataset from {len(data_array)} to {max_num_pt_cluster} points via random sampling.")
+            indices = np.random.choice(len(data_array), max_num_pt_cluster, replace=False)
             data_array = data_array[indices]
             # If feature_data is a list, also update it for consistency
         if data_array.ndim == 1:
@@ -3031,12 +3032,12 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                     reg_term_trans = utils.compute_adaptive_reg_term(
                         cluster_cov_trans_raw,
                         base_reg=base_reg_trans,
-                        min_reg= 0.001 / 4 # reg adds the std, so divide by 4 to get almost 100% confidence
+                        min_reg= 0.001/2  # reg adds the std, so divide by 4 to get almost 100% confidence
                     )
                     reg_term_rot = utils.compute_adaptive_reg_term(
                         cluster_cov_rot_raw,
                         base_reg=base_reg_rot,
-                        min_reg=0.0005 / 3
+                        min_reg=0.0014 
                     )
                     cluster_cov_trans = cluster_cov_trans_raw + reg_term_trans
                     cluster_cov_rot = cluster_cov_rot_raw + reg_term_rot
@@ -3659,6 +3660,15 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 best_reference_per_motion[motion_key] = default_ref_obj_type
                 continue
             
+            # Check if we already have a saved reference object type for this motion
+            existing_ref_obj_type = self._load_predicted_ref_obj_type(motion_key, all_objs_types)
+            
+            if existing_ref_obj_type is not None:
+                # Use the existing saved reference object type
+                best_reference_per_motion[motion_key] = existing_ref_obj_type
+                print(f"  Using existing reference object type: {existing_ref_obj_type.name}")
+                continue
+            
             # Get image data - either from data1 folder or create trajectory visualization
             if use_recorded_images:
                 image_data = self._load_image_data(motion_key, motion_phase_info)
@@ -3690,14 +3700,6 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 best_reference_per_motion[motion_key] = default_ref_obj_type
                 continue
             
-            # Check if we already have a saved reference object type for this motion
-            existing_ref_obj_type = self._load_predicted_ref_obj_type(motion_key, all_objs_types)
-            
-            if existing_ref_obj_type is not None:
-                # Use the existing saved reference object type
-                best_reference_per_motion[motion_key] = existing_ref_obj_type
-                print(f"  Using existing reference object type: {existing_ref_obj_type.name}")
-                continue
             
             # Use VLM to analyze the trajectory
             print(f"  Running VLM analysis (no existing file found)...")

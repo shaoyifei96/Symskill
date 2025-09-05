@@ -41,10 +41,10 @@ class GlobalSettings:
     # clustering_invention approach parameters
     predicate_candidates_method = "motion_analysis_contact"  # "low_speed" or "contact_clustering" or "motion_analysis_contact"
     excluded_predicates = None 
-    # if predicate_candidates_method == "low_speed": # low speed still needs to run the grammar search, so need goal
-    #     excluded_predicates = "all"
-    # else:
-    #     excluded_predicates = "all_goal" # "all_goal" will always be used
+    if predicate_candidates_method == "low_speed": # low speed still needs to run the grammar search, so need goal
+        excluded_predicates = "all"
+    else:
+        excluded_predicates = "all_goal" # "all_goal" will always be used
 
     # low speed is https://arxiv.org/abs/2503.21406, using relative low speed points as candidate predicates
     motion_analysis_lin_vel_rot_vel_threshold = 0.01 # lin vel min thresh, under this, use rot vel
@@ -54,11 +54,11 @@ class GlobalSettings:
                                          "MocapPnPBanana": 0.01,
                                          "MocapMulti": 0.01,
                                          "MocapOpenLidPourWater": 0.01}  # under this, use contact clustering
-    clustering_inv_cov_reg_lin = 2.0 # gripper object
-    clustering_inv_cov_reg_lin_low = 2.0 #object object
+    clustering_inv_cov_reg_lin = 6.0 # gripper object
+    clustering_inv_cov_reg_lin_low = 3.0 #object object
     clustering_inv_cov_reg_rot_gripper = 6.0
     clustering_inv_cov_reg_rot_base = 0.5 # base rotation is mostly just the same, so make it more wide
-    clustering_inv_cov_reg_rot_low = 5.0  # much lower for obj obj rotation, stove needs much lower, 1e-4 works, not sure about this task!!!!
+    clustering_inv_cov_reg_rot_low = 6.0  # much lower for obj obj rotation, stove needs much lower, 1e-4 works, not sure about this task!!!!
     clustering_change_only = False # this meaning clustering the pose just at contact or through the contacts while it is moving
 
     
