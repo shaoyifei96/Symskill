@@ -131,7 +131,8 @@ class GlobalSettings:
     # robo_kitchen_task = "MocapOpenLidPourWater"  # New task combining both actions
     # robo_kitchen_task = "MocapOpenLidPnPBanana"  # New task combining both actions
     # robo_kitchen_task = "MocapMulti"  # New task combining both actions
-    robo_kitchen_task = "MocapMultiVision"  # New task combining both actions
+    # robo_kitchen_task = "MocapMultiVision"  # New task combining both actions
+    robo_kitchen_task = "MocapMultiVision2"  # with red plate
     
     # robo_kitchen_task = "MocapTest"
 
@@ -161,7 +162,7 @@ class GlobalSettings:
 
 
     composite_tasks = set(["CookCheeseAndTomatoes", "StoreFruit", "StoreFruitFull", "MocapOpenLidPourWater", "MocapOpenLidPnPBanana", "MocapMulti"])
-    mocap_tasks = set(["MocapOpenLid", "MocapPourWater", "MocapTest", "MocapOpenLidPourWater", "MocapPnPBanana", "MocapOpenLidPnPBanana", "MocapMulti", "MocapMultiVision"])
+    mocap_tasks = set(["MocapOpenLid", "MocapPourWater", "MocapTest", "MocapOpenLidPourWater", "MocapPnPBanana", "MocapOpenLidPnPBanana", "MocapMulti", "MocapMultiVision", "MocapMultiVision2"])
     # tasks that won't work with current approach
     # robo_kitchen_task = "TurnOnMicrowave" # this is not working, nothing is in motion in the dataset button just clicks
     # robo_kitchen_viz_debug = False # i think the use_gui flag covers this
@@ -172,7 +173,8 @@ class GlobalSettings:
                          "MocapPnPBanana": "/home/figueroa-lab-12n/Documents/task_planning/scripts/banana_in_pod/",
                          "MocapMulti": "/home/figueroa-lab-12n/Documents/task_planning/scripts/cooking_multi/",
                          "MocapOpenLidPourWater": "/home/yifei/Documents/task_planning_2/real_data/openlid_pour_water/",
-                         "MocapMultiVision": "/home/yifei/Documents/task_planning_2/real_data/cooking_multi_video/"}
+                         "MocapMultiVision": "/home/yifei/Documents/task_planning_2/real_data/cooking_multi_video/",
+                         "MocapMultiVision2": "/home/yifei/Documents/task_planning_2/real_data/cooking_multi_video_2/"}
     
     if robo_kitchen_task == "PnPCabToCounterTomato" or robo_kitchen_task in mocap_tasks:
         robo_kitchen_user_demo = True

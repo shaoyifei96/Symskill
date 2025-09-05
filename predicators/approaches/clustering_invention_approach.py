@@ -491,8 +491,19 @@ def _analyze_trajectory_with_vlm(image_data: bytes, available_objects: List[str]
         is_jpeg: If True, treat image as JPEG format, otherwise PNG
         
     Returns:
-        Predicted reference object type name, or None if VLM is not available or fails
+        Original object name (not VLM format), or None if VLM is not available or fails
     """
+    
+    # Mapping dictionary from object names to VLM-understandable names
+    name_to_vlm_name = {
+        "dishrack": "silver_metallic_object",
+        "pan": "black_circular_object_with_handle",
+        "plate": "small_patterned_circular_white_object",
+        "plate_red": "red_circular_object",
+    }
+    
+    # Reverse mapping for converting VLM response back to original name
+    vlm_name_to_name = {v: k for k, v in name_to_vlm_name.items()}
     if not VLM_AVAILABLE:
         return None
         
@@ -504,13 +515,15 @@ def _analyze_trajectory_with_vlm(image_data: bytes, available_objects: List[str]
         #wait for 3 seconds
         client = genai.Client(api_key=api_key)
         
-        # Create dynamic enum based on available objects
+        # Create dynamic enum based on available objects using VLM-understandable names
         available_enum_items = {}
         for obj_name in available_objects:
+            # Convert to VLM-understandable name if mapping exists, otherwise use original
+            vlm_name = name_to_vlm_name.get(obj_name, obj_name)
             # Map object names to enum values
             enum_key = obj_name.upper().replace(' ', '_')
 
-            available_enum_items[enum_key] = "The reference object is a " + obj_name + "."
+            available_enum_items[enum_key] = "The object being held is most likely moving towards the " + vlm_name + "."
             
         print(available_enum_items)
         # Create dynamic enum class
@@ -520,7 +533,7 @@ def _analyze_trajectory_with_vlm(image_data: bytes, available_objects: List[str]
         mime_type = 'image/jpeg' if is_jpeg else 'image/png'
         
         # Adjust prompt based on image type
-        prompt_text = 'The sequence of images are arranged by time. In the process, the gripper is holding onto an object while moving towards another object. In the scene, there is a dishrack on the left, a black pan in the middle, and one or two white plates on the right. Which object is the held object most likely moving towards? Output in the format of: The reference object is a <object_name>.'
+        prompt_text = 'The sequence of images are arranged by time. In the process, the gripper is holding onto an object while moving towards another object. In the scene, there is a silver_metallic_object on the top right of the image, a black_circular_object_with_handle at bottom right, red_circular_object is on the left, and small_patterned_circular_white_object is in the middle. Which object is the held object most likely moving towards? Output in the format of: The object being held is most likely moving towards the <object_name>.'
         
         response = client.models.generate_content(
             model='gemini-2.5-pro',
@@ -537,9 +550,33 @@ def _analyze_trajectory_with_vlm(image_data: bytes, available_objects: List[str]
             },
         )
         
-        time.sleep(0.5) # free tier only allows 2 requests per minute
+        # time.sleep(0.5) # free tier only allows 2 requests per minute
         # activate on gimini studio
-        return response.text.strip()
+        vlm_response = response.text.strip()
+        
+        # Parse the VLM response to extract the object name
+        # VLM might return something like "The reference object is a microwave."
+        # We want to extract the object name and convert it back to original name
+        if vlm_response:
+            # Extract the object name from the response
+            # Split by spaces and take the last word, removing punctuation
+            parsed_vlm_name = vlm_response.split(' ')[-1].rstrip('.')
+            
+            # Convert back to original object name using reverse mapping
+            original_name = vlm_name_to_name.get(parsed_vlm_name, parsed_vlm_name)
+            
+            # Verify that the original name is in the available objects
+            if original_name in available_objects:
+                return original_name
+            else:
+                # If direct lookup fails, try to find a match in available objects
+                for obj_name in available_objects:
+                    if obj_name == parsed_vlm_name:
+                        return obj_name
+                print(f"Warning: VLM returned '{parsed_vlm_name}' -> '{original_name}' but not found in available objects: {available_objects}")
+                return None
+        
+        return None
         
     except Exception as e:
         print(f"VLM analysis failed: {e}")
@@ -1232,7 +1269,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         3. Sequential object interactions in long horizon demos
         """
         # Filter types so things other than gripper and are useful are kept!!!
-        disallowed_type_names = {"wrist_type", "gripper_type", "left_finger_type", "right_finger_type", "base_type", "drawer_type"}
+        disallowed_type_names = {"wrist_type", "gripper_type", "left_finger_type", "right_finger_type", "base_type"}#, "drawer_type"}
 
         # Dictionary to store motion data for each object in each trajectory
         motion_data = defaultdict(lambda: defaultdict(list))
@@ -3476,7 +3513,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             File path for the reference object type file
         """
         demo_id, phase_idx = motion_key
-        images_path = "/home/yifei/Documents/task_planning_2/real_data/cooking_multi_video/"
+        images_path = CFG.path_to_user_demo[CFG.robo_kitchen_task]
         path_addon = "data"+str(demo_id)+"/"
         images_path = os.path.join(images_path, path_addon)
         
@@ -3484,32 +3521,34 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         filename = f"ref_obj_type_demo{demo_id}_phase{phase_idx}.txt"
         return os.path.join(images_path, filename)
     
-    def _save_predicted_ref_obj_type(self, motion_key: Tuple[int, int], ref_obj_type: Type) -> None:
+    def _save_predicted_ref_obj_name(self, motion_key: Tuple[int, int], ref_obj_name: str) -> None:
         """
-        Save the predicted reference object type to a file.
+        Save the predicted reference object name to a file.
         
         Args:
             motion_key: (demo_id, phase_idx) tuple
-            ref_obj_type: The predicted reference object type
+            ref_obj_name: The predicted reference object name
         """
         file_path = self._get_ref_obj_file_path(motion_key)
         
         # Ensure the directory exists
         os.makedirs(os.path.dirname(file_path), exist_ok=True)
         
-        # Save the object type name
+        # Save the object name
         with open(file_path, 'w') as f:
-            f.write(ref_obj_type.name)
+            f.write(ref_obj_name)
         
-        print(f"  Saved predicted reference object type '{ref_obj_type.name}' to {file_path}")
+        print(f"  Saved predicted reference object name '{ref_obj_name}' to {file_path}")
     
-    def _load_predicted_ref_obj_type(self, motion_key: Tuple[int, int], all_objs_types: List[Type]) -> Optional[Type]:
+    def _load_predicted_ref_obj_type(self, motion_key: Tuple[int, int], all_objs_types: List[Type], available_objects_objects: List[Object] = None) -> Optional[Type]:
         """
         Load the predicted reference object type from a file if it exists.
+        For backwards compatibility, tries to match by object name first, then by type name.
         
         Args:
             motion_key: (demo_id, phase_idx) tuple
             all_objs_types: List of all available object types
+            available_objects_objects: List of available object instances (for name matching)
             
         Returns:
             The loaded reference object type, or None if file doesn't exist or type not found
@@ -3521,18 +3560,25 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         
         try:
             with open(file_path, 'r') as f:
-                ref_obj_type_name = f.read().strip()
+                saved_name = f.read().strip()
             
-            # Find the corresponding Type object
+            # First try to match by object name (new format)
+            if available_objects_objects:
+                for obj in available_objects_objects:
+                    if obj.name == saved_name:
+                        print(f"  Loaded existing reference object by name '{saved_name}' from {file_path}")
+                        return obj.type
+            
+            # Fall back to matching by type name (backwards compatibility)
             for obj_type in all_objs_types:
-                if obj_type.name == ref_obj_type_name:
-                    print(f"  Loaded existing reference object type '{ref_obj_type_name}' from {file_path}")
+                if obj_type.name == saved_name:
+                    print(f"  Loaded existing reference object by type '{saved_name}' from {file_path}")
                     return obj_type
             
-            print(f"  Warning: Saved reference object type '{ref_obj_type_name}' not found in available types")
+            print(f"  Warning: Saved reference '{saved_name}' not found in available objects or types")
             return None
         except Exception as e:
-            print(f"  Warning: Failed to load reference object type from {file_path}: {e}")
+            print(f"  Warning: Failed to load reference object from {file_path}: {e}")
             return None
 
     def _load_image_data(self, motion_key: Tuple[int, int], motion_phase_info: Optional[Dict] = None) -> Optional[List[bytes]]:
@@ -3546,7 +3592,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
         Returns:
             List of image data as bytes, or None if image loading failed
         """
-        images_path = "/home/yifei/Documents/task_planning_2/real_data/cooking_multi_video/"
+        images_path = CFG.path_to_user_demo[CFG.robo_kitchen_task]
         path_addon = "data"+str(motion_key[0])+"/"
         images_path = os.path.join(images_path, path_addon)
             
@@ -3660,8 +3706,21 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 best_reference_per_motion[motion_key] = default_ref_obj_type
                 continue
             
+            # Get available object types in the scene (excluding moving object and gripper-related)
+            available_objects = []
+            available_objects_objects = []
+            excluded_keywords = ['wrist', 'finger', 'gripper', 'thing']
+            for obj in states[0]:
+                if obj != moving_obj:
+                    obj_name_lower = obj.name.lower()
+                    obj_type_lower = obj.type.name.lower()
+                    if not any(keyword in obj_name_lower or keyword in obj_type_lower for keyword in excluded_keywords):
+                        if obj.name not in available_objects:
+                            available_objects.append(obj.name)
+                            available_objects_objects.append(obj)
+            
             # Check if we already have a saved reference object type for this motion
-            existing_ref_obj_type = self._load_predicted_ref_obj_type(motion_key, all_objs_types)
+            existing_ref_obj_type = self._load_predicted_ref_obj_type(motion_key, all_objs_types, available_objects_objects)
             
             if existing_ref_obj_type is not None:
                 # Use the existing saved reference object type
@@ -3682,19 +3741,6 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                 best_reference_per_motion[motion_key] = default_ref_obj_type
                 continue
             
-            # Get available object types in the scene (excluding moving object and gripper-related)
-            available_objects = []
-            available_objects_objects = []
-            excluded_keywords = ['wrist', 'finger', 'gripper', 'thing']
-            for obj in states[0]:
-                if obj != moving_obj:
-                    obj_name_lower = obj.name.lower()
-                    obj_type_lower = obj.type.name.lower()
-                    if not any(keyword in obj_name_lower or keyword in obj_type_lower for keyword in excluded_keywords):
-                        if obj.name not in available_objects:
-                            available_objects.append(obj.name)
-                            available_objects_objects.append(obj)
-            
             if not available_objects:
                 print(f"  Warning: No available reference objects found")
                 best_reference_per_motion[motion_key] = default_ref_obj_type
@@ -3706,24 +3752,20 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             predicted_ref_obj_name = _analyze_trajectory_with_vlm(image_data, available_objects, is_jpeg=use_recorded_images)
             
             if predicted_ref_obj_name:
-                # Find the corresponding Type object
-                # Parse the predicted reference object name to extract the actual object name
-                # VLM might return something like "MICROWAVE.The reference object is a microwave."
-                # We want to extract just "microwave" from this
-                parsed_name = predicted_ref_obj_name.split(' ')[-1].rstrip('.')
+                # Find the corresponding Type object using the original object name returned by VLM
                 predicted_ref_obj_type = None
                 for obj in available_objects_objects:
-                    if obj.name == parsed_name:
+                    if obj.name == predicted_ref_obj_name:
                         predicted_ref_obj_type = obj.type
                         break
                 
                 if predicted_ref_obj_type:
                     best_reference_per_motion[motion_key] = predicted_ref_obj_type
-                    print(f"  VLM predicted reference object: {parsed_name}")
-                    # Save the predicted reference object type to file
-                    self._save_predicted_ref_obj_type(motion_key, predicted_ref_obj_type)
+                    print(f"  VLM predicted reference object: {predicted_ref_obj_name}")
+                    # Save the predicted reference object name to file
+                    self._save_predicted_ref_obj_name(motion_key, predicted_ref_obj_name)
                 else:
-                    print(f"\033[91m  Warning: VLM predicted '{parsed_name}' but type not found, using default\033[0m")
+                    print(f"\033[91m  Warning: VLM predicted '{predicted_ref_obj_name}' but type not found, using default\033[0m")
                     best_reference_per_motion[motion_key] = default_ref_obj_type
             else:
                 print(f"\033[91m  Warning: VLM analysis failed, using default reference object\033[0m")

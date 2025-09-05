@@ -128,6 +128,7 @@ class RoboKitchenEnv(BaseEnv):
         # "sink": sink_type,  # The sink object
         # CookCheeseAndTomatoes
         "plate": container_type,
+        "plate_red": drawer_type,
         # "tomato": thing_type,
         # "cheese": thing_type,
         # "pan": container_type,
@@ -1805,6 +1806,8 @@ class RoboKitchenEnv(BaseEnv):
             goal_preds = {self._pred_name_to_pred["SinkFaucetOff"]}
         elif goal_desc == "PnPCabToCounterTomato":
             goal_preds = {self._pred_name_to_pred["InContainer"]}
+        elif goal_desc == "ArrangeVegetables":
+            goal_preds = {self._pred_name_to_pred["InContainer"]}
         elif goal_desc == "MocapOpenLid": 
             goal_preds = {self._pred_name_to_pred["LidOnDishrack"]}
         elif goal_desc == "MocapPourWater":
@@ -1819,10 +1822,8 @@ class RoboKitchenEnv(BaseEnv):
             goal_preds = {self._pred_name_to_pred["InCookware"]}
         elif goal_desc == "MocapMulti":
             goal_preds = {self._pred_name_to_pred["InCookware"]}
-        elif goal_desc == "MocapMultiVision":
+        elif goal_desc == "MocapMultiVision" or goal_desc == "MocapMultiVision2":
             goal_preds = {self._pred_name_to_pred["InCookware"]}
-        elif goal_desc == "ArrangeVegetables":
-            goal_preds = {self._pred_name_to_pred["InContainer"]}
         else:
             raise NotImplementedError(f"Goal description {goal_desc} not implemented for {CFG.robo_kitchen_task}")
         return goal_preds
