@@ -773,6 +773,11 @@ class _DSOptionLearner(_OptionLearnerBase):
             end_points_quat = np.array([quat[-1] for quat in quat])
             average_endpoint_quat = R.from_quat(end_points_quat).mean().as_quat()
             average_endpoint_attractor = np.concatenate([average_endpoint_pos, average_endpoint_quat])
+            
+            # Print endpoint attractor values from option learning
+            print(f"[OPTION_LEARNING] Average endpoint attractor:")
+            print(f"[OPTION_LEARNING] average_endpoint_pos: {average_endpoint_pos}")
+            print(f"[OPTION_LEARNING] average_endpoint_quat: {average_endpoint_quat}")
 
 
             plot_DSPolicy_input_data(

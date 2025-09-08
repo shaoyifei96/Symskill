@@ -3725,7 +3725,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             if existing_ref_obj_type is not None:
                 # Use the existing saved reference object type
                 best_reference_per_motion[motion_key] = existing_ref_obj_type
-                print(f"  Using existing reference object type: {existing_ref_obj_type.name}")
+                print(f"  Using existing reference object type: {existing_ref_obj_type.name}, start frame: {motion_phase_info['start_frame']}, end frame: {motion_phase_info['end_frame']}")
                 continue
             
             # Get image data - either from data1 folder or create trajectory visualization
@@ -3982,7 +3982,7 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                                 # goal_reached_states[i].append(ll_traj.states[t_goal])
                         
                         # During contact lost periods, compute relative poses between objects in motion and all other objects
-                        for t in range(start_period, min(goal_end_time + 1, len(ll_traj.states))):
+                        for t in range(start_period, min(goal_end_time + 1, len(ll_traj.states), end_period + 20)): # cap at 2 seconds after the end of the period so there is not too much sprious data from the object being stationary for too long
                             state_t = ll_traj.states[t]
                             for obj in ref_objs:
                                 if obj.type == gripper_type or obj == moving_obj:
@@ -4613,9 +4613,9 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
 
         # Apply equal aspect ratio based on the *final* combined range
         # Avoid errors if range is zero
-        ax.set_xlim(final_xlim[0], final_xlim[1])
-        ax.set_ylim(final_ylim[0], final_ylim[1])
-        ax.set_zlim(final_zlim[0], final_zlim[1])
+        ax.set_xlim(-1, 1)
+        ax.set_ylim(-1, 1)
+        ax.set_zlim(-1, 1)
         # ax.set_aspect("equal")
 
         # Set view angle (consistent for both new and overlaid plots)
@@ -4690,6 +4690,23 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
             # Use "2in1" direction (moving object relative to reference object)
             key = (obj_obj_pred, best_ref_obj_type, moving_obj_type, "2in1")
             logging.info(f"Adding key: {key} for demo {demo_id}, period {period_idx}")
+            
+            if moving_obj_type.name == "thing_type" and best_ref_obj_type.name == "cookware_type" and (abs(pose[0])> 0.2  or abs(pose[1])> 0.2):
+                # Save the reference poses for debugging/analysis
+                poses_to_save = ref_poses_dict[best_ref_obj_type]
+                if poses_to_save:
+                    # Create directory if it doesn't exist
+                    os.makedirs("obj_obj_poses", exist_ok=True)
+                    
+                    # Create filename with demo_id, period_idx, and object types
+                    filename = f"obj_obj_poses/demo_{demo_id}_period_{period_idx}_{best_ref_obj_type.name}_to_{moving_obj_type.name}.npy"
+                    
+                    # Convert to numpy array and save
+                    poses_array = np.array([pose for pose in poses_to_save if pose is not None])
+                    if len(poses_array) > 0:
+                        np.save(filename, poses_array)
+                        logging.info(f"Saved {len(poses_array)} object-object poses to {filename}")
+
             
             # Add all poses from this period to the unified dictionary
             for pose in ref_poses_dict[best_ref_obj_type]:

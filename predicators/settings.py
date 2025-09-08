@@ -71,7 +71,7 @@ class GlobalSettings:
     clustering_se3_rot_weight = 1.0 # 30 deg = 0.5236 rad
     clustering_feature_constancy_percentile = 3  # of total number of data points = 13782
     clustering_constancy_threshold = 0.0001  # fixed threshold for constancy check (0.01m trans or ~8° rot)
-    clustering_se3_epsilon = 3.0 
+    clustering_se3_epsilon = 10 # just make 1 cluster
     clustering_baseline_epsilon = 1.3# default epsilon
     clustering_visualization_frame_axis_length = 0.05
     # clustering_translation_constancy_tol = 0.01/10 # 10 hz 0.01 m
