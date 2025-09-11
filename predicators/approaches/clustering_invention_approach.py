@@ -3056,6 +3056,9 @@ class ClusteringSearchInventionApproach(NSRTLearningApproach):
                         moving_obj = atom.entities[0]
                         ref_obj_type = best_reference_per_moving_obj[moving_obj.type]
                         ref_obj = [o for o in traj_all_objs if o.type == ref_obj_type]
+                        if len(ref_obj) > 1 and ref_obj_type.name == "container_type" and ("obj_container" in ref_obj[0].name or "obj_container" in ref_obj[1].name):
+                            logging.info(f"Multiple reference objects found for {ref_obj_type.name}: {ref_obj[0].name}, {ref_obj[1].name}, disregarding the obj_container")
+                            ref_obj = [o for o in ref_obj if "obj_container" not in o.name]
                         assert len(ref_obj) == 1, "Multiple reference objects found"
                         ref_obj = ref_obj[0]
                         
