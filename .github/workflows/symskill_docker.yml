@@ -57,7 +57,7 @@ jobs:
         run: |
           git clone https://github.com/shaoyifei96/predicators_robocasa_files.git && \
           mkdir -p generated_datasets && \
-          cp predicators_robocasa_files/* ./generated_datasets && \
+          cp -r predicators_robocasa_files/* ./generated_datasets && \
           mkdir -p /github/home/mosek && \
           cp predicators_robocasa_files/mosek.lic /github/home/mosek/mosek.lic 
 
