@@ -6,7 +6,7 @@
 1. After installing both, install this repo using the instructions below from original predicators repo, in the same conda env robocasa.
 1. Create .vscode folder and copy the launch.json file in this repo to that folder, making edits to the file for the conda path, to enable debugging.
 1. put ```export PYTHONHASHSEED=0``` in .bashrc
-1. Lastly pull the [DS-Policy](https://github.com/felixzheng02/ds_policy.git) branch se3_lpvds, install by ```pip install -e .```. (Make sure you are updating setuptools to >= 64.0 and pip)
+1. Lastly pull the [DS-Policy](https://github.com/felixzheng02/ds_policy.git) branch se3_lpvds_decoupled, follow it's instruction to install all dependencies, lastly install ds_policy by ```pip install -e .```. (Make sure you are updating setuptools to >= 64.0 and pip)
 1. In ```.vscode/launch.json```, you should see a few debug profiles, the teleop profile should work as is. (Try complete the task, it is not easy). This verifies successful installation of the robocasa simulator. 
 1. To see if robocasa and predicators are correctly installed together, run ```python predicators/main.py --env robo_kitchen --approach oracle --seed 0 --debug --use_gui --execution_monitor expected_atoms_robocasa```. It should be able to solve the task, and output a NSRT plan. It will then start executing the plan in a GUI. The door should be opened.
 
