@@ -95,9 +95,9 @@ class GlobalSettings:
 
     # robo_kitchen env parameters
     robo_kitchen_randomize_init_state = True  # not used
-    robo_kitchen_task = "OpenSingleDoor"
+    # robo_kitchen_task = "OpenSingleDoor"
     # robo_kitchen_task = "CloseSingleDoor"
-    # robo_kitchen_task = "PnPCounterToCab" 
+    robo_kitchen_task = "PnPCounterToCab" 
     # robo_kitchen_task = "PnPCabToCounter" # #this has no plate, cannot find a good ref
     # robo_kitchen_task = "PnPCabToCounterTomato"  # we collected demo with plate
     # robo_kitchen_task = "PnPStoveToCounter"
