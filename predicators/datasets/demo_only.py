@@ -52,7 +52,7 @@ def create_demo_data(env: BaseEnv,
     if robocasa_task is not None:
         # Try to load cached dataset first if enabled
         if CFG.robo_kitchen_load_dataset:
-            dataset_fname = f"generated_datasets/robokitchen__{robocasa_task}__{CFG.num_train_tasks}.pkl"
+            dataset_fname = f"predicators_robocasa_files/robokitchen__{robocasa_task}__{CFG.num_train_tasks}.pkl"
             if os.path.exists(dataset_fname):
                 with open(dataset_fname, "rb") as f:
                     dataset = pkl.load(f)
@@ -71,7 +71,7 @@ def create_demo_data(env: BaseEnv,
         
         # Save dataset if enabled
         if CFG.robo_kitchen_save_dataset:
-            dataset_fname = f"generated_datasets/robokitchen__{robocasa_task}__{CFG.num_train_tasks}.pkl"
+            dataset_fname = f"predicators_robocasa_files/robokitchen__{robocasa_task}__{CFG.num_train_tasks}.pkl"
             with open(dataset_fname, "wb") as f:
                 pkl.dump(dataset, f)
         

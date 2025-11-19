@@ -1,14 +1,27 @@
-# predicators_robocasa
+# SymSkill
 ![demo_3_tasks](https://media2.giphy.com/media/v1.Y2lkPTc5MGI3NjExZmloNXkzeXd1emJtbzA0emMybXZ2cDEwZm95YnFxMzdudzhrMmtmOSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/Ew0GvjsOQ0GbjTVMZ3/giphy.gif)
 
-## Predicators_Robocasa Intsallation Instructions
-1. Follow instruction for robocasa from it's [online documentation](https://robocasa.ai/docs/introduction/installation.html) (In step 3, use fork [here](https://github.com/Carperis/robosuite/tree/predicator_robocasa) branch predicator_robocasa. In step 4, use fork [here](https://github.com/shaoyifei96/robocasa/tree/CORL_SamQiu_NewRobocasaTasks) branch CORL_SamQiu_NewRobocasaTasks). Don't forget step 5 to download dataset.
-1. After installing both, install this repo using the instructions below from original predicators repo, in the same conda env robocasa.
-1. Create .vscode folder and copy the launch.json file in this repo to that folder, making edits to the file for the conda path, to enable debugging.
+## SymSkill Intsallation Instructions 
+1. ```conda create -c conda-forge -n task_plan_casa_pub python=3.10 && conda activate task_plan_casa_pub```
+1. Create a workspace folder. Install [robosuite](https://github.com/Carperis/robosuite/tree/predicator_robocasa), [robocasa](https://github.com/shaoyifei96/robocasa/tree/CORL_SamQiu_NewRobocasaTasks), [ds_policy](https://github.com/felixzheng02/ds_policy.git)(branch se3_lpvds_decoupled, this has further instructions for installation), Symskill (this repo, the python package is called predicators) in sequence, using ```pip install -e .``` in each folder, make sure all five packages are in the same folder.
+1. Download the kitchen assets by running the following commands:
+```
+python robocasa/scripts/download_kitchen_assets.py   # Caution: Assets to be downloaded are around 5GB.
+python robocasa/scripts/setup_macros.py              # Set up system variables.
+```
 1. put ```export PYTHONHASHSEED=0``` in .bashrc
-1. Lastly pull the [DS-Policy](https://github.com/felixzheng02/ds_policy.git) branch se3_lpvds_decoupled, follow it's instruction to install all dependencies, lastly install ds_policy by ```pip install -e .```. (Make sure you are updating setuptools to >= 64.0 and pip)
-1. In ```.vscode/launch.json```, you should see a few debug profiles, the teleop profile should work as is. (Try complete the task, it is not easy). This verifies successful installation of the robocasa simulator. 
-1. To see if robocasa and predicators are correctly installed together, run ```python predicators/main.py --env robo_kitchen --approach oracle --seed 0 --debug --use_gui --execution_monitor expected_atoms_robocasa```. It should be able to solve the task, and output a NSRT plan. It will then start executing the plan in a GUI. The door should be opened.
+1. To save some time, the demos can be predownloaded. clone [repo](https://github.com/shaoyifei96/predicators_robocasa_files.git) into the workspace folder.
+1. Use the debug profile ```Debug Symskill Predicate Invention``` to run the code, it should pick an cheese from the counter and put it in the cabinet.
+
+<!-- ## old installation instructions -->
+
+<!-- 1. Follow instruction for robocasa from it's [online documentation](https://robocasa.ai/docs/introduction/installation.html) (In step 3, use fork [here](https://github.com/Carperis/robosuite/tree/predicator_robocasa) branch predicator_robocasa. In step 4, use fork [here](https://github.com/shaoyifei96/robocasa/tree/CORL_SamQiu_NewRobocasaTasks) branch CORL_SamQiu_NewRobocasaTasks). Don't forget step 5 to download dataset. -->
+<!-- 1. After installing both, install this repo using the instructions below from original predicators repo, in the same conda env robocasa. -->
+<!-- 1. Create .vscode folder and copy the launch.json file in this repo to that folder, making edits to the file for the conda path, to enable debugging. -->
+<!-- 1. put ```export PYTHONHASHSEED=0``` in .bashrc -->
+<!-- 1. Lastly pull the [DS-Policy](https://github.com/felixzheng02/ds_policy.git) branch se3_lpvds_decoupled, follow it's instruction to install all dependencies, lastly install ds_policy by ```pip install -e .```. (Make sure you are updating setuptools to >= 64.0 and pip) -->
+<!-- 1. In ```.vscode/launch.json```, you should see a few debug profiles, the teleop profile should work as is. (Try complete the task, it is not easy). This verifies successful installation of the robocasa simulator.  -->
+<!-- 1. To see if robocasa and predicators are correctly installed together, run ```python predicators/main.py --env robo_kitchen --approach oracle --seed 0 --debug --use_gui --execution_monitor expected_atoms_robocasa```. It should be able to solve the task, and output a NSRT plan. It will then start executing the plan in a GUI. The door should be opened. -->
 
 
 
@@ -20,7 +33,7 @@ and this [link](https://github.com/Andrew-Luo1/Mujoco-Headless-Tutorial/tree/mai
 [link](https://github.com/google-deepmind/mujoco/issues/572) -->
 
 
-## How to run the code for Symskill symbol and skill Coinvention
+## Deprecated Instructions for Symskill Predicate Invention
 1. To save some time, the demos can be predownloaded. Make sure you have the datasets downloaded [url](https://drive.google.com/drive/folders/1ov7LyJZDlFpr1rastzVNd9uqutqK03I_?usp=sharing) or [repo](https://github.com/shaoyifei96/predicators_robocasa_files.git) , in the project folder, one folder above the predicators_robocasa folder (These datasets can also be generated by turning off ```CFG.robo_kitchen_load_dataset``` in settings.py, but it takes a while to generate)
 1. Clear the ```saved_approach``` folder if there is one. Learn each task one by one, starting with the first one in sequence (setting ```CFG.robo_kitchen_task``` to OpenSingleDoor, PnPCounterToCab, CloseSingleDoor), make sure ```CFG.use_learnt_goal_predicates``` is True, and ```--load_approach``` in ```Debug Grammer Search Invention``` launch file is not included. Then learn the OpenSingleDoor a second time, so it takes CloseSingleDoor goal predicate into account during learning.
 1. Set the task to ```StoreFruit``` (set the goal so that 2 tasks can be performed in a row), enable ```--load_approach``` flag now, and it should be able to first open the door, then pick the cheese on the counter in the cabinet.
