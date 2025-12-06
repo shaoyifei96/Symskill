@@ -10,8 +10,8 @@ python robocasa/scripts/download_kitchen_assets.py   # Caution: Assets to be dow
 python robocasa/scripts/setup_macros.py              # Set up system variables.
 ```
 1. put ```export PYTHONHASHSEED=0``` in .bashrc
-1. To save some time, the demos can be predownloaded. clone [repo](https://github.com/shaoyifei96/predicators_robocasa_files.git) into the workspace folder.
-1. Use the debug profile ```Debug Symskill Predicate Invention``` to run the code, it should pick an cheese from the counter and put it in the cabinet.
+1. To save some time, the demos can be predownloaded. clone [repo](https://github.com/shaoyifei96/predicators_robocasa_files.git) into the workspace folder, you need to also request the license for mosek and put it in ```/home/$USER/mosek/mosek.lic```
+1. In Symskill repo, there is a ```launch.json``` file, create a .vscode folder and copy the json file to the folder, change the path of the conda env and then run debug profile ```Debug Symskill Predicate Invention```, you should see an cheese from the counter and put it in the cabinet. (you may need a latex installation for some plot outputs)
 
 <!-- ## old installation instructions -->
 
