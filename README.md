@@ -3,8 +3,8 @@
 
 ## SymSkill Intsallation Instructions 
 1. ```conda create -c conda-forge -n task_plan_casa_pub python=3.10 && conda activate task_plan_casa_pub```
-1. Create a workspace folder. Install [robosuite](https://github.com/Carperis/robosuite/tree/predicator_robocasa), [robocasa](https://github.com/shaoyifei96/robocasa/tree/CORL_SamQiu_NewRobocasaTasks), [ds_policy](https://github.com/felixzheng02/ds_policy.git)(branch se3_lpvds_decoupled, this has further instructions for installation), Symskill (this repo, the python package is called predicators) in sequence, using ```pip install -e .``` in each folder, make sure all five packages are in the same folder.
-1. Download the kitchen assets by running the following commands:
+1. Create a workspace folder. Clone and install [robosuite](https://github.com/Carperis/robosuite/tree/predicator_robocasa), [robocasa](https://github.com/shaoyifei96/robocasa/tree/CORL_SamQiu_NewRobocasaTasks), [ds_policy](https://github.com/felixzheng02/ds_policy.git)(this has further instructions for installation), Symskill (this repo, the python package is called predicators) in sequence, using ```pip install -e .``` in each folder, make sure all 4 packages are in the same folder.
+1. cd to robocasa and then download the kitchen assets by running the following commands:
 ```
 python robocasa/scripts/download_kitchen_assets.py   # Caution: Assets to be downloaded are around 5GB.
 python robocasa/scripts/setup_macros.py              # Set up system variables.
